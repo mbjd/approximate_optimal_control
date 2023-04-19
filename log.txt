@@ -1,0 +1,355 @@
+2023-03-13
+
+the great start. debated long whether to use equinox or flax. lenart
+recommends/uses flax. but the basic example seemed really convoluted, as
+did the syntax for creating NNs. I think I will use equinox, it seems more
+minimalistic while also requiring less boilerplate code (it seems), and the
+complete compatibility with jax functions seems nice.
+
+probably doesn't matter much either way, both libraries are quite small and
+most of the boilerplate is a decision of the developer (how to handle
+state and stuff).
+
+am coding a small supervised learning example with a toy dataset with
+equinox.
+
+it works! am trying out lots of different optimizers from optax and
+making 3d plots of the test error depending on training iteration and
+learning rate. just to get a feel for things :)
+
+adam, adabelief and yogi seem very nice for lr around 10^(-2.2) to
+10^(1.4). adam probably the most robust so not much need to play around.
+
+also did some experiments with continously sampled training data, still
+supervised though. there is an interesting thing happening when we change
+batch sizes. smaller batch sizes are more efficient per data point, but
+incur more overhead in the training loop. would be interesting to do an
+experiment where we plot the test error depending on wall training time to
+find the practical optimum.
+
+or, practically for now, find some settings by hand that work, and then in
+the end throw all the hyperparams into some bayesian optimisation thing
+that tries to achieve minimum test error in some given (wall) time frame.
+
+good first day. learned a lot, gained confidence, did not get bored from
+9:30 to 17:45.
+
+2023-03-14
+
+pivoted from optimizer tuning to batch size tuning and making nice plots.
+it seems that w.r.t. wall time, batch sizes of 256-1024 are in the sweet
+spot, with larger batch sizes being worse initially but better if trained
+longer.
+
+also did some nice 3d visualisations of a network training.
+
+Noticed that I have a NN of the form y = x.T @ x, where x is the output of
+the last layer. If instead we append a general layer to the NN somehow it
+stops working, and somehow fits an almost constant function. TODO find out
+why.
+
+spent most of the afternoon debugging that, did not get far. instead only
+found confusing stuff.
+
+when the NN returns the squared norm of last layer activation (the
+situation where everything works quite well) the gradient norm keeps
+increasing during training, even though the loss decreases to 0.1 or 0.001
+which is low enough according to the plot. the individual gradients look to
+be mostly less than 0.2 in magnitude, with the largest ones growing a bit
+above 1.
+
+with the other 'standard' NN configuration (linear last layer with scalar
+output), the test loss quickly stabilises quite exactly to about 5, with
+the monte-carlo training loss between 6 and 11. here, the gradient norm
+does decrease, but only very slowly, and the fit is poor.
+
+made some plots to show lenart tomorrow.
+
+
+
+
+
+
+
+2023-02-15
+
+meeting w/ lenart and bhavya
+
+supervised learning to approximate mpc? -> practical solution.
+
+ct: value iteration? soft actor critic?
+
+
+lenart's research.
+learn probabilistic model of dynamics.
+dt: q function. ct: problem bc u no influence on 'next' value. BUT value
+derivative. this is where hjb comes from. value function does not depend on
+u.
+
+
+plan: formulate possible paths to take:
+- hjb solution with known dynamics f
+    this they kind of discourage bc. we need to "learn" the model f, and if
+    we know f already then approximated MPC is the practical answer.
+- approximated mpc
+    practical approach to the problem at work, also interesting things to
+    do with uncertainty sampling/active learning, stuff like that.
+- value function estimate directly from sim data (red on whiteboard)
+    this is basically RL.
+- stuff on left of whiteboard
+
+dt/ct which route to take? they say dt is probably easier. ct seems kind of
+cleaner though. dunno
+
+also TODO:
+- read jax tutorial lenart sends
+- read papers lenart sends
+- get an overview of classic RL algorithms
+- read DPOC notes, specifically the leap from discrete to continous time.
+
+next week 9-10.
+
+
+
+2023-03-21
+
+reading some more papers. read three yesterday, was too much, head was
+full.
+
+did some small experiment, with solving the simplest possible PDE
+(basically grad_x f(x) = 2x, with solution x.T x). it seems to scale
+not-very-well with the dimension of the problem... but also, hyperparams
+are quite crucial. it seems like small networks already do quite well, and
+the common wisdom of large nets being simpler to train does not seem to
+apply here. tried some decreasing learning rate stuff, worked really
+nicely.
+
+I am thinking that what lenart and bhavya suggest, i.e. going the RL-route
+to construct a control policy from sim data, is probably a more fruitful
+project.
+
+as for pure practicality, they suggest (at work) that MPC -> NN
+approximation is probably the way to go, which I also think is right.
+
+possible roadmaps:
+
+1.  do a 'regular' RL-type project, going from sim data to control policy,
+    certainly also towards the computationally easier side of RL problems.
+
+    fundamental question: how do we go from sim data to approximately optimal
+    control policy, without writing down the model (again)?  maybe focus on
+    data efficiency, safety/verifiability, something like that?
+
+1a. do a RL-type project, but focus on making *some* aspect of it continuous
+    time? the stuff they talked about basically.
+
+2.  go all in on the pde-type approach, do hyperparam optimisation, find
+    scaling laws etc. more exploratory than immediately practical.
+
+    fundamental question: how can 'deep galerkin methods' be made practical
+    in an optimal control context? how do we find a NN description of
+    optimal value function or similar, WITH availability of a continuous-time
+    model?
+
+3.  do the ultra-practical option of MPC -> approximate control inputs with
+    NN. surely the easiest in terms of extra engineering efforts, but also
+    not many interesting results probably? do that at work sometime :)
+
+    explore further options: theoretically sound, investigate the error, do
+    robust mpc to start with. scalability? error bound with hoeffding eq.
+
+
+
+
+2023-03-22
+
+{{{
+talk with bhavya and lenart.
+
+bhavya concerns about possibility to deliver? decide on something to
+investigate? -> do not rush, even 'non-results' are results, they are
+basically open to everything, but want me to know what to expect.
+
+
+hjb, model based approach theoretically quite clear. certainly interesting
+and feasible, even if not very practical immediately.
+
+
+also very exploratory ideas, which they brainstormed about quite long.
+
+cont time rl ideas... all with parameterized policy: they see some
+difficulties. lots of questions about how exactly to interface continuous
+<-> discrete time, bc. measurements are only available in discrete time
+anyway... something like discrete reward measurements -> estimate
+continuous time optimal V, run controller in ct (faster?) lots of
+interesting questions, lots of complications.
+
+Q function in terms of x, u, and Δt? include Δt in the action space?
+only change u a couple of times over time horizon? optimize over timing of
+u changes? advantage of changing controller in reward somehow?
+variable-rate control? very crazy... they throw around lots of ideas and I
+understand probably half of it. cool idea, lots of missing pieces.
+
+maybe ct rl is just not worth it \o/
+
+do the decision whenever I want to and like to. sign up on mystudies once
+the roadmap is clear, in 3-4 weeks they would start to "ask again" whether
+I signed up.
+}}}
+
+
+
+did some more experiments. basically only hyperparam tuning on quadratic
+pde example. learning rate schedules, network sizes, 'loop unrolling' with
+multiple gradient steps in jit region.
+
+lr schedule has big impact and is probably worth putting in some bayesian
+hyperparam optimisation thing. network sizes maybe too, but mainly
+influence computation time (still interesting if hyperparam opti is w.r.t.
+fixed wall time.) unrolling probably not worth it, small speedup only but
+complications with training indices and lr schedules.
+
+todo, maybe also at work sometime: try jax for trajectory optimisation
+(and everything else?)
+https://github.com/google/trajax
+https://github.com/nikihowe/myriad
+
+
+2023-03-27
+
+small experiments with training hyperparams. still just grad f(x) = 2x PDE.
+jax.lax.fori_loop makes a multiple-gradient-step much nicer, fast jit, now
+it is actually worth it.
+
+
+2023-03-28
+
+read some more papers, they are all in the appropriate semanticscholar dir.
+
+some thoughts on the different options for the projects.
+
+1. (classic RL)
+   lots of examples & research
+   highly practical as well
+   good area to get into hypothetically
+
+1a. (RL but focus on continuous time)
+   some theoretical challenges, question practicality
+
+2. pure PDE solver type approach
+   very non-practical probably
+   some possible upsides to other methods?
+    - better handle on nonconvexity than predictive control
+    - also nonconvex constraints - but constraints generally a bit harder
+      again...
+
+3. approximate MPC
+   probably boring, very practical, basically done by
+   Hertneck/Köhler/Trimpe/Allgöwer 2018. Neural&stochastic pendant of
+   explicit MPC.
+
+
+
+tbh, probably it will still be 2.
+
+stuff to do:
+
+- literature review & define goals for experiments
+  possible options:
+  - parameterisations of V
+  - play around with different loss formulations
+  - random vs adversarial sampling - uncertainty sampling? -> easier problem probably they say
+  - go a bit into theory about nondifferentiability/viscosity? --> probably hard/unpractical they say
+  - find connections to lygeros 'find largest V such that V <= TV' idea from the ADP paper?
+  - principled, end-to-end hyperparam search?
+    (optimising for MC control cost w/ fixed training time)
+  - do something with state constraints? growing outer or shrinking inner penalty function? explicit lagrangian multiplier by another NN?
+    safety verification type stuff...
+  - investigate connection to various RL algorithms?
+- experiment
+- write
+
+
+basically two broad directions:
+- more theoretical (infinite-dim optimization with NN, viscosity solutions, etc)
+- more practical (make it work with ML tricks)
+
+
+
+we have 3 months basically. possible roadmap? to be adjusted continuously :)
+
+months from start (30d each)
+|------------------------------|------------------------------|------------------------------|
+weeks (7d)
+|------|------|------|------|------|------|------|------|------|------|------|------|------|------
+^             ^             ^                                  ^             ^
+|             |             |                                  |             start ONLY writing
+|             |             |                                  finalize experiments (collect data, make plots, ...)
+|             |             start experiments (adapt if too long/elaborate :)
+|             start defining experiments?
+literature review
+
+
+
+2023-03-29
+
+continue:
+literature review about interesting stuff
+present: state of the art and direction to investigate more. slides/whiteboard/whatever
+
+try https://www.notion.so/
+
+
+so, literature review time.
+
+reading list for next time:
+
+https://arxiv.org/pdf/2302.13122.pdf,
+https://arxiv.org/pdf/2302.09878.pdf, and
+https://arxiv.org/pdf/2002.08625.pdf but only skim, very math heavy
+
+https://arxiv.org/pdf/2102.11802.pdf some neural pde stuff overview
+dpoc script - hjb eq again.
+
+one or two simpler ones from the direct hjb solving folder.
+
+
+
+2023-04-04
+
+am quite optimistic atm about an approach i thought about for work once.
+basically, instead of directly taking the hjb eq., we start from the
+pontryagin principle, but solve it backwards. so instead of the usual
+problem (search for λ(0) leading to the desired x(T)) we have the reverse
+-- start at some x(T) and integrate the adjoint system backwards, so we
+arrive at lots of (state, value) pairs.
+
+the good thing is we don't have to search for some exact initial state by
+guessing the correct final state -- we want ALL the initial states. so
+there is bound to be some sort of MC+uncertainty sampling method that does
+quite well. the backwards adjoint system is probably unstable though so
+have to watch out for that. probably we end up with yet another MC pde
+solver with adaptive resampling. which is nice after all :)
+
+found out that this is probably a method of characteristics:
+https://en.wikipedia.org/wiki/Method_of_characteristics
+
+we are bound to run into instability problems with this method. the
+(optimal) forward system is stable, so the backward one will be unstable in
+all dimensions, so the fastest dynamics will mess us up first.
+
+can be addressed by various methods.
+
+- iterative backward sim - function fitting thing, akin to backward DP
+- completely adaptive starting and stopping of characteristics with some
+  form of uncertainty sampling
+- dont use pontryagin but nonlinear mpc
+  together with many x0 sampled over state space, maybe with SGLD to only
+  travel small amounts for good initialization, and a method to fit 'the
+  lowest plausible value function' (see lygeros ADP paper - largest
+  underestimator), we might still get some form of global optimality
+
+now, i need to make slides and for that i need to tell some kind of story.
+i would love to start with the control/rl comparison and then show how i am
+exploring a new-ish niche in between the two -- solving control people's
+problems using ML tools.

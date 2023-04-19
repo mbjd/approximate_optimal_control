@@ -82,6 +82,8 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     #     = solution of linear system (R + R.T, -A)
 
     # this is implemented in the following - the pointwise minimization over u of the hamiltonian.
+    # we have a fake version of function overloading -- these do the same thing but with different inputs.
+    # mostly the same though, only cosmetic difference, in the end they all reduce down to the first one.
     def find_u_star_matrices(R, A):
         # A is a row vector here...
         u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
@@ -114,20 +116,16 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     R = np.array([[1., 0], [0, 2]])
     A = np.array([[0.1, 0.3]])
     x = np.array([[1., 1.]]).T
-    print(find_u_star_matrices(
-        R, A
-    ))
+    u_star_test = find_u_star_matrices( R, A )
 
 
     # dummy inputs.
     # reshape() gives a shape () array, whereas item() gives a float
-    V = lambda t, x: (x.T @ np.eye(2) @ x).reshape()
-    t = 0
 
-    print(find_u_star_functions(f, l, V, t, x))
 
     # the dynamics governing state, costate and value evolution according to
     # pontryagin minimum principle. normal in forward time.
+    @jax.jit
     def f_forward(t, y, args=None):
 
         # unpack. english names to distinguish from function arguments...
@@ -147,8 +145,6 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         y_dot = np.vstack([state_dot, costate_dot, value_dot])
         return y_dot
 
-    f_forward = jax.jit(f_forward)
-
     key, subkey = jax.random.split(key)
 
     # scale by scale matrix. data will be distributed ~ N(0, scale.T @ scale)
@@ -157,6 +153,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
     max_steps = int(T / algoparams['dt'])
 
+    @jax.jit
     def resample(ys, key):
         # all the ys that have left the interesting region, we want to put back into it.
 
@@ -167,38 +164,102 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         ellipse_membership_fct = lambda x: x.T @ algoparams['x_domain'] @ x
         ellipse_memberships = jax.vmap(ellipse_membership_fct)(all_xs)
 
-        # just resample ALL the xs...
-        all_x_T = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+        # resample where this mask is 1.
+        resample_mask = (ellipse_memberships > 1).astype(np.float32)
+        # keep old sample where that mask is 1.
+        not_resample_mask = 1 - resample_mask
 
-        # make some mask that tells us where to update and were not...
+        # just resample ALL the xs...
+        resampled_xs = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+
+        new_xs = resample_mask * resampled_xs + \
+                not_resample_mask * all_xs
+
+        # circumventing jax's functional programming.
+        # if docs are to be believed, after jit this will do an efficient in place update.
+        ys.at[:, 0:nx, :].set(new_xs)
+        return ys
+
 
 
 
     # solve pontryagin backwards, for vampping later.
-    def solve_single(x_T):
+    def pontryagin_backward_solver(y_final, tstart):
 
+        '''
+        to assemble the y vector, do this, but outside and with adjustments for vmap:
         # final condition (integration goes backwards...)
         costate_T = jax.grad(h)(x_T)
         v_T = h(x_T)
-        y_T = np.vstack([x_T, costate_T, v_T])
+        y_final = np.vstack([x_T, costate_T, v_T])
+
+        here we have t0 > t1, and negative dt (already defined here), to do backward integration
+        '''
 
         # setup ODE solver
         term = diffrax.ODETerm(f_forward)
-        solver = diffrax.Tsit5()
+        solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
         saveat = diffrax.SaveAt(steps=True)
         dt = algoparams['dt']
-        max_steps = int(T / dt)
+        integ_time = algoparams['resample_interval']
+        max_steps = int(integ_time / dt)
 
-        solution = diffrax.diffeqsolve(term, solver, t0=T, t1=0, dt0=-dt, y0=y_T, saveat=saveat, max_steps=max_steps)
-        return solution
+        # and solve :)
+        solution = diffrax.diffeqsolve(
+                term, solver, t0=tstart, t1=tstart-integ_time, dt0=-dt, y0=y_final,
+                saveat=saveat, max_steps=max_steps
+        )
 
+        return solution, solution.ys[-1]
+
+    # helper function, expands the state vector x to the extended state vector y = [x, λ, v]
+    # λ is the costate in the pontryagin minimum principle
+    # h is the terminal value function
+    def x_to_y(x, h):
+        costate = jax.grad(h)(x)
+        v = h(x)
+        y = np.vstack([x, costate, v])
+
+        return y
 
     # when vmapping this we get back not a vector of solution objects, but a single
     # solution object with an extra dimension in front of all others inserted in all arrays
 
     # vmap = gangster!
-    solve_multiple = jax.vmap(solve_single)
-    all_sols = solve_multiple(all_x_T)
+    # in_axes[1] = None caueses it to not do dumb stuff with the second argument. dunno exactly why
+    batch_pontryagin_backward_solver = jax.vmap(pontryagin_backward_solver, in_axes=(0, None))
+
+
+    x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))
+    all_y_T = x_to_y_vmap(all_x_T)
+
+    dt = algoparams['dt']
+    t = T  # np.array([T])
+
+    init_ys = all_y_T
+
+    # the main loop.
+    # basically, do backwards continuous-time approximate dynamic programming.
+    # alternate between particle-based, batched pontryagin/characteristic step,
+    # followed by resampling step.
+
+    # does NOT save any data, does not do the proper function fitting. just a skeleton.
+    # to be continued next time.
+    for i in tqdm(range(10)):
+        # pontryagin step
+        all_sols, new_ys = batch_pontryagin_backward_solver(init_ys, t)
+
+        # TODO fit GP/NN to current data to provide good start for resampling
+
+        # resampling step
+        key, subkey = jax.random.split(key)
+        ys_resampled = resample(new_ys, subkey)
+        init_ys = ys_resampled
+
+    all_ts = np.arange(0, T + dt, dt)
+    # while t > 0:
+
+
 
     key, subkey = jax.random.split(key)
     ys_resampled = resample(all_sols.ys[:, -1, :, :], subkey)
@@ -213,7 +274,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     all_costates = all_sols.ys[:, :, nx:2*nx, :]
     all_values = all_sols.ys[:, :, -1, :]
 
-    max_norm = 1000
+    max_norm = 1e5
 
     # -1 becomes n_trajectories
     x_norms = np.linalg.norm(all_xs, axis=2).reshape(-1, max_steps, 1, 1)
@@ -268,21 +329,25 @@ def characteristics_experiment_simple():
         Qf = 1 * np.eye(2)
         return (x.T @ Qf @ x).reshape()
 
-    T = .1
+    T = 5
+
+    x_sample_scale = 100 * np.eye(2)
+
     # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
     # if q diagonal, these numbers are the ellipse axes length along each state dim.
     Q_sqrt = np.diag(1/np.array([10, 10]))
-    Q_x = Q_sqrt @ Q_sqrt.T
 
-    x_sample_scale = np.diag(np.array([10, 10]))
+    # ... or some sublevel set of the state distribution.
+    Q_sqrt = np.diag(1 / np.diag(10 * x_sample_scale))
+    Q_x = Q_sqrt @ Q_sqrt.T
 
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 64,
+            'n_trajectories': 128,
             'dt': 0.01,
-            'resample_interval': 0.2,
+            'resample_interval': 0.1,
             'x_domain': Q_x,
             'x_sample_scale': x_sample_scale,  # basically sqrtm(cov)
     }

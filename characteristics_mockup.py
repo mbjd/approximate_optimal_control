@@ -194,6 +194,21 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         ys = ys.at[:, 0:nx, :].set(new_xs)
         return ys, resample_mask
 
+    @jax.jit
+    def resample_all(ys, key):
+        # just generate all the states according to the state distribution
+
+        resampled_xs = jax.random.multivariate_normal(
+                key,
+                mean=np.zeros(nx,),
+                cov=algoparams['x_sample_cov'],
+                shape=(algoparams['n_trajectories'],)
+        ).reshape(algoparams['n_trajectories'], nx, 1)
+
+        ys = ys.at[:, 0:nx, :].set(resampled_xs)
+
+        return ys
+
 
 
 
@@ -326,9 +341,12 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
         # resampling step
         key, subkey = jax.random.split(key)
-        ys_resampled, resampling_mask = resample(final_ys, subkey)
 
-        where_resampled[:, resampling_i, None, None] = resampling_mask
+        ys_resampled = resample_all(final_ys, subkey)
+        where_resampled[:, resampling_i, None, None] = True
+
+        # ys_resampled, resampling_mask = resample(final_ys, subkey)
+        # where_resampled[:, resampling_i, None, None] = resampling_mask
 
         # for next loop iteration:
         init_ys = ys_resampled
@@ -403,11 +421,11 @@ def characteristics_experiment_simple():
         return x.T @ Q @ x + u.T @ R @ u
 
     def h(x):
-        Qf = 1 * np.eye(2)
+        Qf = 0 * np.eye(2)
         return (x.T @ Qf @ x).reshape()
 
 
-    x_sample_scale = .1 * np.eye(2)
+    x_sample_scale = 1 * np.eye(2)
     x_sample_cov = x_sample_scale @ x_sample_scale.T
 
     # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
@@ -429,14 +447,14 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 2**4,
-            'dt': 0.01,
-            'resample_interval': 0.1,
+            'n_trajectories': 2**6,
+            'dt': 1/128,
+            'resample_interval': 1/4,
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
     }
 
-    T = 20
+    T = 4
     # actual arguments are parameters of the problem itself
     # algoparams contains the 'implementation details'
     hjb_characteristics_solver(f, l, h, T, 2, 1, algoparams)

@@ -114,15 +114,10 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         return find_u_star_matrices(R, A)
 
     # check. if u is 2d, we need 2x2 R and 1x2 A
-    R = np.array([[1., 0], [0, 2]])
-    A = np.array([[0.1, 0.3]])
-    x = np.array([[1., 1.]]).T
-    u_star_test = find_u_star_matrices( R, A )
-
-
-    # dummy inputs.
-    # reshape() gives a shape () array, whereas item() gives a float
-
+    # R = np.array([[1., 0], [0, 2]])
+    # A = np.array([[0.1, 0.3]])
+    # x = np.array([[1., 1.]]).T
+    # u_star_test = find_u_star_matrices( R, A )
 
     # the dynamics governing state, costate and value evolution according to
     # pontryagin minimum principle. normal in forward time.
@@ -176,7 +171,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         new_xs = resample_mask * resampled_xs + \
                 not_resample_mask * all_xs
 
-        # circumventing jax's functional programming.
+        # circumventing jax's immutable objects.
         # if docs are to be believed, after jit this will do an efficient in place update.
         ys.at[:, 0:nx, :].set(new_xs)
         return ys
@@ -195,6 +190,10 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         y_final = np.vstack([x_T, costate_T, v_T])
 
         here we have t0 > t1, and negative dt (already defined here), to do backward integration
+
+        when vmapping this we get back not a vector of solution objects, but a single
+        solution object with an extra dimension in front of all others inserted in all arrays
+
         '''
 
         # setup ODE solver
@@ -213,6 +212,10 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
         return solution, solution.ys[-1]
 
+    # vmap = gangster!
+    # in_axes[1] = None caueses it to not do dumb stuff with the second argument. dunno exactly why
+    batch_pontryagin_backward_solver = jax.vmap(pontryagin_backward_solver, in_axes=(0, None))
+
     # helper function, expands the state vector x to the extended state vector y = [x, λ, v]
     # λ is the costate in the pontryagin minimum principle
     # h is the terminal value function
@@ -222,14 +225,6 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         y = np.vstack([x, costate, v])
 
         return y
-
-    # when vmapping this we get back not a vector of solution objects, but a single
-    # solution object with an extra dimension in front of all others inserted in all arrays
-
-    # vmap = gangster!
-    # in_axes[1] = None caueses it to not do dumb stuff with the second argument. dunno exactly why
-    batch_pontryagin_backward_solver = jax.vmap(pontryagin_backward_solver, in_axes=(0, None))
-
 
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))
     all_y_T = x_to_y_vmap(all_x_T)
@@ -249,18 +244,18 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
     # all arrays defined here contain all but the last (at T) steps.
 
-    remainder = algoparams['resample_interval'] % algoparams['dt']
+    remainder = algoparams['resample_interval'] % dt
     assert np.allclose(remainder, 0), 'dt does not evenly divide resample_interval; problems may arise.'
 
     n_resamplings = int(T / algoparams['resample_interval'])
-    timesteps_per_resample = int(0.5 + algoparams['resample_interval'] / algoparams['dt'])
+    timesteps_per_resample = int(0.5 + algoparams['resample_interval'] / dt)
 
     resampling_indices = np.arange(n_resamplings) * timesteps_per_resample
-    resampling_ts = resampling_indices * algoparams['dt']
+    resampling_ts = resampling_indices * dt
 
     n_timesteps = n_resamplings * timesteps_per_resample + 1 # so we have the boundary condition as well
     all_indices = onp.arange(n_timesteps)
-    all_ts = all_indices * algoparams['dt']
+    all_ts = all_indices * dt
 
     # full solution array. onp so we can modify in place.
     # every integration step fills a slice all_sols[:, i:i+timesteps_per_resample, :, :], for i in resampling_indices.
@@ -275,7 +270,10 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     # basically, do backwards continuous-time approximate dynamic programming.
     # alternate between particle-based, batched pontryagin/characteristic step,
     # followed by resampling step.
-    for (resampling_i, resampling_t) in tqdm(zip(resampling_indices[::-1], resampling_ts[::-1])):
+
+    print('Main loop progress:')
+    it = zip(resampling_indices[::-1], resampling_ts[::-1])
+    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
 
         # we integrate backwards over the time interval [resampling_t, resampling_t + resample_interval].
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]

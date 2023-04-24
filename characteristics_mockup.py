@@ -34,8 +34,10 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
       nn_layersizes: sizes of NN layers from input to output, e.g. (64, 64, 16)
     '''
 
-    # define NN first.
     key = jax.random.PRNGKey(0)
+
+    '''
+    # define NN first.
 
     class my_nn_flax(nn.Module):
         features: Sequence[int]
@@ -51,10 +53,9 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
                 x = nn.Dense(features=self.output_dim)(x)
             return x
 
-
-
     # input dim is assigned when passing first input at init.
     V_nn = my_nn_flax(features=algoparams['nn_layersizes'], output_dim=1)
+    '''
 
 
     # we want to find the value function V.
@@ -238,46 +239,96 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
     init_ys = all_y_T
 
+    # calculate all the time and index parameters in advance to avoid the mess.
+    # image for visualisation:
+
+    # 0                                                                     T
+    # |---------------------------------------------------------------------|
+    # |         |         |         |         |         |         |         | resample_intervals
+    # | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | timesteps
+
+    # all arrays defined here contain all but the last (at T) steps.
+
+    remainder = algoparams['resample_interval'] % algoparams['dt']
+    assert np.allclose(remainder, 0), 'dt does not evenly divide resample_interval; problems may arise.'
+
+    n_resamplings = int(T / algoparams['resample_interval'])
+    timesteps_per_resample = int(0.5 + algoparams['resample_interval'] / algoparams['dt'])
+
+    resampling_indices = np.arange(n_resamplings) * timesteps_per_resample
+    resampling_ts = resampling_indices * algoparams['dt']
+
+    n_timesteps = n_resamplings * timesteps_per_resample + 1 # so we have the boundary condition as well
+    all_indices = onp.arange(n_timesteps)
+    all_ts = all_indices * algoparams['dt']
+
+    # full solution array. onp so we can modify in place.
+    # every integration step fills a slice all_sols[:, i:i+timesteps_per_resample, :, :], for i in resampling_indices.
+    # final ..., 1) in shape so we have nice column vectors just as everywhere else.
+    all_sols = onp.zeros((algoparams['n_trajectories'], n_timesteps, 2*nx+1, 1))
+
+    # the terminal condition separately
+    # technically redundant but might make function fitting nicer later
+    all_sols[:, -1, :, :] = all_y_T
+
     # the main loop.
     # basically, do backwards continuous-time approximate dynamic programming.
     # alternate between particle-based, batched pontryagin/characteristic step,
     # followed by resampling step.
+    for (resampling_i, resampling_t) in tqdm(zip(resampling_indices[::-1], resampling_ts[::-1])):
 
-    # does NOT save any data, does not do the proper function fitting. just a skeleton.
-    # to be continued next time.
-    for i in tqdm(range(10)):
-        # pontryagin step
-        all_sols, new_ys = batch_pontryagin_backward_solver(init_ys, t)
+        # we integrate backwards over the time interval [resampling_t, resampling_t + resample_interval].
+        # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
+        # at all_sols[save_idx]
+
+        start_t = resampling_t + algoparams['resample_interval']
+
+        # the main dish.
+        # integrate the pontryagin necessary conditions backward in time, for a time period of
+        # algoparams['resample_interval'], for a whole batch of terminal conditions.
+        sol_object, final_ys = batch_pontryagin_backward_solver(init_ys, start_t)
+
+        # sol_object.ys is the full solution array. it has shape (n_trajectories, n_timesteps, 2*nx+1, 1).
+        # the 2*nx+1 comes from the 'extended state' = (x, λ, v).
+
+        # sol object info is saved the other way around, going from initial=large to final=small times.
+        save_idx = np.arange(resampling_i, resampling_i+timesteps_per_resample)
+        save_idx_rev = save_idx[::-1]
+        tdiffs = sol_object.ts[0,] - all_ts[save_idx_rev]
+        assert(np.allclose(tdiffs, 0, atol=1e-3)), 'time array not like expected'
+
+        # so we save it in the big solution array with reversed indices.
+        all_sols[:, save_idx_rev, :, :] = sol_object.ys
+        # ipdb.set_trace()
 
         # TODO fit GP/NN to current data to provide good start for resampling
 
         # resampling step
         key, subkey = jax.random.split(key)
-        ys_resampled = resample(new_ys, subkey)
+        ys_resampled = resample(final_ys, subkey)
+
+        # for next loop iteration:
         init_ys = ys_resampled
 
-    all_ts = np.arange(0, T + dt, dt)
-    # while t > 0:
 
-
-
-    key, subkey = jax.random.split(key)
-    ys_resampled = resample(all_sols.ys[:, -1, :, :], subkey)
+    # key, subkey = jax.random.split(key)
+    # ys_resampled = resample(all_sols.ys[:, -1, :, :], subkey)
 
     fig = pl.figure(figsize=(8, 3))
     ax0 = fig.add_subplot(121, projection='3d')
     ax1 = fig.add_subplot(122, projection='3d')
 
-    ts = all_sols.ts[0, :]
+    ts = all_ts
 
-    all_xs = all_sols.ys[:, :, 0:nx, :]
-    all_costates = all_sols.ys[:, :, nx:2*nx, :]
-    all_values = all_sols.ys[:, :, -1, :]
+    all_xs       = all_sols[:, :, 0:nx, :]
+    all_costates = all_sols[:, :, nx:2*nx, :]
+    all_values   = all_sols[:, :, -1, :]
 
     max_norm = 1e5
 
-    # -1 becomes n_trajectories
-    x_norms = np.linalg.norm(all_xs, axis=2).reshape(-1, max_steps, 1, 1)
+    # -1 becomes number of time steps
+    # ipdb.set_trace()
+    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algoparams['n_trajectories'], -1, 1, 1)
     # when norm <= max_norm, scalings = 1, otherwise, scales to max_norm
     scalings = np.minimum(1, max_norm/x_norms)
 
@@ -345,7 +396,7 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 128,
+            'n_trajectories': 32,
             'dt': 0.01,
             'resample_interval': 0.1,
             'x_domain': Q_x,

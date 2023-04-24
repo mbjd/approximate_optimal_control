@@ -353,3 +353,8 @@ now, i need to make slides and for that i need to tell some kind of story.
 i would love to start with the control/rl comparison and then show how i am
 exploring a new-ish niche in between the two -- solving control people's
 problems using ML tools.
+
+
+2023-04-23
+
+https://www.youtube.com/playlist?list=PLHyI3Fbmv0ScvcPAT9IK6YPEZGnj-6Sqk

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 # jax
 import jax
 import jax.numpy as np
@@ -14,8 +13,13 @@ from typing import Sequence, Optional
 # other, trivial stuff
 import numpy as onp
 
-import matplotlib.pyplot as pl
+import tk as tkinter
+
 import matplotlib
+
+matplotlib.use('Qt5Agg')
+
+import matplotlib.pyplot as pl
 
 import ipdb
 
@@ -130,7 +134,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         value   = y[2*nx]
 
         # define ze hamiltonian for that time.
-        H = lambda x, u, costate: l(t, x, u) + costate.T @ f(t, x, u)
+        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
 
         u_star = find_u_star_costate(f, l, costate, t, state)
 

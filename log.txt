@@ -358,3 +358,33 @@ problems using ML tools.
 2023-04-23
 
 https://www.youtube.com/playlist?list=PLHyI3Fbmv0ScvcPAT9IK6YPEZGnj-6Sqk
+
+
+2023-04-25
+
+setup eth workstation. did everything with virtualenv, very nice, only had
+to fiddle a bit to get matplotlib to use a working GUI backend.
+
+implemented resampling step properly (well, without function approximation,
+so it still does nothing). but the business logic around that is nice and
+works. atm I have a condition where we resample the sample that have a
+mahalanobis distance >= some threshold from the initial state distribution.
+
+maybe trying to resample as few trajectories as possible is not smart.
+ranted we get the benefit of longer periods of 'exact' backwards ODE
+integration, BUT the distribution of states may become undesirable,
+practically it often becomes a distribution with no samples in large
+regions and many samples in some regions. this might be fixed by one of two
+things:
+
+ - complete resampling after only a relatively short time (i.e. such that
+   the distribution of states does not qualitatively change a lot). then we
+   always stay at the sampling distribution and can nicely control which
+   states are visited, BUT incur extra error due to the frequent
+   alternation between sample-based and function-based representations.
+
+ - some smarter thing where we first simulate a small-ish amount of
+   pontryagin optimal trajectories backwards, and then iteratively try to
+   find more starting points (x(T), λ(T), V(T)) in a way that ensures a
+   desirable distribution of states at an earlier time T - ΔT. This is
+   basically what Nakamura-Zimmerer et al. did.

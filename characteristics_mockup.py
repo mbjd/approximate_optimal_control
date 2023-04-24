@@ -144,8 +144,16 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     key, subkey = jax.random.split(key)
 
     # scale by scale matrix. data will be distributed ~ N(0, scale.T @ scale)
-    scale = algoparams['x_sample_scale']
-    all_x_T = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+    # scale = algoparams['x_sample_scale']
+    # all_x_T = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+
+    # ... not anymore. all parameterized with covariance.
+    all_x_T = jax.random.multivariate_normal(
+            key,
+            mean=np.zeros(nx,),
+            cov=algoparams['x_sample_cov'],
+            shape=(algoparams['n_trajectories'],)
+    ).reshape(algoparams['n_trajectories'], nx, 1)
 
     max_steps = int(T / algoparams['dt'])
 
@@ -166,15 +174,21 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         not_resample_mask = 1 - resample_mask
 
         # just resample ALL the xs...
-        resampled_xs = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+        # resampled_xs = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+        resampled_xs = jax.random.multivariate_normal(
+                key,
+                mean=np.zeros(nx,),
+                cov=algoparams['x_sample_cov'],
+                shape=(algoparams['n_trajectories'],)
+        ).reshape(algoparams['n_trajectories'], nx, 1)
 
         new_xs = resample_mask * resampled_xs + \
                 not_resample_mask * all_xs
 
         # circumventing jax's immutable objects.
         # if docs are to be believed, after jit this will do an efficient in place update.
-        ys.at[:, 0:nx, :].set(new_xs)
-        return ys
+        ys = ys.at[:, 0:nx, :].set(new_xs)
+        return ys, resample_mask
 
 
 
@@ -244,8 +258,11 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
     # all arrays defined here contain all but the last (at T) steps.
 
-    remainder = algoparams['resample_interval'] % dt
-    assert np.allclose(remainder, 0), 'dt does not evenly divide resample_interval; problems may arise.'
+    # somehow with % it is inexact sometimes.
+    # remainder = algoparams['resample_interval'] % dt
+    # so we calculate explicitly the difference between the quotient and the nearest integer.
+    remainder = algoparams['resample_interval'] / dt - int(0.5 + algoparams['resample_interval'] / dt)
+    assert np.allclose(remainder, 0, atol=1e-3), 'dt does not evenly divide resample_interval; problems may arise.'
 
     n_resamplings = int(T / algoparams['resample_interval'])
     timesteps_per_resample = int(0.5 + algoparams['resample_interval'] / dt)
@@ -261,6 +278,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     # every integration step fills a slice all_sols[:, i:i+timesteps_per_resample, :, :], for i in resampling_indices.
     # final ..., 1) in shape so we have nice column vectors just as everywhere else.
     all_sols = onp.zeros((algoparams['n_trajectories'], n_timesteps, 2*nx+1, 1))
+    where_resampled = onp.zeros((algoparams['n_trajectories'], n_timesteps), dtype=bool)
 
     # the terminal condition separately
     # technically redundant but might make function fitting nicer later
@@ -284,6 +302,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         # the main dish.
         # integrate the pontryagin necessary conditions backward in time, for a time period of
         # algoparams['resample_interval'], for a whole batch of terminal conditions.
+        # ipdb.set_trace()
         sol_object, final_ys = batch_pontryagin_backward_solver(init_ys, start_t)
 
         # sol_object.ys is the full solution array. it has shape (n_trajectories, n_timesteps, 2*nx+1, 1).
@@ -303,7 +322,9 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
         # resampling step
         key, subkey = jax.random.split(key)
-        ys_resampled = resample(final_ys, subkey)
+        ys_resampled, resampling_mask = resample(final_ys, subkey)
+
+        where_resampled[:, resampling_i, None, None] = resampling_mask
 
         # for next loop iteration:
         init_ys = ys_resampled
@@ -311,16 +332,14 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
 
     # key, subkey = jax.random.split(key)
     # ys_resampled = resample(all_sols.ys[:, -1, :, :], subkey)
-
     fig = pl.figure(figsize=(8, 3))
+
     ax0 = fig.add_subplot(121, projection='3d')
     ax1 = fig.add_subplot(122, projection='3d')
 
-    ts = all_ts
-
-    all_xs       = all_sols[:, :, 0:nx, :]
-    all_costates = all_sols[:, :, nx:2*nx, :]
-    all_values   = all_sols[:, :, -1, :]
+    all_xs       = all_sols[:, :,  0:nx,    :]
+    all_costates = all_sols[:, :,  nx:2*nx, :]
+    all_values   = all_sols[:, :, -1,       :]
 
     max_norm = 1e5
 
@@ -333,16 +352,21 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     all_xs = all_xs * scalings
 
     a = 0.1 * 256 / (algoparams['n_trajectories'])
+    if a > 1: a = 1
 
     # somehow i was not able to get it to work with a single call and data in matrix form.
-    # ts_expanded = np.tile(ts[:, None], algoparams['n_trajectories'])
+    # ts_expanded = np.tile(all_ts[:, None], algoparams['n_trajectories'])
     # ipdb.set_trace()
-    # ax0.plot(ts, all_xs[:, :, 0].squeeze().T, all_xs[:, :, 1].squeeze().T, color='black', alpha=a)
+    # ax0.plot(all_ts, all_xs[:, :, 0].squeeze().T, all_xs[:, :, 1].squeeze().T, color='black', alpha=a)
     # ax1.plot(all_xs[:, :, 0], all_xs[:, :, 1], all_values, color='black', alpha=a)
+
+    # neat hack - if we set the xs to nan where resamplings occurred, it breaks up the plot and does not
+    # connect the trajectories before and after resampling
+    all_xs = all_xs.at[where_resampled, :, :].set(np.nan)
 
     # so now we go back to the stone age
     for i in range(algoparams['n_trajectories']):
-        ax0.plot(ts, all_xs[i, :, 0].squeeze(), all_xs[i, :, 1].squeeze(), color='black', alpha=a)
+        ax0.plot(all_ts, all_xs[i, :, 0].squeeze(), all_xs[i, :, 1].squeeze(), color='black', alpha=a)
         ax1.plot(all_xs[i, :, 0], all_xs[i, :, 1], all_values[i], color='blue', alpha=a)
 
     ax0.set_xlabel('t')
@@ -378,30 +402,39 @@ def characteristics_experiment_simple():
         Qf = 1 * np.eye(2)
         return (x.T @ Qf @ x).reshape()
 
-    T = 5
 
-    x_sample_scale = 100 * np.eye(2)
+    x_sample_scale = .1 * np.eye(2)
+    x_sample_cov = x_sample_scale @ x_sample_scale.T
 
-    # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
-    # if q diagonal, these numbers are the ellipse axes length along each state dim.
-    Q_sqrt = np.diag(1/np.array([10, 10]))
+    # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
+    resample_mahalanobis_dist = 5
 
-    # ... or some sublevel set of the state distribution.
-    Q_sqrt = np.diag(1 / np.diag(10 * x_sample_scale))
-    Q_x = Q_sqrt @ Q_sqrt.T
+    # to calculate mahalanobis dist: d = sqrt(x.T inv(Σ) x) -- basically the argument to exp(.) in the pdf.
+    # x domain defined as X = {x in R^n: x.T @ Q_x @ x <= 1}
+    # so we want to find Q_x to achieve
+    #     sqrt(x.T inv(Σ) x) <= d_max  <=>  x.T @ Q_x @ x <= 1
+    #                                  <=>  sqrt(x.T @ Q_x @ x) <= 1                       (bc. sqrt monotonous)
+    #                                  <=>  sqrt(x.T @ Q_x @ x) d_max <= d_max             (scaling LHS changes nothing)
+    #                                  <=>  sqrt(x.T @ Q_x @ x * d_max**2) <= d_max        (d_max into sqrt)
+    #                                  <=>  sqrt(x.T @ (Q_x * d_max**2) @ x) <= d_max      (reordering)
+    # these are now basically the same, with inv(Σ) = Q_x * d_max**2 or Q_x = inv(Σ) / d_max**2
+    # why could I not simply guess this?
+    Q_x = np.linalg.inv(x_sample_cov) / resample_mahalanobis_dist**2
 
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 32,
+            'n_trajectories': 2**4,
             'dt': 0.01,
             'resample_interval': 0.1,
+            'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
-            'x_sample_scale': x_sample_scale,  # basically sqrtm(cov)
     }
 
-
+    T = 20
+    # actual arguments are parameters of the problem itself
+    # algoparams contains the 'implementation details'
     hjb_characteristics_solver(f, l, h, T, 2, 1, algoparams)
 
 if __name__ == '__main__':

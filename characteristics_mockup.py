@@ -349,24 +349,44 @@ def hjb_characteristics_solver(problemparams, algoparams):
         # ipdb.set_trace()
 
         # TODO fit GP/NN to current data to provide good start for resampling
+        key, subkey = jax.random.split(key)
 
-        # resampling step
-        do_resample     = True
-        do_resample_all = False
-        if do_resample:
-            key, subkey = jax.random.split(key)
+        # TODO how to handle this?
+        # we have some intermediate value function approximation at time t: Vt_fct
+        # we cannot pass it as an argument to the resample functions because then they
+        # cannot be jit-ted (probably only minor performance loss though??)
+        # so should we implement the bulk of the resampling logic here anyway?
+        # think tomorrow.
 
-            if do_resample_all:
-                ys_resampled = resample_all(final_ys, subkey)
-                where_resampled[:, resampling_i, None, None] = True
-            else:
-                ys_resampled, resampling_mask = resample(final_ys, subkey)
-                where_resampled[:, resampling_i, None, None] = resampling_mask
+        # something like:
+        # resampled_values = jax.vmap(Vt_fct)(resampled_xs)
+        # resampled_costates = jax.vmap(jax.jacobian(Vt_fct))(resampled_xs)
+        # followed by appropriate masking & updating main solution.
 
-            # for next loop iteration:
+        resampling_type = 'minimal'
+
+        elif resampling_type == 'all':
+            # put ALL points at random new locations, and update their value
+            # and costate info according to some value function approximation.
+
+            ys_resampled = resample_all(final_ys, subkey)
+            where_resampled[:, resampling_i, None, None] = True
+
             init_ys = ys_resampled
-        else:
+
+        elif resampling_type == 'minimal':
+            # only put the points that have left the interesting state domain
+            # at new locations, and only update these state's value/costate info.
+            ys_resampled, resampling_mask = resample(final_ys, subkey)
+            where_resampled[:, resampling_i, None, None] = resampling_mask
+
+            init_ys = ys_resampled
+
+        elif resampling_type == 'none':
             init_ys = final_ys
+
+        else:
+            raise RuntimeError(f'Invalid resampling type "{resampling_type}"')
 
     return all_sols, all_ts, where_resampled
 

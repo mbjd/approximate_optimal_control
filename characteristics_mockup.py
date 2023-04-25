@@ -365,7 +365,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
 
         resampling_type = 'minimal'
 
-        elif resampling_type == 'all':
+        if resampling_type == 'all':
             # put ALL points at random new locations, and update their value
             # and costate info according to some value function approximation.
 

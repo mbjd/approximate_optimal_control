@@ -26,8 +26,9 @@ import ipdb
 import time
 from tqdm import tqdm
 
-def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
+def hjb_characteristics_solver(problemparams, algoparams):
     '''
+    (all in problemparams:)
     f: dynamics. vector-valued function of t, x, u.
     l: cost. scalar-valued function of t, x, u.
     h: terminal cost. scalar-valued function of x.
@@ -61,6 +62,14 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     V_nn = my_nn_flax(features=algoparams['nn_layersizes'], output_dim=1)
     '''
 
+    # do this with keyword arguments and **dict instead?
+    f  = problemparams['f' ]
+    l  = problemparams['l' ]
+    h  = problemparams['h' ]
+    T  = problemparams['T' ]
+    nx = problemparams['nx']
+    nu = problemparams['nu']
+
 
     # we want to find the value function V.
     # for that we want to approximately satisfy the hjb equation:
@@ -92,7 +101,7 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     def find_u_star_matrices(R, A):
         # A is a row vector here...
         u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
-        return np.clip(u_star_unconstrained, -.1, .1)
+        return np.clip(u_star_unconstrained, -1, 1)
 
     def find_u_star_functions(f, l, V, t, x):
         # assuming that l is actually of the form l(t, x, u) = l_tx(t, x) + u.T @ R @ u,
@@ -340,25 +349,35 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
         # TODO fit GP/NN to current data to provide good start for resampling
 
         # resampling step
-        key, subkey = jax.random.split(key)
+        do_resample     = True
+        do_resample_all = False
+        if do_resample:
+            key, subkey = jax.random.split(key)
 
-        ys_resampled = resample_all(final_ys, subkey)
-        where_resampled[:, resampling_i, None, None] = True
+            if do_resample_all:
+                ys_resampled = resample_all(final_ys, subkey)
+                where_resampled[:, resampling_i, None, None] = True
+            else:
+                ys_resampled, resampling_mask = resample(final_ys, subkey)
+                where_resampled[:, resampling_i, None, None] = resampling_mask
 
-        # ys_resampled, resampling_mask = resample(final_ys, subkey)
-        # where_resampled[:, resampling_i, None, None] = resampling_mask
+            # for next loop iteration:
+            init_ys = ys_resampled
+        else:
+            init_ys = final_ys
 
-        # for next loop iteration:
-        init_ys = ys_resampled
+    return all_sols, all_ts, where_resampled
 
 
-    # key, subkey = jax.random.split(key)
-    # ys_resampled = resample(all_sols.ys[:, -1, :, :], subkey)
+def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
+
     fig = pl.figure(figsize=(8, 3))
 
     ax0 = fig.add_subplot(121, projection='3d')
     ax1 = fig.add_subplot(122, projection='3d')
 
+    nx = problemparams['nx']
+    T = problemparams['T']
     all_xs       = all_sols[:, :,  0:nx,    :]
     all_costates = all_sols[:, :,  nx:2*nx, :]
     all_values   = all_sols[:, :, -1,       :]
@@ -395,9 +414,91 @@ def hjb_characteristics_solver(f, l, h, T, nx, nu, algoparams):
     ax0.set_ylabel('x_0')
     ax0.set_zlabel('x_1')
 
+    ax0.set_ylim([-5, 5])
+    ax0.set_zlim([-2, 2])
+
     ax1.set_xlabel('x_0')
     ax1.set_ylabel('x_1')
     ax1.set_zlabel('value')
+
+    # pl.show()
+
+    fig, ax = pl.subplots()
+
+    # make a figure with a slider to get a feel of the distribution of particles
+    # over the state-space at some (adjustable) time.
+
+    t_plot = T
+
+    # make the figure
+    idx_plot = np.argmin(np.abs(all_ts - t_plot))
+    sc = pl.scatter(all_xs[:, idx_plot, 0].squeeze(), all_xs[:, idx_plot, 1].squeeze())
+
+    fig.subplots_adjust(bottom=.25)
+    ax_time = fig.add_axes([.25, .1, .65, .03])
+    time_slider = matplotlib.widgets.Slider(
+        ax=ax_time,
+        label='time [s]',
+        valmin=0,
+        valmax=T,
+        valinit=t_plot,
+    )
+
+    def update(val):
+        t_plot = time_slider.val
+        idx_plot = np.argmin(np.abs(all_ts - t_plot))
+
+        x = all_xs[:, idx_plot, 0].squeeze()
+        y = all_xs[:, idx_plot, 1].squeeze()
+
+        sc.set_offsets(np.c_[x, y])
+
+        fig.canvas.draw_idle()
+
+    time_slider.on_changed(update)
+
+    pl.show()
+
+
+def plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams):
+
+    # just one figure, with the state trajectories, maybe colored according
+    # to value?
+
+    fig = pl.figure(figsize=(8, 3))
+
+    nx = problemparams['nx']
+    T = problemparams['T']
+    all_xs       = all_sols[:, :,  0:nx,    :]
+    all_costates = all_sols[:, :,  nx:2*nx, :]
+    all_values   = all_sols[:, :, -1,       :]
+
+    max_norm = 1e5
+
+    # -1 becomes number of time steps
+    # ipdb.set_trace()
+    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algoparams['n_trajectories'], -1, 1, 1)
+    # when norm <= max_norm, scalings = 1, otherwise, scales to max_norm
+    scalings = np.minimum(1, max_norm/x_norms)
+
+    all_xs = all_xs * scalings
+
+    a = 0.1 * 256 / (algoparams['n_trajectories'])
+    if a > 1: a = 1
+
+    # neat hack - if we set the xs to nan where resamplings occurred, it breaks up the plot and does not
+    # connect the trajectories before and after resampling
+    all_xs = all_xs.at[where_resampled, :, :].set(np.nan)
+
+    xs_plot = all_xs.squeeze().T
+    pl.plot(all_ts, xs_plot, color='b', label='state')
+    pl.plot(all_ts, all_costates.squeeze().T, color='g', label='costate')
+
+    # for i in range(algoparams['n_trajectories']):
+        # pl.plot(all_ts, all_xs[i, :, 0].squeeze(), all_xs[i, :, 1].squeeze(), color='black', alpha=a)
+
+    pl.xlabel('t')
+    pl.ylabel('x')
 
     pl.show()
 
@@ -412,7 +513,7 @@ def characteristics_experiment_simple():
         # v' = f
         # f = -v**3 + u
         # clip so we don't have finite escape time when integrating backwards
-        v_cubed = np.clip((np.array([[0, 1]]) @ x)**3, -100, 100)
+        v_cubed = np.clip((np.array([[0, 1]]) @ x)**3, -10, 10)
         return np.array([[0, 1], [0, 0]]) @ x + np.array([[0, 1]]).T @ (u - v_cubed)
 
     def l(t, x, u):
@@ -421,15 +522,24 @@ def characteristics_experiment_simple():
         return x.T @ Q @ x + u.T @ R @ u
 
     def h(x):
-        Qf = 0 * np.eye(2)
+        Qf = 100 * np.eye(2)
         return (x.T @ Qf @ x).reshape()
 
+
+    problemparams = {
+            'f': f,
+            'l': l,
+            'h': h,
+            'T': 4,
+            'nx': 2,
+            'nu': 1
+    }
 
     x_sample_scale = 1 * np.eye(2)
     x_sample_cov = x_sample_scale @ x_sample_scale.T
 
     # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
-    resample_mahalanobis_dist = 5
+    resample_mahalanobis_dist = 2
 
     # to calculate mahalanobis dist: d = sqrt(x.T inv(Σ) x) -- basically the argument to exp(.) in the pdf.
     # x domain defined as X = {x in R^n: x.T @ Q_x @ x <= 1}
@@ -447,18 +557,83 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 2**6,
-            'dt': 1/128,
-            'resample_interval': 1/4,
+            'n_trajectories': 256,
+            'dt': 1/256,
+            'resample_interval': 1/16,
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
     }
 
-    T = 4
-    # actual arguments are parameters of the problem itself
+    # problemparams are parameters of the problem itself
     # algoparams contains the 'implementation details'
-    hjb_characteristics_solver(f, l, h, T, 2, 1, algoparams)
+    output = hjb_characteristics_solver(problemparams, algoparams)
 
+    plot_2d(*output, problemparams, algoparams)
+
+def characteristics_experiment_even_simpler():
+    # 1d test case.
+
+    # SINGLE integrator.
+    # why does this still behave somehow weirdly??
+    def f(t, x, u):
+        return u
+
+    def l(t, x, u):
+        Q = np.eye(1)
+        R = np.eye(1)
+        return x.T @ Q @ x + u.T @ R @ u
+
+    def h(x):
+        Qf = 1 * np.eye(1)
+        return (x.T @ Qf @ x).reshape()
+
+    problemparams = {
+            'f': f,
+            'l': l,
+            'h': h,
+            'T': 5,
+            'nx': 1,
+            'nu': 1
+    }
+
+    x_sample_scale = 1 * np.eye(1)
+    x_sample_cov = x_sample_scale @ x_sample_scale.T
+
+    # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
+    resample_mahalanobis_dist = 2
+
+    # to calculate mahalanobis dist: d = sqrt(x.T inv(Σ) x) -- basically the argument to exp(.) in the pdf.
+    # x domain defined as X = {x in R^n: x.T @ Q_x @ x <= 1}
+    # so we want to find Q_x to achieve
+    #     sqrt(x.T inv(Σ) x) <= d_max  <=>  x.T @ Q_x @ x <= 1
+    #                                  <=>  sqrt(x.T @ Q_x @ x) <= 1                       (bc. sqrt monotonous)
+    #                                  <=>  sqrt(x.T @ Q_x @ x) d_max <= d_max             (scaling LHS changes nothing)
+    #                                  <=>  sqrt(x.T @ Q_x @ x * d_max**2) <= d_max        (d_max into sqrt)
+    #                                  <=>  sqrt(x.T @ (Q_x * d_max**2) @ x) <= d_max      (reordering)
+    # these are now basically the same, with inv(Σ) = Q_x * d_max**2 or Q_x = inv(Σ) / d_max**2
+    # why could I not simply guess this?
+    Q_x = np.linalg.inv(x_sample_cov) / resample_mahalanobis_dist**2
+
+    # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
+    # then just say we resample when x is outside of like 4 sigma or similar.
+    algoparams = {
+            # 'nn_layersizes': (32, 32, 32),
+            'n_trajectories': 1,
+            'dt': 1/256,
+            'resample_interval': 1/16,
+            'x_sample_cov': x_sample_cov,
+            'x_domain': Q_x,
+    }
+
+    # problemparams are parameters of the problem itself
+    # algoparams contains the 'implementation details'
+    all_sols, all_ts, where_resampled = hjb_characteristics_solver(problemparams, algoparams)
+
+    plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams)
 if __name__ == '__main__':
 
-    characteristics_experiment_simple()
+    # after lunch: find out why we get weird stuff.
+    # check pontryagin conditions for correctness.
+    # why do we get oscillatory trajectories?
+    characteristics_experiment_even_simpler()
+    # characteristics_experiment_simple()

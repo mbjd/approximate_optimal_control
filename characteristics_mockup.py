@@ -147,8 +147,8 @@ def hjb_characteristics_solver(problemparams, algoparams):
 
         u_star = find_u_star_costate(f, l, costate, t, state)
 
-        state_dot   = jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx, 1)
-        costate_dot = jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx, 1)
+        state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx, 1)
+        costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx, 1)
         value_dot   = -l(t, state, u_star)
 
         y_dot = np.vstack([state_dot, costate_dot, value_dot])
@@ -491,11 +491,10 @@ def plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     all_xs = all_xs.at[where_resampled, :, :].set(np.nan)
 
     xs_plot = all_xs.squeeze().T
+    costates_plot = all_costates.squeeze().T
     pl.plot(all_ts, xs_plot, color='b', label='state')
-    pl.plot(all_ts, all_costates.squeeze().T, color='g', label='costate')
-
-    # for i in range(algoparams['n_trajectories']):
-        # pl.plot(all_ts, all_xs[i, :, 0].squeeze(), all_xs[i, :, 1].squeeze(), color='black', alpha=a)
+    pl.plot(all_ts, costates_plot, color='g', label='costate')
+    pl.legend()
 
     pl.xlabel('t')
     pl.ylabel('x')
@@ -630,10 +629,11 @@ def characteristics_experiment_even_simpler():
     all_sols, all_ts, where_resampled = hjb_characteristics_solver(problemparams, algoparams)
 
     plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams)
+
 if __name__ == '__main__':
 
     # after lunch: find out why we get weird stuff.
     # check pontryagin conditions for correctness.
     # why do we get oscillatory trajectories?
-    characteristics_experiment_even_simpler()
-    # characteristics_experiment_simple()
+    # characteristics_experiment_even_simpler()
+    characteristics_experiment_simple()

@@ -303,3 +303,16 @@ reliance on nonlinear/nonconvex optimization problems for initialisation
 probably removes all hopes of global optimality in nonconvex control
 problems
 
+
+A neural network approach for stochastic optimal control
+https://arxiv.org/pdf/2209.13104.pdf
+
+introduce a quite general approach to the problem. formulate a tunable
+loss, where different tunigns result in quite different methods.
+
+somehow the stochastic version has smooth optimal value functions. would
+that make something easier for me?
+
+(i think) their central important ingredient is also finding new optimal
+trajectories by PMP, with inintal costates estimated by approximate value
+function.

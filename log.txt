@@ -360,7 +360,7 @@ problems using ML tools.
 https://www.youtube.com/playlist?list=PLHyI3Fbmv0ScvcPAT9IK6YPEZGnj-6Sqk
 
 
-2023-04-25
+2023-04-24
 
 setup eth workstation. did everything with virtualenv, very nice, only had
 to fiddle a bit to get matplotlib to use a working GUI backend.
@@ -378,13 +378,43 @@ regions and many samples in some regions. this might be fixed by one of two
 things:
 
  - complete resampling after only a relatively short time (i.e. such that
-   the distribution of states does not qualitatively change a lot). then we
-   always stay at the sampling distribution and can nicely control which
-   states are visited, BUT incur extra error due to the frequent
-   alternation between sample-based and function-based representations.
+   the distribution of states does not qualitatively change a lot - maybe
+   also triggered by some condition relating distribution mismatch between
+   sampling distribution and actual distribution of trajectories, like data
+   likelihood or KL divergence). then we always stay at the sampling
+   distribution and can nicely control which states are visited, BUT incur
+   extra error due to the frequent alternation between sample-based and
+   function-based representations.
 
  - some smarter thing where we first simulate a small-ish amount of
    pontryagin optimal trajectories backwards, and then iteratively try to
    find more starting points (x(T), λ(T), V(T)) in a way that ensures a
    desirable distribution of states at an earlier time T - ΔT. This is
    basically what Nakamura-Zimmerer et al. did.
+
+
+2023-04-25
+
+had doubts whether i am computing the right thing. went over PMP
+implementation again and noticed had forgotten a -. now it looks more
+plausible.
+
+read some more papers, most I had already seen but only skimmed before,
+mostly about the stochastic optimal control & neural approximations.
+
+TODO next:
+
+- think about a more clearly defined goal for the project?
+  - simple examples and theory? GP + error bound + stability proof?
+  - more applied kind of example? NN + lots of data + hyperparam opti?
+  - adaptive sampling or not?
+  - some of this ultra smart feynman-kac, hopf-lax type of stuff?
+    - but for that i need to step up my maths game
+
+- implement the resampling step w/ proper value function approximation
+
+- clean up the code some more
+
+idea for later, try this https://pypi.org/project/ppopt/ to explicitly
+solve the inner minimisation over u with added input constraints? probably
+nicer to have an explicit solution than cvxpy so we can still vmap, jit...

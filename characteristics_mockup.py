@@ -147,6 +147,8 @@ def hjb_characteristics_solver(problemparams, algoparams):
 
         u_star = find_u_star_costate(f, l, costate, t, state)
 
+        # the first line is just a restatement of the dynamics
+        # but doesn't it look cool with those partial derivatives??
         state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx, 1)
         costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx, 1)
         value_dot   = -l(t, state, u_star)
@@ -556,7 +558,7 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 256,
+            'n_trajectories': 64,
             'dt': 1/256,
             'resample_interval': 1/16,
             'x_sample_cov': x_sample_cov,
@@ -573,7 +575,6 @@ def characteristics_experiment_even_simpler():
     # 1d test case.
 
     # SINGLE integrator.
-    # why does this still behave somehow weirdly??
     def f(t, x, u):
         return u
 
@@ -600,6 +601,20 @@ def characteristics_experiment_even_simpler():
 
     # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
     resample_mahalanobis_dist = 2
+
+    # this is just a simple initial sampling strategy. I have a feeling the
+    # following problem might arise: the distribution of particles within
+    # the interesting domain becomes somehow degenerate, so that the
+    # functions are badly approximated in regions where there happen to be
+    # no samples.
+
+    # to combat this, maybe resample ALL the particles once some KL
+    # divergence or data likelihood threshold is passed? so we always stay
+    # close-ish to the sampling distribution.
+
+    # another remedy would be a 'proper' adaptive approach, where we
+    # iteratively sample at points where the relevant function
+    # approximations indicate large uncertainty. (with GP/BNN/NN ensemble)
 
     # to calculate mahalanobis dist: d = sqrt(x.T inv(Σ) x) -- basically the argument to exp(.) in the pdf.
     # x domain defined as X = {x in R^n: x.T @ Q_x @ x <= 1}
@@ -632,8 +647,5 @@ def characteristics_experiment_even_simpler():
 
 if __name__ == '__main__':
 
-    # after lunch: find out why we get weird stuff.
-    # check pontryagin conditions for correctness.
-    # why do we get oscillatory trajectories?
     # characteristics_experiment_even_simpler()
     characteristics_experiment_simple()

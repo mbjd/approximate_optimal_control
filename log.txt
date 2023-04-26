@@ -418,3 +418,74 @@ TODO next:
 idea for later, try this https://pypi.org/project/ppopt/ to explicitly
 solve the inner minimisation over u with added input constraints? probably
 nicer to have an explicit solution than cvxpy so we can still vmap, jit...
+
+meeting questions:
+
+- basically what is listed above
+  - but also, the 'nonsmooth V' option from initial slides
+
+- d-infk master lab extend reservation?
+
+2023-03-26
+
+~~~ meeting notes ~~~
+
+show lenart resampling step.
+
+adaptive sampling? self correcting?
+forward shooting with approx V to find where we have to sample for some
+desired distribution over x(0)
+
+if always starting at T, ALL samples are actual optimal trajectories
+(locally at least). If starting from some previous V approx, then errors
+can accumulate.
+
+shooting forward iteratively?
+
+algo sketch from lenart:
+
+    let μ = some sensible distribution over the state space
+    let κ = some desired distribution of states
+
+    loop:
+        - find batch of pontryagin optimal trajectories backwards, from x(T) ~ μ
+        - construct approximate V(x, t) with NN
+        - simulate FORWARD from x(0) ~ κ, land at some set of x(T)
+        - update μ to approximate the distribution of x(T) from previous step.
+
+    applied iteratively, this should (with few iterations (why?)) find a
+    distribution of x(T) that result in a desired distribution of x(0) or
+    when travelling along pontyagin optimal trajectories.
+
+slightly different, inspired by particle filter stuff, without forward sim:
+
+    let μ = some sensible distribution over the state space
+    let κ = some desired distribution of states
+
+    loop:
+        - find batch of pontryagin optimal trajectories backwards, from x(T) ~ μ
+        - evaluate p_κ(x(0)) =: w_i for each trajectory to obtain weights
+        - update μ to approximate the distribution Σ_i w_i δ(x - x_i(T))
+
+
+other idea:
+
+    have a NN ensemble/BNN/dropout net or similar for the value function,
+    sample trajectories where uncertainty is high.
+
+    could also be mixed with the oder ideas. for example:
+    - simulate batch of pontryagin trajectories backwards to get x_i(0)
+    - fit NN
+    - find points of large uncertainty z_k
+    - for each z_k: find some x_i and w_i s.t. z_k = Σ x_i w_i
+    - apply the same weighted sum to the initial x(T) to hopefully get a
+      trajectory landing at z_k. (this relies on some kind of local
+      linearity assumption...)
+
+
+to do next concretely:
+
+- implement vlaue function approx with simple NN
+- explore sampling strategies. probably the first type of algorithm is
+  easier
+

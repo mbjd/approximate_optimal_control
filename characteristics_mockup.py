@@ -52,7 +52,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
         def __call__(self, x):
             for feat in self.features:
                 x = nn.Dense(features=feat)(x)
-                x = nn.softmax(x)
+                x = nn.softmax(x)  # softplus or swish! softmax doesn't make much sense
 
             if self.output_dim is not None:
                 x = nn.Dense(features=self.output_dim)(x)
@@ -652,7 +652,7 @@ def characteristics_experiment_even_simpler():
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
             # 'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 1,
+            'n_trajectories': 8,
             'dt': 1/256,
             'resample_interval': 1/16,
             'x_sample_cov': x_sample_cov,

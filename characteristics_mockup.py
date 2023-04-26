@@ -28,59 +28,8 @@ from tqdm import tqdm
 
 class my_nn_flax(nn.Module):
 
-    '''
-    simple, fully connected NN class.
-    maybe we should include the loss functions here too?
-    but for the moment i would rather be flexible
-    as for working with derivatives w.r.t. input vector:
-    see flax_pde_example in sandbox.py, really easy
-
-    how to use:
-
-        model = my_nn_flax(features=(32, 32, 32), output_dim=1)
-
-        # only works with jit if we include model fixed, not as argument.
-        def point_loss(params, x, y):
-            y_pred = model.apply(params, x)
-            return (y_pred - y)**2
-
-        def loss(params, xs, ys):
-            losses = jax.vmap(point_loss, in_axes=(None, 0, 0))(params, xs, ys)
-            return np.mean(losses)
-
-        optim = optax.adam(learning_rate=0.01)
-
-        loss_val_grad = jax.value_and_grad(loss, argnums=0)
-
-        @jax.jit
-        def update_step(xs, ys, opt_state, params):
-
-            loss_val, loss_grad = loss_val_grad(params, xs, ys)
-
-            updates, opt_state = optim.update(loss_grad, opt_state)
-            params = optax.apply_updates(params, updates)
-
-            return opt_state, params, loss_val
-
-        key, initkey = jax.random.split(key)
-
-        params = model.init(subkey, np.zeros(n_inputs))
-        opt_state = optim.init(params)
-
-        for i in range(N_train):
-
-            # generate minibatch train_x, train_y here
-
-            opt_state, params, loss_value = update_step(
-                    train_x, train_y, opt_state, params
-            )
-
-            # plus any logging, convergence tests, etc.
-
-        # then to use it:
-        model_finished = lambda x: model.apply(params, x)
-        y = model_finished(x)
-    '''
+    # simple, fully connected NN class.
+    # for bells & wistles -> nn_wrapper class :)
 
     features: Sequence[int]
     output_dim: Optional[int]
@@ -93,11 +42,15 @@ class my_nn_flax(nn.Module):
 
         if self.output_dim is not None:
             x = nn.Dense(features=self.output_dim)(x)
+
         return x
 
 
 
 class nn_wrapper():
+
+    # all the usual business logic around the NN.
+    # initialisation, data loading, training, loss plotting
 
     def __init__(self, input_dim, layer_dims, output_dim, key):
 
@@ -108,12 +61,23 @@ class nn_wrapper():
         self.nn = my_nn_flax(features=layer_dims, output_dim=output_dim)
 
         # could make these arguments as well...
-        self.optim = optax.adam(learning_rate=0.001)
+        factor = .1
+        lr_schedule = optax.piecewise_constant_schedule(
+                init_value=0.05,
+                boundaries_and_scales = {
+                    500: factor,
+                    1000: factor,
+                    2000: factor,
+                }
+        )
+
+        self.optim = optax.adam(learning_rate=lr_schedule)
 
         self.loss_val_grad = jax.value_and_grad(self.loss, argnums=0)
 
-        # (n, 1) because everything is a column vector here.
-        self.params = self.nn.init(key, np.zeros((self.input_dim, 1)))
+        # turns out if we remove the last dimension (which made everything a
+        # column vector) we stop having the weird problem of wrong output shape.
+        self.params = self.nn.init(key, np.zeros((self.input_dim,)))
 
         self.opt_state = self.optim.init(self.params)
 
@@ -133,6 +97,31 @@ class nn_wrapper():
 
     def train(self, xs, ys, key, batchsize=64, N_epochs=100, plot=False):
 
+
+        # make minibatches
+        N_datapts = xs.shape[0]
+
+
+        N_datapts_equal_batches = N_datapts - N_datapts % batchsize
+
+        N_batches = N_datapts_equal_batches / batchsize
+        assert N_batches == int(N_batches), 'N_batches size not integer'
+        N_batches = int(N_batches)
+
+        @jax.jit
+        def generate_minibatch_index_array(key):
+
+            # discard a bit of data to make equally sized batches
+            data_idx_shuffled = jax.random.permutation(key, np.arange(N_datapts))[0:N_datapts_equal_batches]
+
+            # batched_data_idx[i, :] = data indices for batch number i.
+            batched_data_idx = data_idx_shuffled.reshape(N_batches, batchsize)
+            return batched_data_idx
+
+
+        total_iters = N_batches * N_epochs
+        losses = onp.zeros(total_iters)
+
         @jax.jit
         def update_step(xs, ys, opt_state, params):
 
@@ -143,30 +132,15 @@ class nn_wrapper():
 
             return opt_state, params, loss_val
 
-
-
-        # make minibatches
-        N_datapts = xs.shape[0]
-
-        # discard a bit of data to make equally sized batches
-        N_datapts_equal_batches = N_datapts - N_datapts % batchsize
-        data_idx_shuffled = jax.random.permutation(key, np.arange(N_datapts))[0:N_datapts_equal_batches]
-
-        N_batches = N_datapts_equal_batches / batchsize
-        assert N_batches == int(N_batches), 'N_batches size not integer'
-        N_batches = int(N_batches)
-
-        # batched_data_idx[i, :] = data indices for batch number i.
-        batched_data_idx = data_idx_shuffled.reshape(N_batches, batchsize)
-
-
-        total_iters = N_batches * N_epochs
-        losses = onp.zeros(total_iters)
-
         for i in tqdm(range(total_iters)):
 
-            # get the batch
+            # re-shuffle batch after epoch.
             i_batch = i % N_batches
+            if i_batch == 0:
+                key, subkey = jax.random.split(key)
+                batched_data_idx = generate_minibatch_index_array(subkey)
+
+            # get the batch
             batch_idx = batched_data_idx[i_batch, :]
 
             xs_batch = xs[batch_idx]
@@ -177,7 +151,6 @@ class nn_wrapper():
             )
 
             losses[i] = loss_val
-
 
         if plot:
             pl.plot(losses)
@@ -501,27 +474,35 @@ def hjb_characteristics_solver(problemparams, algoparams):
         # TODO fit GP/NN to current data to provide good start for resampling
 
         # training data terminology:
+
         # input = [t, state], label = V
 
         # reshape - during training we do not care which is the time and which the
         # trajectory index, they are all just pairs of ((t, x), V) regardless
 
-
         # before we have a shape (n_traj, n_time, 2*nx+1, 1).
-        train_states = all_sols[:, resampling_i:-1, 0:nx, :].reshape(-1, nx, 1)
+        # here we remove the last dimension - somehow it makes NN stuff easier.
+        train_states = all_sols[:, resampling_i:-1, 0:nx, :].reshape(-1, nx)
 
-        # so we construct ALL times by repmat-ing the relevant ts
-        train_ts = all_ts[None, resampling_i:-1, None, None] # make new axes to match train_states
-        train_ts = np.repeat(train_ts, algoparams['n_trajectories'], axis=0) # repeat across trajectories axes, all have same ts.
-        train_ts = train_ts.reshape(-1, 1, 1)  # flatten the first two dimension like train_states
+        # make new axes to match train_state
+        train_ts = all_ts[None, resampling_i:-1, None]
+        # repeat for all trajectories (axis 0), which all have the same ts.
+        train_ts = np.repeat(train_ts, algoparams['n_trajectories'], axis=0)
+        # flatten the same way as train_states
+        train_ts = train_ts.reshape(-1, 1)
 
-        # now from states and ts we build the training input array.
+        # assemble into main data arrays
+        # these are of shape (n_datpts, n_inputfeatures) and (n_datapts, 1)
         train_inputs = np.concatenate([train_ts, train_states], axis=1)
-        train_labels = all_sols[:, resampling_i:-1, 2*nx, :].reshape(-1, 1, 1)
+        train_labels = all_sols[:, resampling_i:-1, 2*nx, :].reshape(-1, 1)
 
         key, train_key = jax.random.split(key)
-        V_nn.train(train_inputs, train_labels, key, batchsize=32, N_epochs=10, plot=True)
-
+        V_nn.train(
+                train_inputs, train_labels, key,
+                batchsize=algoparams['batchsize'], N_epochs=algoparams['N_epochs'],
+                plot=True
+        )
+        break
 
 
 
@@ -701,8 +682,6 @@ def plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     pl.show()
 
 
-
-
 def characteristics_experiment_simple():
 
     # simple control system. double integrator with friction term.
@@ -720,7 +699,7 @@ def characteristics_experiment_simple():
         return x.T @ Q @ x + u.T @ R @ u
 
     def h(x):
-        Qf = 100 * np.eye(2)
+        Qf = 1 * np.eye(2)
         return (x.T @ Qf @ x).reshape()
 
 
@@ -754,12 +733,15 @@ def characteristics_experiment_simple():
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
-            'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 64,
+            'n_trajectories': 512,
             'dt': 1/256,
-            'resample_interval': 1/16,
+            'resample_interval': 1/4,
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
+
+            'nn_layersizes': (32, 32, 32),
+            'batchsize': 64,
+            'N_epochs': 10,
     }
 
     # problemparams are parameters of the problem itself
@@ -798,42 +780,19 @@ def characteristics_experiment_even_simpler():
 
     # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
     resample_mahalanobis_dist = 2
-
-    # this is just a simple initial sampling strategy. I have a feeling the
-    # following problem might arise: the distribution of particles within
-    # the interesting domain becomes somehow degenerate, so that the
-    # functions are badly approximated in regions where there happen to be
-    # no samples.
-
-    # to combat this, maybe resample ALL the particles once some KL
-    # divergence or data likelihood threshold is passed? so we always stay
-    # close-ish to the sampling distribution.
-
-    # another remedy would be a 'proper' adaptive approach, where we
-    # iteratively sample at points where the relevant function
-    # approximations indicate large uncertainty. (with GP/BNN/NN ensemble)
-
-    # to calculate mahalanobis dist: d = sqrt(x.T inv(Σ) x) -- basically the argument to exp(.) in the pdf.
-    # x domain defined as X = {x in R^n: x.T @ Q_x @ x <= 1}
-    # so we want to find Q_x to achieve
-    #     sqrt(x.T inv(Σ) x) <= d_max  <=>  x.T @ Q_x @ x <= 1
-    #                                  <=>  sqrt(x.T @ Q_x @ x) <= 1                       (bc. sqrt monotonous)
-    #                                  <=>  sqrt(x.T @ Q_x @ x) d_max <= d_max             (scaling LHS changes nothing)
-    #                                  <=>  sqrt(x.T @ Q_x @ x * d_max**2) <= d_max        (d_max into sqrt)
-    #                                  <=>  sqrt(x.T @ (Q_x * d_max**2) @ x) <= d_max      (reordering)
-    # these are now basically the same, with inv(Σ) = Q_x * d_max**2 or Q_x = inv(Σ) / d_max**2
-    # why could I not simply guess this?
     Q_x = np.linalg.inv(x_sample_cov) / resample_mahalanobis_dist**2
 
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
     algoparams = {
-            # 'nn_layersizes': (32, 32, 32),
-            'n_trajectories': 8,
+            'n_trajectories': 256,
             'dt': 1/256,
             'resample_interval': 1/16,
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
+            'nn_layersizes': (128, 128, 128),
+            'batchsize': 128,
+            'N_epochs': 100,
     }
 
     # problemparams are parameters of the problem itself
@@ -841,6 +800,8 @@ def characteristics_experiment_even_simpler():
     all_sols, all_ts, where_resampled = hjb_characteristics_solver(problemparams, algoparams)
 
     plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams)
+
+
 
 if __name__ == '__main__':
 

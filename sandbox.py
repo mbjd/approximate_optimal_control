@@ -620,7 +620,7 @@ def flax_pde_example(n_unroll=1, factor=0.5, do_plot=False, save=False):
         def __call__(self, x):
             for feat in self.features:
                 x = nn.Dense(features=feat)(x)
-                x = nn.softmax(x)
+                x = nn.softplus(x)
 
             if self.output_dim is not None:
                 x = nn.Dense(features=self.output_dim)(x)
@@ -1005,7 +1005,7 @@ if __name__ == '__main__':
 
     # hjb_pinn_experiment_simple()
 
-    flax_pde_example(n_unroll=5, do_plot=True, save=False)
+    flax_pde_example(n_unroll=1, do_plot=True, save=False)
 
     # selfcontained_flax_example()
     # not_training_debugging()

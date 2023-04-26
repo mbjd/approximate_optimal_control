@@ -26,6 +26,165 @@ import ipdb
 import time
 from tqdm import tqdm
 
+class my_nn_flax(nn.Module):
+
+    '''
+    simple, fully connected NN class.
+    maybe we should include the loss functions here too?
+    but for the moment i would rather be flexible
+    as for working with derivatives w.r.t. input vector:
+    see flax_pde_example in sandbox.py, really easy
+
+    how to use:
+
+        model = my_nn_flax(features=(32, 32, 32), output_dim=1)
+
+        # only works with jit if we include model fixed, not as argument.
+        def point_loss(params, x, y):
+            y_pred = model.apply(params, x)
+            return (y_pred - y)**2
+
+        def loss(params, xs, ys):
+            losses = jax.vmap(point_loss, in_axes=(None, 0, 0))(params, xs, ys)
+            return np.mean(losses)
+
+        optim = optax.adam(learning_rate=0.01)
+
+        loss_val_grad = jax.value_and_grad(loss, argnums=0)
+
+        @jax.jit
+        def update_step(xs, ys, opt_state, params):
+
+            loss_val, loss_grad = loss_val_grad(params, xs, ys)
+
+            updates, opt_state = optim.update(loss_grad, opt_state)
+            params = optax.apply_updates(params, updates)
+
+            return opt_state, params, loss_val
+
+        key, initkey = jax.random.split(key)
+
+        params = model.init(subkey, np.zeros(n_inputs))
+        opt_state = optim.init(params)
+
+        for i in range(N_train):
+
+            # generate minibatch train_x, train_y here
+
+            opt_state, params, loss_value = update_step(
+                    train_x, train_y, opt_state, params
+            )
+
+            # plus any logging, convergence tests, etc.
+
+        # then to use it:
+        model_finished = lambda x: model.apply(params, x)
+        y = model_finished(x)
+    '''
+
+    features: Sequence[int]
+    output_dim: Optional[int]
+
+    @nn.compact
+    def __call__(self, x):
+        for feat in self.features:
+            x = nn.Dense(features=feat)(x)
+            x = nn.softplus(x)
+
+        if self.output_dim is not None:
+            x = nn.Dense(features=self.output_dim)(x)
+        return x
+
+
+
+class nn_wrapper():
+
+    def __init__(self, input_dim, layer_dims, output_dim, key):
+
+        self.input_dim  = input_dim
+        self.layer_dims = layer_dims
+        self.output_dim = output_dim
+
+        self.nn = my_nn_flax(features=layer_dims, output_dim=output_dim)
+
+        # could make these arguments as well...
+        self.optim = optax.adam(learning_rate=0.001)
+
+        self.loss_val_grad = jax.value_and_grad(self.loss, argnums=0)
+
+        # (n, 1) because everything is a column vector here.
+        self.params = self.nn.init(key, np.zeros((self.input_dim, 1)))
+
+        self.opt_state = self.optim.init(self.params)
+
+    # so we can use it like a function :)
+    def __call__(self, x):
+        return self.nn.apply(self.params, x)
+
+    # just an example loss function, very standard.
+    def point_loss(self, params, x, y):
+        y_pred = self.nn.apply(params, x)
+        return (y_pred - y)**2
+
+    def loss(self, params, xs, ys):
+        losses = jax.vmap(self.point_loss, in_axes=(None, 0, 0))(params, xs, ys)
+        return np.mean(losses)
+
+
+    def train(self, xs, ys, key, batchsize=64, N_epochs=100, plot=False):
+
+        @jax.jit
+        def update_step(xs, ys, opt_state, params):
+
+            loss_val, loss_grad = self.loss_val_grad(params, xs, ys)
+
+            updates, opt_state = self.optim.update(loss_grad, opt_state)
+            params = optax.apply_updates(params, updates)
+
+            return opt_state, params, loss_val
+
+
+
+        # make minibatches
+        N_datapts = xs.shape[0]
+
+        # discard a bit of data to make equally sized batches
+        N_datapts_equal_batches = N_datapts - N_datapts % batchsize
+        data_idx_shuffled = jax.random.permutation(key, np.arange(N_datapts))[0:N_datapts_equal_batches]
+
+        N_batches = N_datapts_equal_batches / batchsize
+        assert N_batches == int(N_batches), 'N_batches size not integer'
+        N_batches = int(N_batches)
+
+        # batched_data_idx[i, :] = data indices for batch number i.
+        batched_data_idx = data_idx_shuffled.reshape(N_batches, batchsize)
+
+
+        total_iters = N_batches * N_epochs
+        losses = onp.zeros(total_iters)
+
+        for i in tqdm(range(total_iters)):
+
+            # get the batch
+            i_batch = i % N_batches
+            batch_idx = batched_data_idx[i_batch, :]
+
+            xs_batch = xs[batch_idx]
+            ys_batch = ys[batch_idx]
+
+            self.opt_state, self.params, loss_val = update_step(
+                    xs_batch, ys_batch, self.opt_state, self.params
+            )
+
+            losses[i] = loss_val
+
+
+        if plot:
+            pl.plot(losses)
+            pl.show()
+
+
+
 def hjb_characteristics_solver(problemparams, algoparams):
     '''
     (all in problemparams:)
@@ -39,28 +198,6 @@ def hjb_characteristics_solver(problemparams, algoparams):
       nn_layersizes: sizes of NN layers from input to output, e.g. (64, 64, 16)
     '''
 
-    key = jax.random.PRNGKey(0)
-
-    '''
-    # define NN first.
-
-    class my_nn_flax(nn.Module):
-        features: Sequence[int]
-        output_dim: Optional[int]
-
-        @nn.compact
-        def __call__(self, x):
-            for feat in self.features:
-                x = nn.Dense(features=feat)(x)
-                x = nn.softmax(x)  # softplus or swish! softmax doesn't make much sense
-
-            if self.output_dim is not None:
-                x = nn.Dense(features=self.output_dim)(x)
-            return x
-
-    # input dim is assigned when passing first input at init.
-    V_nn = my_nn_flax(features=algoparams['nn_layersizes'], output_dim=1)
-    '''
 
     # do this with keyword arguments and **dict instead?
     f  = problemparams['f' ]
@@ -70,6 +207,16 @@ def hjb_characteristics_solver(problemparams, algoparams):
     nx = problemparams['nx']
     nu = problemparams['nu']
 
+
+    # define NN first.
+
+    key = jax.random.PRNGKey(0)
+    V_nn = nn_wrapper(
+            input_dim  = 1 + nx,   # inputs are vectors containing (t, x)
+            layer_dims = algoparams['nn_layersizes'],
+            output_dim = 1,
+            key        = key
+    )
 
     # we want to find the value function V.
     # for that we want to approximately satisfy the hjb equation:
@@ -258,7 +405,9 @@ def hjb_characteristics_solver(problemparams, algoparams):
 
     # vmap = gangster!
     # in_axes[1] = None caueses it to not do dumb stuff with the second argument. dunno exactly why
-    batch_pontryagin_backward_solver = jax.vmap(pontryagin_backward_solver, in_axes=(0, None))
+    batch_pontryagin_backward_solver = jax.jit(jax.vmap(
+        pontryagin_backward_solver, in_axes=(0, None)
+    ))
 
     # helper function, expands the state vector x to the extended state vector y = [x, λ, v]
     # λ is the costate in the pontryagin minimum principle
@@ -321,7 +470,8 @@ def hjb_characteristics_solver(problemparams, algoparams):
 
     print('Main loop progress:')
     it = zip(resampling_indices[::-1], resampling_ts[::-1])
-    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
+    # for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
+    for (resampling_i, resampling_t) in it:
 
         # we integrate backwards over the time interval [resampling_t, resampling_t + resample_interval].
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
@@ -341,15 +491,40 @@ def hjb_characteristics_solver(problemparams, algoparams):
         # sol object info is saved the other way around, going from initial=large to final=small times.
         save_idx = np.arange(resampling_i, resampling_i+timesteps_per_resample)
         save_idx_rev = save_idx[::-1]
-        tdiffs = sol_object.ts[0,] - all_ts[save_idx_rev]
-        assert(np.allclose(tdiffs, 0, atol=1e-3)), 'time array not like expected'
+        # tdiffs = sol_object.ts[0,] - all_ts[save_idx_rev]
+        # assert(np.allclose(tdiffs, 0, atol=1e-3)), 'time array not like expected'
 
         # so we save it in the big solution array with reversed indices.
         all_sols[:, save_idx_rev, :, :] = sol_object.ys
         # ipdb.set_trace()
 
         # TODO fit GP/NN to current data to provide good start for resampling
-        key, subkey = jax.random.split(key)
+
+        # training data terminology:
+        # input = [t, state], label = V
+
+        # reshape - during training we do not care which is the time and which the
+        # trajectory index, they are all just pairs of ((t, x), V) regardless
+
+
+        # before we have a shape (n_traj, n_time, 2*nx+1, 1).
+        train_states = all_sols[:, resampling_i:-1, 0:nx, :].reshape(-1, nx, 1)
+
+        # so we construct ALL times by repmat-ing the relevant ts
+        train_ts = all_ts[None, resampling_i:-1, None, None] # make new axes to match train_states
+        train_ts = np.repeat(train_ts, algoparams['n_trajectories'], axis=0) # repeat across trajectories axes, all have same ts.
+        train_ts = train_ts.reshape(-1, 1, 1)  # flatten the first two dimension like train_states
+
+        # now from states and ts we build the training input array.
+        train_inputs = np.concatenate([train_ts, train_states], axis=1)
+        train_labels = all_sols[:, resampling_i:-1, 2*nx, :].reshape(-1, 1, 1)
+
+        key, train_key = jax.random.split(key)
+        V_nn.train(train_inputs, train_labels, key, batchsize=32, N_epochs=10, plot=True)
+
+
+
+
 
         # TODO how to handle this?
         # we have some intermediate value function approximation at time t: Vt_fct
@@ -395,8 +570,10 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
 
     fig = pl.figure(figsize=(8, 3))
 
-    ax0 = fig.add_subplot(121, projection='3d')
-    ax1 = fig.add_subplot(122, projection='3d')
+    ax0 = fig.add_subplot(111, projection='3d')
+    # ax0 = fig.add_subplot(121, projection='3d')
+    # ax1 = fig.add_subplot(122, projection='3d')
+
 
     nx = problemparams['nx']
     T = problemparams['T']
@@ -430,7 +607,7 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     # so now we go back to the stone age
     for i in range(algoparams['n_trajectories']):
         ax0.plot(all_ts, all_xs[i, :, 0].squeeze(), all_xs[i, :, 1].squeeze(), color='black', alpha=a)
-        ax1.plot(all_xs[i, :, 0], all_xs[i, :, 1], all_values[i], color='blue', alpha=a)
+        # ax1.plot(all_xs[i, :, 0], all_xs[i, :, 1], all_values[i], color='blue', alpha=a)
 
     ax0.set_xlabel('t')
     ax0.set_ylabel('x_0')
@@ -439,9 +616,9 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     ax0.set_ylim([-5, 5])
     ax0.set_zlim([-2, 2])
 
-    ax1.set_xlabel('x_0')
-    ax1.set_ylabel('x_1')
-    ax1.set_zlabel('value')
+    # ax1.set_xlabel('x_0')
+    # ax1.set_ylabel('x_1')
+    # ax1.set_zlabel('value')
 
     # pl.show()
 

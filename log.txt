@@ -485,7 +485,27 @@ other idea:
 
 to do next concretely:
 
-- implement vlaue function approx with simple NN
+- implement value function approx with simple NN
 - explore sampling strategies. probably the first type of algorithm is
   easier
 
+
+spent a long time watching the talks from claire tomlin "towards real-time
+reachability'. basically she does numerical methods to find reachability in
+differential games, i.e. robust control. they are level-set methods, i.e.
+the sets are all described with functions, so for example x_unsafe = {x |
+safety(x) <= 0}. that makes it possible to find backwards reachable sets
+and the like.
+
+sounds actually similar to what i am trying to do, but for state
+constraints. is optimal control just a trivial byproduct of her methods?
+are the level set methods basically a way of computing control barrier
+functions? need to look into it more, what computations they do concretely,
+at first glance it looks like they basically use a PINN style approach
+
+would be really cool to extend the approximate optimal control stuff with
+state constraints in this style, especially relating to practical
+application.
+
+implemented all the NN business logic. it now runs. but, as per usual, it
+does weird stuff™. to be fixed sometime later.

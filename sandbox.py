@@ -1003,9 +1003,9 @@ def hjb_pinn_experiment_simple():
 
 if __name__ == '__main__':
 
-    hjb_pinn_experiment_simple()
+    # hjb_pinn_experiment_simple()
 
-    # flax_pde_example(n_unroll=5, do_plot=True, save=True)
+    flax_pde_example(n_unroll=5, do_plot=True, save=False)
 
     # selfcontained_flax_example()
     # not_training_debugging()

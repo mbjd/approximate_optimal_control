@@ -61,10 +61,13 @@ class nn_wrapper():
         self.nn = my_nn_flax(features=layer_dims, output_dim=output_dim)
 
         # could make these arguments as well...
-        factor = .1
+        factor = .2
         lr_schedule = optax.piecewise_constant_schedule(
                 init_value=0.05,
                 boundaries_and_scales = {
+                    100: factor,
+                    200: factor,
+                    300: factor,
                     500: factor,
                     1000: factor,
                     2000: factor,
@@ -741,7 +744,7 @@ def characteristics_experiment_simple():
 
             'nn_layersizes': (32, 32, 32),
             'batchsize': 64,
-            'N_epochs': 10,
+            'N_epochs': 1,
     }
 
     # problemparams are parameters of the problem itself
@@ -792,7 +795,7 @@ def characteristics_experiment_even_simpler():
             'x_domain': Q_x,
             'nn_layersizes': (128, 128, 128),
             'batchsize': 128,
-            'N_epochs': 100,
+            'N_epochs': 10,
     }
 
     # problemparams are parameters of the problem itself

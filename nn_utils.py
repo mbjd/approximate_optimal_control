@@ -126,7 +126,7 @@ class nn_wrapper():
 
 
         # make minibatches
-
+        # throw away some data to make batch size evenly divide the data
         N_datapts_equal_batches = N_datapts - N_datapts % batchsize
 
         N_batches = N_datapts_equal_batches / batchsize
@@ -162,7 +162,7 @@ class nn_wrapper():
         def eval_test_loss(xs, ys, params):
             return self.loss(params, xs, ys)
 
-        for i in tqdm(range(total_iters)):
+        for i in tqdm(range(total_iters), leave=False):
 
             # re-shuffle batch after epoch.
             i_batch = i % N_batches

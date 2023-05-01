@@ -33,7 +33,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
     nx, nu: dimensions of state and input spaces. obvs should match f, l, h.
 
     algo_params: dictionary with algorithm tuning parameters.
-      nn_layersizes: sizes of NN layers from input to output, e.g. (64, 64, 16)
     '''
 
 
@@ -155,6 +154,87 @@ def hjb_characteristics_solver(problem_params, algo_params):
     ).reshape(algo_params['n_trajectories'], nx, 1)
 
     max_steps = int(T / algo_params['dt'])
+
+    # @jax.jit(static_argnames=['nn_apply_fct'])
+    def resample_and_update(ys, t, nn_apply_fct, nn_params, key):
+
+        # all the ys that have left the interesting region, we want to put back into it.
+
+        # this is the first mockup of the 'actual' resampling function.
+        # It will not only put points in new locations, but also put in the correct value
+        # and costate information, based on the value function approximation given by
+        # (nn_apply_fct, nn_params). nn_apply_fct should be the apply function of the nn
+        # object itself, NOT the wrapper which is mostly used here. This is to separate
+        # NN architecture info (-> in nn object) from the parameters nn_params, which
+        # otherwise would have been in the same nn_wrapper object, perventing jit.
+
+        # variable naming scheme:
+        # old      : before resampling, whatever came out of the last pontryagin integration step
+        # resampled: ALL resampled variables, whether we want them or not
+        # new      : resampled where we want to resample, old where we don't
+
+        old_xs = ys[:, 0:nx, :]
+        old_V_grads = ys[:, nx:2*nx, :]
+        old_Vs = ys[:, -1:, :]  # range to keep shapes consistent
+
+        # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
+        # 'x_domain': Q_x,
+        ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
+        ellipse_memberships = jax.vmap(ellipse_membership_fct)(old_xs)
+
+        # resample where this mask is 1.
+        resample_mask = (ellipse_memberships > 1).astype(np.float32)
+        # keep old sample where that mask is 1.
+        not_resample_mask = 1 - resample_mask
+
+        # just resample ALL the xs...
+        # resampled_xs = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
+        resampled_xs = jax.random.multivariate_normal(
+                key,
+                mean=np.zeros(nx,),
+                cov=algo_params['x_sample_cov'],
+                shape=(algo_params['n_trajectories'],)
+        ).reshape(algo_params['n_trajectories'], nx, 1)
+
+        new_xs = resample_mask * resampled_xs + \
+                not_resample_mask * old_xs
+
+        # every trajectory is at the same time...
+        ts = t * np.ones((algo_params['n_trajectories'], 1))
+
+        # input vector of the NN
+        # squeeze removes the last 1. (n_traj, nx, 1) -> (n_traj, nx).
+        # because the NN doesn't work with explicit (n, 1) shaped column vectors
+        resampled_ts_and_xs = np.concatenate([ts, resampled_xs.squeeze()], axis=1)
+
+        # these value gradients are with respect to (t, x). so we also have time
+        # gradients, not only the ones w.r.t. state. can we do something with those as well?
+
+        # we have d/dt V(t, x(t)) = V_t(t, x(t)) + V_x(t, x(t)).T d/dt x(t)
+        # or d/dt V(t, x(t)) = [V_t(t, x(t))  V_x(t, x(t))] @ [1  d/dt x(t)]
+        # this is basically a linear system which (probably?) we can solve for
+        # V_t(t, x(t)) (partial derivative in first argument, not total time derivative)
+        # so, TODO, also try to incorporate time gradient during training.
+
+        # do some jax magic
+        V_fct = lambda z: nn_apply_fct(nn_params, z).reshape()
+        V_fct_and_grad = jax.value_and_grad(V_fct)
+        V_fct_and_grad_batch = jax.vmap(V_fct_and_grad)
+
+        resampled_Vs, resampled_V_grads = V_fct_and_grad_batch(resampled_ts_and_xs)
+
+        # weird [None] tricks so it doesn't do any wrong broadcasting
+        # V grads [1:] because the NN output also is w.r.t. t which at the moment we don't need
+        new_Vs = resample_mask * resampled_Vs[:, None, None] + not_resample_mask * old_Vs
+        new_V_grads = resample_mask * resampled_V_grads[:, 1:, None] + not_resample_mask * old_V_grads
+
+        # circumventing jax's immutable objects.
+        # if docs are to be believed, after jit this will do an efficient in place update.
+        ys = ys.at[:, 0:nx, :].set(new_xs)
+        ys = ys.at[:, nx:2*nx, :].set(new_V_grads)
+        ys = ys.at[:, -1:, :].set(new_Vs)
+
+        return ys, resample_mask
 
     @jax.jit
     def resample(ys, key):
@@ -307,8 +387,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     print('Main loop progress:')
     it = zip(resampling_indices[::-1], resampling_ts[::-1])
-    # for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
-    for (resampling_i, resampling_t) in it:
+    # for (resampling_i, resampling_t) in it:
+    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
 
         # we integrate backwards over the time interval [resampling_t, resampling_t + resample_interval].
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
@@ -319,8 +399,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # the main dish.
         # integrate the pontryagin necessary conditions backward in time, for a time period of
         # algo_params['resample_interval'], for a whole batch of terminal conditions.
-        # ipdb.set_trace()
         sol_object, final_ys = batch_pontryagin_backward_solver(init_ys, start_t)
+
 
         # sol_object.ys is the full solution array. it has shape (n_trajectories, n_timesteps, 2*nx+1, 1).
         # the 2*nx+1 comes from the 'extended state' = (x, λ, v).
@@ -333,7 +413,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         # so we save it in the big solution array with reversed indices.
         all_sols[:, save_idx_rev, :, :] = sol_object.ys
-        # ipdb.set_trace()
 
         # TODO fit GP/NN to current data to provide good start for resampling
 
@@ -362,24 +441,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         key, train_key = jax.random.split(key)
         V_nn.train(train_inputs, train_labels, algo_params, train_key)
-        break
 
-
-
-
-        # TODO how to handle this?
-        # we have some intermediate value function approximation at time t: Vt_fct
-        # we cannot pass it as an argument to the resample functions because then they
-        # cannot be jit-ted (probably only minor performance loss though??)
-        # so should we implement the bulk of the resampling logic here anyway?
-        # think tomorrow.
-
-        # something like:
-        # resampled_values = jax.vmap(Vt_fct)(resampled_xs)
-        # resampled_costates = jax.vmap(jax.jacobian(Vt_fct))(resampled_xs)
-        # followed by appropriate masking & updating main solution.
-
-        resampling_type = 'minimal'
+        resampling_type = 'minimal_with_V'
 
         if resampling_type == 'all':
             # put ALL points at random new locations, and update their value
@@ -394,6 +457,18 @@ def hjb_characteristics_solver(problem_params, algo_params):
             # only put the points that have left the interesting state domain
             # at new locations, and only update these state's value/costate info.
             ys_resampled, resampling_mask = resample(final_ys, subkey)
+            where_resampled[:, resampling_i, None, None] = resampling_mask
+
+            init_ys = ys_resampled
+
+        elif resampling_type == 'minimal_with_V':
+            # only put the points that have left the interesting state domain
+            # at new locations, and only update these state's value/costate info.
+            ys_resampled, resampling_mask = resample_and_update(
+                    final_ys, resampling_t,
+                    V_nn.nn.apply, V_nn.params,
+                    subkey
+                    )
             where_resampled[:, resampling_i, None, None] = resampling_mask
 
             init_ys = ys_resampled
@@ -652,11 +727,11 @@ def characteristics_experiment_simple():
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (32, 32, 32),
+            'nn_layersizes': (16, 16, 16),
             'nn_batchsize': 128,
-            'nn_N_epochs': 1,
+            'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
-            'nn_plot_training': True,
+            'nn_plot_training': False,
     }
 
     # problem_params are parameters of the problem itself

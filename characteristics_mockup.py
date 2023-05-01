@@ -98,8 +98,10 @@ class nn_wrapper():
         return np.mean(losses)
 
 
-    def train(self, xs, ys, key, batchsize=64, N_epochs=100, plot=False):
+    def train(self, xs, ys, algo_params, key):
 
+        batchsize = algo_params['nn_batchsize']
+        N_epochs = algo_params['nn_N_epochs']
 
         # make minibatches
         N_datapts = xs.shape[0]
@@ -155,33 +157,33 @@ class nn_wrapper():
 
             losses[i] = loss_val
 
-        if plot:
-            pl.plot(losses)
+        if algo_params['nn_plot_training']:
+            pl.semilogy(losses)
             pl.show()
 
 
 
-def hjb_characteristics_solver(problemparams, algoparams):
+def hjb_characteristics_solver(problem_params, algo_params):
     '''
-    (all in problemparams:)
+    (all in problem_params:)
     f: dynamics. vector-valued function of t, x, u.
     l: cost. scalar-valued function of t, x, u.
     h: terminal cost. scalar-valued function of x.
     T: time horizon > 0. problem is solved over t ∈ [0, T] with V(T, x) = h(x).
     nx, nu: dimensions of state and input spaces. obvs should match f, l, h.
 
-    algoparams: dictionary with algorithm tuning parameters.
+    algo_params: dictionary with algorithm tuning parameters.
       nn_layersizes: sizes of NN layers from input to output, e.g. (64, 64, 16)
     '''
 
 
     # do this with keyword arguments and **dict instead?
-    f  = problemparams['f' ]
-    l  = problemparams['l' ]
-    h  = problemparams['h' ]
-    T  = problemparams['T' ]
-    nx = problemparams['nx']
-    nu = problemparams['nu']
+    f  = problem_params['f' ]
+    l  = problem_params['l' ]
+    h  = problem_params['h' ]
+    T  = problem_params['T' ]
+    nx = problem_params['nx']
+    nu = problem_params['nu']
 
 
     # define NN first.
@@ -189,7 +191,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
     key = jax.random.PRNGKey(0)
     V_nn = nn_wrapper(
             input_dim  = 1 + nx,   # inputs are vectors containing (t, x)
-            layer_dims = algoparams['nn_layersizes'],
+            layer_dims = algo_params['nn_layersizes'],
             output_dim = 1,
             key        = key
     )
@@ -282,18 +284,18 @@ def hjb_characteristics_solver(problemparams, algoparams):
     key, subkey = jax.random.split(key)
 
     # scale by scale matrix. data will be distributed ~ N(0, scale.T @ scale)
-    # scale = algoparams['x_sample_scale']
-    # all_x_T = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+    # scale = algo_params['x_sample_scale']
+    # all_x_T = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
 
     # ... not anymore. all parameterized with covariance.
     all_x_T = jax.random.multivariate_normal(
             key,
             mean=np.zeros(nx,),
-            cov=algoparams['x_sample_cov'],
-            shape=(algoparams['n_trajectories'],)
-    ).reshape(algoparams['n_trajectories'], nx, 1)
+            cov=algo_params['x_sample_cov'],
+            shape=(algo_params['n_trajectories'],)
+    ).reshape(algo_params['n_trajectories'], nx, 1)
 
-    max_steps = int(T / algoparams['dt'])
+    max_steps = int(T / algo_params['dt'])
 
     @jax.jit
     def resample(ys, key):
@@ -303,7 +305,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
 
         # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
         # 'x_domain': Q_x,
-        ellipse_membership_fct = lambda x: x.T @ algoparams['x_domain'] @ x
+        ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
         ellipse_memberships = jax.vmap(ellipse_membership_fct)(all_xs)
 
         # resample where this mask is 1.
@@ -312,13 +314,13 @@ def hjb_characteristics_solver(problemparams, algoparams):
         not_resample_mask = 1 - resample_mask
 
         # just resample ALL the xs...
-        # resampled_xs = scale @ jax.random.normal(key, (algoparams['n_trajectories'], nx, 1))
+        # resampled_xs = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
         resampled_xs = jax.random.multivariate_normal(
                 key,
                 mean=np.zeros(nx,),
-                cov=algoparams['x_sample_cov'],
-                shape=(algoparams['n_trajectories'],)
-        ).reshape(algoparams['n_trajectories'], nx, 1)
+                cov=algo_params['x_sample_cov'],
+                shape=(algo_params['n_trajectories'],)
+        ).reshape(algo_params['n_trajectories'], nx, 1)
 
         new_xs = resample_mask * resampled_xs + \
                 not_resample_mask * all_xs
@@ -335,9 +337,9 @@ def hjb_characteristics_solver(problemparams, algoparams):
         resampled_xs = jax.random.multivariate_normal(
                 key,
                 mean=np.zeros(nx,),
-                cov=algoparams['x_sample_cov'],
-                shape=(algoparams['n_trajectories'],)
-        ).reshape(algoparams['n_trajectories'], nx, 1)
+                cov=algo_params['x_sample_cov'],
+                shape=(algo_params['n_trajectories'],)
+        ).reshape(algo_params['n_trajectories'], nx, 1)
 
         ys = ys.at[:, 0:nx, :].set(resampled_xs)
 
@@ -367,8 +369,8 @@ def hjb_characteristics_solver(problemparams, algoparams):
         term = diffrax.ODETerm(f_forward)
         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
         saveat = diffrax.SaveAt(steps=True)
-        dt = algoparams['dt']
-        integ_time = algoparams['resample_interval']
+        dt = algo_params['dt']
+        integ_time = algo_params['resample_interval']
         max_steps = int(integ_time / dt)
 
         # and solve :)
@@ -398,7 +400,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))
     all_y_T = x_to_y_vmap(all_x_T)
 
-    dt = algoparams['dt']
+    dt = algo_params['dt']
     t = T  # np.array([T])
 
     init_ys = all_y_T
@@ -414,13 +416,13 @@ def hjb_characteristics_solver(problemparams, algoparams):
     # all arrays defined here contain all but the last (at T) steps.
 
     # somehow with % it is inexact sometimes.
-    # remainder = algoparams['resample_interval'] % dt
+    # remainder = algo_params['resample_interval'] % dt
     # so we calculate explicitly the difference between the quotient and the nearest integer.
-    remainder = algoparams['resample_interval'] / dt - int(0.5 + algoparams['resample_interval'] / dt)
+    remainder = algo_params['resample_interval'] / dt - int(0.5 + algo_params['resample_interval'] / dt)
     assert np.allclose(remainder, 0, atol=1e-3), 'dt does not evenly divide resample_interval; problems may arise.'
 
-    n_resamplings = int(T / algoparams['resample_interval'])
-    timesteps_per_resample = int(0.5 + algoparams['resample_interval'] / dt)
+    n_resamplings = int(T / algo_params['resample_interval'])
+    timesteps_per_resample = int(0.5 + algo_params['resample_interval'] / dt)
 
     resampling_indices = np.arange(n_resamplings) * timesteps_per_resample
     resampling_ts = resampling_indices * dt
@@ -432,8 +434,8 @@ def hjb_characteristics_solver(problemparams, algoparams):
     # full solution array. onp so we can modify in place.
     # every integration step fills a slice all_sols[:, i:i+timesteps_per_resample, :, :], for i in resampling_indices.
     # final ..., 1) in shape so we have nice column vectors just as everywhere else.
-    all_sols = onp.zeros((algoparams['n_trajectories'], n_timesteps, 2*nx+1, 1))
-    where_resampled = onp.zeros((algoparams['n_trajectories'], n_timesteps), dtype=bool)
+    all_sols = onp.zeros((algo_params['n_trajectories'], n_timesteps, 2*nx+1, 1))
+    where_resampled = onp.zeros((algo_params['n_trajectories'], n_timesteps), dtype=bool)
 
     # the terminal condition separately
     # technically redundant but might make function fitting nicer later
@@ -453,11 +455,11 @@ def hjb_characteristics_solver(problemparams, algoparams):
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
         # at all_sols[save_idx]
 
-        start_t = resampling_t + algoparams['resample_interval']
+        start_t = resampling_t + algo_params['resample_interval']
 
         # the main dish.
         # integrate the pontryagin necessary conditions backward in time, for a time period of
-        # algoparams['resample_interval'], for a whole batch of terminal conditions.
+        # algo_params['resample_interval'], for a whole batch of terminal conditions.
         # ipdb.set_trace()
         sol_object, final_ys = batch_pontryagin_backward_solver(init_ys, start_t)
 
@@ -490,7 +492,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
         # make new axes to match train_state
         train_ts = all_ts[None, resampling_i:-1, None]
         # repeat for all trajectories (axis 0), which all have the same ts.
-        train_ts = np.repeat(train_ts, algoparams['n_trajectories'], axis=0)
+        train_ts = np.repeat(train_ts, algo_params['n_trajectories'], axis=0)
         # flatten the same way as train_states
         train_ts = train_ts.reshape(-1, 1)
 
@@ -500,11 +502,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
         train_labels = all_sols[:, resampling_i:-1, 2*nx, :].reshape(-1, 1)
 
         key, train_key = jax.random.split(key)
-        V_nn.train(
-                train_inputs, train_labels, key,
-                batchsize=algoparams['batchsize'], N_epochs=algoparams['N_epochs'],
-                plot=True
-        )
+        V_nn.train(train_inputs, train_labels, algo_params, train_key)
         break
 
 
@@ -550,7 +548,7 @@ def hjb_characteristics_solver(problemparams, algoparams):
     return all_sols, all_ts, where_resampled
 
 
-def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
+def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
     fig = pl.figure(figsize=(8, 3))
 
@@ -559,8 +557,8 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     # ax1 = fig.add_subplot(122, projection='3d')
 
 
-    nx = problemparams['nx']
-    T = problemparams['T']
+    nx = problem_params['nx']
+    T = problem_params['T']
     all_xs       = all_sols[:, :,  0:nx,    :]
     all_costates = all_sols[:, :,  nx:2*nx, :]
     all_values   = all_sols[:, :, -1,       :]
@@ -569,17 +567,17 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
 
     # -1 becomes number of time steps
     # ipdb.set_trace()
-    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algoparams['n_trajectories'], -1, 1, 1)
+    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algo_params['n_trajectories'], -1, 1, 1)
     # when norm <= max_norm, scalings = 1, otherwise, scales to max_norm
     scalings = np.minimum(1, max_norm/x_norms)
 
     all_xs = all_xs * scalings
 
-    a = 0.1 * 256 / (algoparams['n_trajectories'])
+    a = 0.1 * 256 / (algo_params['n_trajectories'])
     if a > 1: a = 1
 
     # somehow i was not able to get it to work with a single call and data in matrix form.
-    # ts_expanded = np.tile(all_ts[:, None], algoparams['n_trajectories'])
+    # ts_expanded = np.tile(all_ts[:, None], algo_params['n_trajectories'])
     # ipdb.set_trace()
     # ax0.plot(all_ts, all_xs[:, :, 0].squeeze().T, all_xs[:, :, 1].squeeze().T, color='black', alpha=a)
     # ax1.plot(all_xs[:, :, 0], all_xs[:, :, 1], all_values, color='black', alpha=a)
@@ -589,7 +587,7 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     all_xs = all_xs.at[where_resampled, :, :].set(np.nan)
 
     # so now we go back to the stone age
-    for i in range(algoparams['n_trajectories']):
+    for i in range(algo_params['n_trajectories']):
         ax0.plot(all_ts, all_xs[i, :, 0].squeeze(), all_xs[i, :, 1].squeeze(), color='black', alpha=a)
         # ax1.plot(all_xs[i, :, 0], all_xs[i, :, 1], all_values[i], color='blue', alpha=a)
 
@@ -643,15 +641,15 @@ def plot_2d(all_sols, all_ts, where_resampled, problemparams, algoparams):
     pl.show()
 
 
-def plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams):
+def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
     # just one figure, with the state trajectories, maybe colored according
     # to value?
 
     fig = pl.figure(figsize=(8, 3))
 
-    nx = problemparams['nx']
-    T = problemparams['T']
+    nx = problem_params['nx']
+    T = problem_params['T']
     all_xs       = all_sols[:, :,  0:nx,    :]
     all_costates = all_sols[:, :,  nx:2*nx, :]
     all_values   = all_sols[:, :, -1,       :]
@@ -660,13 +658,13 @@ def plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams):
 
     # -1 becomes number of time steps
     # ipdb.set_trace()
-    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algoparams['n_trajectories'], -1, 1, 1)
+    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algo_params['n_trajectories'], -1, 1, 1)
     # when norm <= max_norm, scalings = 1, otherwise, scales to max_norm
     scalings = np.minimum(1, max_norm/x_norms)
 
     all_xs = all_xs * scalings
 
-    a = 0.1 * 256 / (algoparams['n_trajectories'])
+    a = 0.1 * 256 / (algo_params['n_trajectories'])
     if a > 1: a = 1
 
     # neat hack - if we set the xs to nan where resamplings occurred, it breaks up the plot and does not
@@ -706,7 +704,7 @@ def characteristics_experiment_simple():
         return (x.T @ Qf @ x).reshape()
 
 
-    problemparams = {
+    problem_params = {
             'f': f,
             'l': l,
             'h': h,
@@ -735,7 +733,7 @@ def characteristics_experiment_simple():
 
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
-    algoparams = {
+    algo_params = {
             'n_trajectories': 512,
             'dt': 1/256,
             'resample_interval': 1/4,
@@ -743,15 +741,16 @@ def characteristics_experiment_simple():
             'x_domain': Q_x,
 
             'nn_layersizes': (32, 32, 32),
-            'batchsize': 64,
-            'N_epochs': 1,
+            'nn_batchsize': 128,
+            'nn_N_epochs': 1,
+            'nn_plot_training': True,
     }
 
-    # problemparams are parameters of the problem itself
-    # algoparams contains the 'implementation details'
-    output = hjb_characteristics_solver(problemparams, algoparams)
+    # problem_params are parameters of the problem itself
+    # algo_params contains the 'implementation details'
+    output = hjb_characteristics_solver(problem_params, algo_params)
 
-    plot_2d(*output, problemparams, algoparams)
+    plot_2d(*output, problem_params, algo_params)
 
 def characteristics_experiment_even_simpler():
     # 1d test case.
@@ -769,7 +768,7 @@ def characteristics_experiment_even_simpler():
         Qf = 1 * np.eye(1)
         return (x.T @ Qf @ x).reshape()
 
-    problemparams = {
+    problem_params = {
             'f': f,
             'l': l,
             'h': h,
@@ -787,22 +786,22 @@ def characteristics_experiment_even_simpler():
 
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
-    algoparams = {
+    algo_params = {
             'n_trajectories': 256,
             'dt': 1/256,
             'resample_interval': 1/16,
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
             'nn_layersizes': (128, 128, 128),
-            'batchsize': 128,
-            'N_epochs': 10,
+            'nn_batchsize': 128,
+            'nn_N_epochs': 10,
     }
 
-    # problemparams are parameters of the problem itself
-    # algoparams contains the 'implementation details'
-    all_sols, all_ts, where_resampled = hjb_characteristics_solver(problemparams, algoparams)
+    # problem_params are parameters of the problem itself
+    # algo_params contains the 'implementation details'
+    all_sols, all_ts, where_resampled = hjb_characteristics_solver(problem_params, algo_params)
 
-    plot_1d(all_sols, all_ts, where_resampled, problemparams, algoparams)
+    plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params)
 
 
 

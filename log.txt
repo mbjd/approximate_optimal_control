@@ -509,3 +509,25 @@ application.
 
 implemented all the NN business logic. it now runs. but, as per usual, it
 does weird stuff™. to be fixed sometime later.
+
+
+2023-05-01
+
+put nn business logic in own file, added option to automatically create
+test set and show test loss. next tasks:
+
+- include value gradient penalty.
+  this should greatly improve generalisation (-> test loss) and more
+  importantly fit the costate with smaller error, which is basically directly
+  responsible for the control input.
+
+- use V approximation in resampling step.
+
+- explore sampling strategies.
+
+interestingly, (for now with just value error loss) it seems that even
+after very short time, like 1/3 epoch (with 512 trajectories over .25 sec,
+leading to 3000 iterations of 128-sized minibatches). this is probably a
+good thing, indicating that our data is somewhat redundant, which itself
+indicates that the value function is 'nice' and we have enough data.
+

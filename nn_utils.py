@@ -162,7 +162,7 @@ class nn_wrapper():
         def eval_test_loss(xs, ys, params):
             return self.loss(params, xs, ys)
 
-        for i in tqdm(range(total_iters), leave=False):
+        for i in tqdm(range(total_iters), leave=False, desc='NN training...'):
 
             # re-shuffle batch after epoch.
             i_batch = i % N_batches

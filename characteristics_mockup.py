@@ -11,13 +11,12 @@ import numpy as onp
 import tk as tkinter
 import matplotlib
 matplotlib.use('Qt5Agg')
-
 import matplotlib.pyplot as pl
 
 import ipdb
-
 import time
 from tqdm import tqdm
+from functools import partial
 
 from nn_utils import nn_wrapper
 
@@ -147,7 +146,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     # ... not anymore. all parameterized with covariance.
     all_x_T = jax.random.multivariate_normal(
-            key,
+            subkey,
             mean=np.zeros(nx,),
             cov=algo_params['x_sample_cov'],
             shape=(algo_params['n_trajectories'],)
@@ -155,7 +154,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     max_steps = int(T / algo_params['dt'])
 
-    # @jax.jit(static_argnames=['nn_apply_fct'])
+    @partial(jax.jit, static_argnames=['nn_apply_fct'])
     def resample_and_update(ys, t, nn_apply_fct, nn_params, key):
 
         # all the ys that have left the interesting region, we want to put back into it.
@@ -385,10 +384,9 @@ def hjb_characteristics_solver(problem_params, algo_params):
     # alternate between particle-based, batched pontryagin/characteristic step,
     # followed by resampling step.
 
-    print('Main loop progress:')
     it = zip(resampling_indices[::-1], resampling_ts[::-1])
     # for (resampling_i, resampling_t) in it:
-    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
+    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings, desc='total progress'):
 
         # we integrate backwards over the time interval [resampling_t, resampling_t + resample_interval].
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
@@ -414,7 +412,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # so we save it in the big solution array with reversed indices.
         all_sols[:, save_idx_rev, :, :] = sol_object.ys
 
-        # TODO fit GP/NN to current data to provide good start for resampling
 
         # training data terminology:
 
@@ -425,10 +422,23 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         # before we have a shape (n_traj, n_time, 2*nx+1, 1).
         # here we remove the last dimension - somehow it makes NN stuff easier.
-        train_states = all_sols[:, resampling_i:-1, 0:nx, :].reshape(-1, nx)
+
+        # use ALL the training data available
+        if algo_params['nn_train_lookback'] == np.inf:
+            train_time_idx = np.arange(resampling_i, n_timesteps)
+        else:
+            lookback_indices = int(algo_params['nn_train_lookback'] / algo_params['dt'])
+            upper_train_time_idx = resampling_i + lookback_indices
+            if upper_train_time_idx > n_timesteps:
+                # If available data <= lookback, just use whatever we have.
+                upper_train_time_idx = n_timesteps
+
+            train_time_idx = np.arange(resampling_i, upper_train_time_idx)
+
+        train_states = all_sols[:, train_time_idx, 0:nx, :].reshape(-1, nx)
 
         # make new axes to match train_state
-        train_ts = all_ts[None, resampling_i:-1, None]
+        train_ts = all_ts[None, train_time_idx, None]
         # repeat for all trajectories (axis 0), which all have the same ts.
         train_ts = np.repeat(train_ts, algo_params['n_trajectories'], axis=0)
         # flatten the same way as train_states
@@ -437,12 +447,14 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # assemble into main data arrays
         # these are of shape (n_datpts, n_inputfeatures) and (n_datapts, 1)
         train_inputs = np.concatenate([train_ts, train_states], axis=1)
-        train_labels = all_sols[:, resampling_i:-1, 2*nx, :].reshape(-1, 1)
+        train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
 
         key, train_key = jax.random.split(key)
         V_nn.train(train_inputs, train_labels, algo_params, train_key)
 
         resampling_type = 'minimal_with_V'
+
+        key, subkey = jax.random.split(key)
 
         if resampling_type == 'all':
             # put ALL points at random new locations, and update their value
@@ -687,7 +699,7 @@ def characteristics_experiment_simple():
         return x.T @ Q @ x + u.T @ R @ u
 
     def h(x):
-        Qf = 1 * np.eye(2)
+        Qf = 0 * np.eye(2)
         return (x.T @ Qf @ x).reshape()
 
 
@@ -721,17 +733,18 @@ def characteristics_experiment_simple():
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
     algo_params = {
-            'n_trajectories': 512,
+            'n_trajectories': 128,
             'dt': 1/256,
             'resample_interval': 1/4,
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (16, 16, 16),
+            'nn_layersizes': (32, 32, 32),
             'nn_batchsize': 128,
-            'nn_N_epochs': 5,
+            'nn_N_epochs': 1,
             'nn_testset_fraction': 0.1,
             'nn_plot_training': False,
+            'nn_train_lookback': 1/4
     }
 
     # problem_params are parameters of the problem itself

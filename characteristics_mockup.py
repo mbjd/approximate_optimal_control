@@ -683,6 +683,59 @@ def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
     pl.show()
 
 
+def characteristics_experiment_even_simpler():
+    # 1d test case.
+
+    # SINGLE integrator.
+    def f(t, x, u):
+        return u
+
+    def l(t, x, u):
+        Q = np.eye(1)
+        R = np.eye(1)
+        return x.T @ Q @ x + u.T @ R @ u
+
+    def h(x):
+        Qf = 1 * np.eye(1)
+        return (x.T @ Qf @ x).reshape()
+
+    problem_params = {
+            'f': f,
+            'l': l,
+            'h': h,
+            'T': 5,
+            'nx': 1,
+            'nu': 1
+    }
+
+    x_sample_scale = 1 * np.eye(1)
+    x_sample_cov = x_sample_scale @ x_sample_scale.T
+
+    # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
+    resample_mahalanobis_dist = 2
+    Q_x = np.linalg.inv(x_sample_cov) / resample_mahalanobis_dist**2
+
+    # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
+    # then just say we resample when x is outside of like 4 sigma or similar.
+    algo_params = {
+            'n_trajectories': 256,
+            'dt': 1/256,
+            'resample_interval': 1/16,
+            'x_sample_cov': x_sample_cov,
+            'x_domain': Q_x,
+            'nn_layersizes': (128, 128, 128),
+            'nn_batchsize': 128,
+            'nn_N_epochs': 10,
+    }
+
+    # problem_params are parameters of the problem itself
+    # algo_params contains the 'implementation details'
+    all_sols, all_ts, where_resampled = hjb_characteristics_solver(problem_params, algo_params)
+
+    plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params)
+
+
+
 def characteristics_experiment_simple():
 
     # simple control system. double integrator with friction term.
@@ -751,58 +804,6 @@ def characteristics_experiment_simple():
     output = hjb_characteristics_solver(problem_params, algo_params)
 
     plot_2d(*output, problem_params, algo_params)
-
-def characteristics_experiment_even_simpler():
-    # 1d test case.
-
-    # SINGLE integrator.
-    def f(t, x, u):
-        return u
-
-    def l(t, x, u):
-        Q = np.eye(1)
-        R = np.eye(1)
-        return x.T @ Q @ x + u.T @ R @ u
-
-    def h(x):
-        Qf = 1 * np.eye(1)
-        return (x.T @ Qf @ x).reshape()
-
-    problem_params = {
-            'f': f,
-            'l': l,
-            'h': h,
-            'T': 5,
-            'nx': 1,
-            'nu': 1
-    }
-
-    x_sample_scale = 1 * np.eye(1)
-    x_sample_cov = x_sample_scale @ x_sample_scale.T
-
-    # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
-    resample_mahalanobis_dist = 2
-    Q_x = np.linalg.inv(x_sample_cov) / resample_mahalanobis_dist**2
-
-    # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
-    # then just say we resample when x is outside of like 4 sigma or similar.
-    algo_params = {
-            'n_trajectories': 256,
-            'dt': 1/256,
-            'resample_interval': 1/16,
-            'x_sample_cov': x_sample_cov,
-            'x_domain': Q_x,
-            'nn_layersizes': (128, 128, 128),
-            'nn_batchsize': 128,
-            'nn_N_epochs': 10,
-    }
-
-    # problem_params are parameters of the problem itself
-    # algo_params contains the 'implementation details'
-    all_sols, all_ts, where_resampled = hjb_characteristics_solver(problem_params, algo_params)
-
-    plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params)
-
 
 
 if __name__ == '__main__':

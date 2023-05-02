@@ -169,7 +169,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
     max_steps = int(T / algo_params['dt'])
 
     @partial(jax.jit, static_argnames=['nn_apply_fct'])
-    def resample_and_update(ys, t, nn_apply_fct, nn_params, key):
+    def resample(ys, t, nn_apply_fct, nn_params, key):
 
         # all the ys that have left the interesting region, we want to put back into it.
 
@@ -190,17 +190,31 @@ def hjb_characteristics_solver(problem_params, algo_params):
         old_V_grads = ys[:, nx:2*nx, :]
         old_Vs = ys[:, -1:, :]  # range to keep shapes consistent
 
-        # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
-        # 'x_domain': Q_x,
-        ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
-        ellipse_memberships = jax.vmap(ellipse_membership_fct)(old_xs)
 
-        # resample where this mask is 1.
-        resample_mask = (ellipse_memberships > 1).astype(np.float32)
+        # depending on the resampling condition, set the resampling mask to 1 for the trajectories
+        # we want to resample.
+        if algo_params['resample_type'] == 'minimal':
+
+            # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
+            # 'x_domain': Q_x,
+            ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
+            ellipse_memberships = jax.vmap(ellipse_membership_fct)(old_xs)
+
+            # resample where this mask is 1.
+            resample_mask = (ellipse_memberships > 1).astype(np.float32)
+
+        elif algo_params['resample_type'] == 'all':
+            # additional shape for compatibility with column vector style
+            resample_mask = np.ones((algo_params['n_trajectories'], 1, 1))
+
+        else:
+            raise RuntimeError(f'Invalid resampling type "{algo_params["resampling_type"]}"')
+
+
         # keep old sample where that mask is 1.
         not_resample_mask = 1 - resample_mask
 
-        # just resample ALL the xs...
+        # just resample ALL the xs anyway, and later let the mask decide which to keep.
         # resampled_xs = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
         resampled_xs = jax.random.multivariate_normal(
                 key,
@@ -248,55 +262,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
         ys = ys.at[:, -1:, :].set(new_Vs)
 
         return ys, resample_mask
-
-    @jax.jit
-    def resample(ys, key):
-        # all the ys that have left the interesting region, we want to put back into it.
-
-        all_xs = ys[:, 0:nx, :]
-
-        # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
-        # 'x_domain': Q_x,
-        ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
-        ellipse_memberships = jax.vmap(ellipse_membership_fct)(all_xs)
-
-        # resample where this mask is 1.
-        resample_mask = (ellipse_memberships > 1).astype(np.float32)
-        # keep old sample where that mask is 1.
-        not_resample_mask = 1 - resample_mask
-
-        # just resample ALL the xs...
-        # resampled_xs = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
-        resampled_xs = jax.random.multivariate_normal(
-                key,
-                mean=np.zeros(nx,),
-                cov=algo_params['x_sample_cov'],
-                shape=(algo_params['n_trajectories'],)
-        ).reshape(algo_params['n_trajectories'], nx, 1)
-
-        new_xs = resample_mask * resampled_xs + \
-                not_resample_mask * all_xs
-
-        # circumventing jax's immutable objects.
-        # if docs are to be believed, after jit this will do an efficient in place update.
-        ys = ys.at[:, 0:nx, :].set(new_xs)
-        return ys, resample_mask
-
-    @jax.jit
-    def resample_all(ys, key):
-        # just generate all the states according to the state distribution
-
-        resampled_xs = jax.random.multivariate_normal(
-                key,
-                mean=np.zeros(nx,),
-                cov=algo_params['x_sample_cov'],
-                shape=(algo_params['n_trajectories'],)
-        ).reshape(algo_params['n_trajectories'], nx, 1)
-
-        ys = ys.at[:, 0:nx, :].set(resampled_xs)
-
-        return ys
-
 
 
 
@@ -486,41 +451,19 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         key, subkey = jax.random.split(key)
 
-        if resampling_type == 'all':
-            # put ALL points at random new locations, and update their value
-            # and costate info according to some value function approximation.
 
-            ys_resampled = resample_all(final_ys, subkey)
-            where_resampled[:, resampling_i, None, None] = True
+        # resampling step.
+        # which type of resampling (minimal or all) is baked into the resample function
+        # via algo_params['resample_type'].
+        ys_resampled, resampling_mask = resample(
+                final_ys, resampling_t,
+                # V_nn.nn.apply, V_nn.params,
+                V_nn.nn.apply, nn_params,
+                subkey
+                )
+        where_resampled[:, resampling_i, None, None] = resampling_mask
 
-            init_ys = ys_resampled
-
-        elif resampling_type == 'minimal':
-            # only put the points that have left the interesting state domain
-            # at new locations, and only update these state's value/costate info.
-            ys_resampled, resampling_mask = resample(final_ys, subkey)
-            where_resampled[:, resampling_i, None, None] = resampling_mask
-
-            init_ys = ys_resampled
-
-        elif resampling_type == 'minimal_with_V':
-            # only put the points that have left the interesting state domain
-            # at new locations, and only update these state's value/costate info.
-            ys_resampled, resampling_mask = resample_and_update(
-                    final_ys, resampling_t,
-                    # V_nn.nn.apply, V_nn.params,
-                    V_nn.nn.apply, nn_params,
-                    subkey
-                    )
-            where_resampled[:, resampling_i, None, None] = resampling_mask
-
-            init_ys = ys_resampled
-
-        elif resampling_type == 'none':
-            init_ys = final_ys
-
-        else:
-            raise RuntimeError(f'Invalid resampling type "{resampling_type}"')
+        init_ys = ys_resampled
 
     plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
 
@@ -836,12 +779,13 @@ def characteristics_experiment_simple():
             'n_trajectories': 128,
             'dt': 1/256,
             'resample_interval': 1/4,
+            'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
             'nn_layersizes': (32, 32, 32),
             'nn_batchsize': 128,
-            'nn_N_epochs': 3,
+            'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
             'nn_plot_training': False,
             'nn_train_lookback': 1/4

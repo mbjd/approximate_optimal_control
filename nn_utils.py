@@ -62,8 +62,8 @@ class nn_wrapper():
 
 
     # so we can use it like a function :)
-    def __call__(self, x):
-        return self.nn.apply(self.params, x)
+    def __call__(self, x, params):
+        return self.nn.apply(params, x)
 
     # just an example loss function, very standard.
     def point_loss(self, params, x, y):

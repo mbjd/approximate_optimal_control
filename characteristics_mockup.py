@@ -18,7 +18,13 @@ import time
 from tqdm import tqdm
 from functools import partial
 
+# https://jax.readthedocs.io/en/latest/faq.html#strategy-3-making-customclass-a-pytree
 from nn_utils import nn_wrapper
+jax.tree_util.register_pytree_node(nn_wrapper,
+                                   nn_wrapper._tree_flatten,
+                                   nn_wrapper._tree_unflatten)
+
+import frozendict
 
 
 
@@ -50,8 +56,16 @@ def hjb_characteristics_solver(problem_params, algo_params):
             input_dim  = 1 + nx,   # inputs are vectors containing (t, x)
             layer_dims = algo_params['nn_layersizes'],
             output_dim = 1,
-            key        = key
     )
+
+    key, init_key = jax.random.split(key)
+    nn_params = V_nn.init_nn_params(init_key)
+
+    # the algo params relevant for nn training.
+    # so we have only immutable stuff left.
+    is_nn_key = lambda key_and_val: key_and_val[0].startswith('nn_')
+    algo_params_nn = frozendict.frozendict(filter(is_nn_key, algo_params.items()))
+
 
     # we want to find the value function V.
     # for that we want to approximately satisfy the hjb equation:
@@ -450,7 +464,23 @@ def hjb_characteristics_solver(problem_params, algo_params):
         train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
 
         key, train_key = jax.random.split(key)
-        V_nn.train(train_inputs, train_labels, algo_params, train_key)
+
+        # for this to work with jit, we need algo_params to be hashable
+        # so we can pass it as static argument
+        # for this in turn we cannot have jax arrays in there.
+        # luckily the NN training does not need the arrays.
+        # therefore, we take them out
+
+        nn_params, train_losses, test_losses = V_nn.train(
+                train_inputs, train_labels, nn_params, algo_params_nn, train_key
+        )
+
+
+        if algo_params['nn_plot_training']:
+            pl.semilogy(train_losses, label='training loss')
+            pl.semilogy(test_losses, label='test loss')
+            pl.legend()
+            pl.show()
 
         resampling_type = 'minimal_with_V'
 
@@ -478,7 +508,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
             # at new locations, and only update these state's value/costate info.
             ys_resampled, resampling_mask = resample_and_update(
                     final_ys, resampling_t,
-                    V_nn.nn.apply, V_nn.params,
+                    # V_nn.nn.apply, V_nn.params,
+                    V_nn.nn.apply, nn_params,
                     subkey
                     )
             where_resampled[:, resampling_i, None, None] = resampling_mask
@@ -732,6 +763,7 @@ def characteristics_experiment_simple():
 
     # IDEA for simpler parameterisation. same matrix for x sample cov and x domain.
     # then just say we resample when x is outside of like 4 sigma or similar.
+
     algo_params = {
             'n_trajectories': 128,
             'dt': 1/256,
@@ -741,7 +773,7 @@ def characteristics_experiment_simple():
 
             'nn_layersizes': (32, 32, 32),
             'nn_batchsize': 128,
-            'nn_N_epochs': 1,
+            'nn_N_epochs': 3,
             'nn_testset_fraction': 0.1,
             'nn_plot_training': False,
             'nn_train_lookback': 1/4

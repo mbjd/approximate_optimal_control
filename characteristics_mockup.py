@@ -537,36 +537,35 @@ def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
     # over the state-space at some (adjustable) time.
 
 
-    @partial(jax.jit, static_argnames=['return_grid'])
+    # @partial(jax.jit, static_argnames=['return_grid'])
     def eval_V_grid(t, return_grid=False):
         N_disc = 51
         xgrid = ygrid = np.linspace(xmin, xmax, N_disc)
         xx, yy = np.meshgrid(xgrid, ygrid)
 
-        xx = xx.reshape(N_disc*N_disc, 1)
-        yy = yy.reshape(N_disc*N_disc, 1)
-
         nn_inputs = np.concatenate([
             t * np.ones((N_disc*N_disc, 1)),
-            xx,
-            yy,
+            xx.reshape(N_disc*N_disc, 1),
+            yy.reshape(N_disc*N_disc, 1),
         ], axis=1)
 
         zz = V_nn_wrapper(nn_inputs, nn_params)
 
         if return_grid:
-            return xx, yy, zz
+            return xx, yy, zz.reshape(N_disc, N_disc)
         else:
-            return zz
+            return zz.reshape(N_disc, N_disc)
 
     t_init = tmin
 
     xx, yy, V = eval_V_grid(t_init, return_grid=True)
 
     fig = pl.figure('value function')
-    fig, ax = pl.subplots(subplot_kw={"projection": "3d"})
     # ax = fig.add_subplot(111, projection='3d')
-    surf = ax.plot_surface(xx, yy, V)
+    # surf = ax.plot_surface(xx, yy, V)
+
+    ax = fig.add_subplot(111)
+    line = ax.contourf(xx, yy, V, levels=np.arange(30))
 
     fig.subplots_adjust(bottom=.25)
     ax_time = fig.add_axes([.25, .1, .65, .03])
@@ -581,12 +580,16 @@ def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
     def update(val):
         t_plot = time_slider.val
 
+        print('clearing...')
+        ax.clear()
 
-        fig.canvas.draw_idle()
-
+        print('jitting/evaluating...')
         V = eval_V_grid(t_plot)
+        print('plotting')
+        line = ax.contourf(xx, yy, V, levels=np.arange(30))
+        pl.draw()
 
-    # time_slider.on_changed(update)
+    time_slider.on_changed(update)
 
 
 

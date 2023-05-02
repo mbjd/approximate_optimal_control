@@ -531,3 +531,15 @@ leading to 3000 iterations of 128-sized minibatches). this is probably a
 good thing, indicating that our data is somewhat redundant, which itself
 indicates that the value function is 'nice' and we have enough data.
 
+included option for NN test set, which is a no brainer given we have
+basically infinite, clean data. implemented resampling step which actually
+uses V and λ information.
+
+
+2023-05-02
+
+still same TODOs as yesterday. spent all day making the NN training faster
+(much faster!) with a wider jit region, and making plotting/training
+business logic a bit more bearable, as well as clearing out old resampling
+code.
+

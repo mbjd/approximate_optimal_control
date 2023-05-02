@@ -174,23 +174,23 @@ class nn_wrapper():
         def eval_test_loss(xs, ys, params):
             return self.loss(params, xs, ys)
 
-        # TODO use lax control flow here...
-        # look at jax.lax.scan to do this:
+        # the training loop is written with jax.lax.scan
         # basically a fancy version to write a for loop, but nice for jit
 
-        #  input 0       input 1       input 2      ......
-        #    v             v             v
-        #  comp. 0   >   comp. 1   >   comp. 2      ......
-        #    v             v             v
-        #  result 0      result 1      result 2      ......
+        # iteration:       0            1            2
+        #
+        #                input        input        input
+        #                  v            v            v
+        # init state  >   comp.    >   comp.    >   comp.   >    ......
+        #                  v            v            v
+        #                result       result       result
 
-        # what does the computation need as inputs?
-        # i (to know which batch to take)
-        #   or the batch itself already...
+        # inputs: NONE (all wrapped into f_scan)
         #
-        # state to pass to next computation is basically (opt_state, nn_params)
+        # state to pass to next computation, called 'carry' in docs:
+        # (nn params, optimiser state, minibatch index)
         #
-        # outputs/results would be train / test loss
+        # outputs: (training loss, test loss)
 
         # shuffle data
         key, subkey = jax.random.split(key)
@@ -198,7 +198,7 @@ class nn_wrapper():
 
         def f_scan(carry, input_slice):
             # unpack the 'carry' state
-            opt_state, nn_params, i_batch = carry
+            nn_params, opt_state, i_batch = carry
 
             # obtain minibatch
             # is this usage of all_batch_data_indices already functionally impure?
@@ -217,7 +217,7 @@ class nn_wrapper():
             test_loss = eval_test_loss(xs_test, ys_test, nn_params)
             output_slice = (loss, test_loss)
 
-            new_carry = (opt_state_new, nn_params_new, (i_batch + 1) % N_batches)
+            new_carry = (nn_params_new, opt_state_new, (i_batch + 1) % N_batches)
 
             return new_carry, output_slice
 
@@ -226,10 +226,10 @@ class nn_wrapper():
         # number in the i_batch counter, and the map from batch index to data is 'baked' into
         # the f_scan function. probably the nicer way would be to have the data as input.
         # but it works as it is \o/
-        init_carry = (opt_state, nn_params, 0)
+        init_carry = (nn_params, opt_state, 0)
         final_carry, outputs = jax.lax.scan(f_scan, init_carry, None, length=total_iters)
 
-        opt_state, nn_params, _ = final_carry
+        nn_params, _, _ = final_carry
         train_losses, test_losses = outputs
 
         return nn_params, train_losses, test_losses

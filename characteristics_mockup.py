@@ -322,6 +322,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     init_ys = all_y_T
 
+
+
     # calculate all the time and index parameters in advance to avoid the mess.
     # image for visualisation:
 
@@ -358,6 +360,50 @@ def hjb_characteristics_solver(problem_params, algo_params):
     # technically redundant but might make function fitting nicer later
     all_sols[:, -1, :, :] = all_y_T
 
+    def sol_array_to_train_data(all_sols, all_ts, resampling_i, train_lookback):
+
+        # basically, this takes the data in all_sols and all_ts, slices out the
+        # relevant part between the current resampling (resampling_i) and the
+        # lookback horizon, and reshapes it accordingly so the NN can handle it.
+
+        # training data terminology:
+
+        # input = [t, state], label = V
+
+        # reshape - during training we do not care which is the time and which the
+        # trajectory index, they are all just pairs of ((t, x), V) regardless
+
+        # before we have a shape (n_traj, n_time, 2*nx+1, 1).
+        # here we remove the last dimension - somehow it makes NN stuff easier.
+
+        if train_lookback == np.inf:
+            # use ALL the training data available
+            train_time_idx = np.arange(resampling_i, n_timesteps)
+        else:
+            lookback_indices = int(train_lookback / algo_params['dt'])
+            upper_train_time_idx = resampling_i + lookback_indices
+            if upper_train_time_idx > n_timesteps:
+                # If available data <= lookback, just use whatever we have.
+                upper_train_time_idx = n_timesteps
+
+            train_time_idx = np.arange(resampling_i, upper_train_time_idx)
+
+        train_states = all_sols[:, train_time_idx, 0:nx, :].reshape(-1, nx)
+
+        # make new axes to match train_state
+        train_ts = all_ts[None, train_time_idx, None]
+        # repeat for all trajectories (axis 0), which all have the same ts.
+        train_ts = np.repeat(train_ts, algo_params['n_trajectories'], axis=0)
+        # flatten the same way as train_states
+        train_ts = train_ts.reshape(-1, 1)
+
+        # assemble into main data arrays
+        # these are of shape (n_datpts, n_inputfeatures) and (n_datapts, 1)
+        train_inputs = np.concatenate([train_ts, train_states], axis=1)
+        train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
+
+        return train_inputs, train_labels
+
     # the main loop.
     # basically, do backwards continuous-time approximate dynamic programming.
     # alternate between particle-based, batched pontryagin/characteristic step,
@@ -391,42 +437,9 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # so we save it in the big solution array with reversed indices.
         all_sols[:, save_idx_rev, :, :] = sol_object.ys
 
-
-        # training data terminology:
-
-        # input = [t, state], label = V
-
-        # reshape - during training we do not care which is the time and which the
-        # trajectory index, they are all just pairs of ((t, x), V) regardless
-
-        # before we have a shape (n_traj, n_time, 2*nx+1, 1).
-        # here we remove the last dimension - somehow it makes NN stuff easier.
-
-        # use ALL the training data available
-        if algo_params['nn_train_lookback'] == np.inf:
-            train_time_idx = np.arange(resampling_i, n_timesteps)
-        else:
-            lookback_indices = int(algo_params['nn_train_lookback'] / algo_params['dt'])
-            upper_train_time_idx = resampling_i + lookback_indices
-            if upper_train_time_idx > n_timesteps:
-                # If available data <= lookback, just use whatever we have.
-                upper_train_time_idx = n_timesteps
-
-            train_time_idx = np.arange(resampling_i, upper_train_time_idx)
-
-        train_states = all_sols[:, train_time_idx, 0:nx, :].reshape(-1, nx)
-
-        # make new axes to match train_state
-        train_ts = all_ts[None, train_time_idx, None]
-        # repeat for all trajectories (axis 0), which all have the same ts.
-        train_ts = np.repeat(train_ts, algo_params['n_trajectories'], axis=0)
-        # flatten the same way as train_states
-        train_ts = train_ts.reshape(-1, 1)
-
-        # assemble into main data arrays
-        # these are of shape (n_datpts, n_inputfeatures) and (n_datapts, 1)
-        train_inputs = np.concatenate([train_ts, train_states], axis=1)
-        train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
+        train_inputs, train_labels = sol_array_to_train_data(
+                all_sols, all_ts, resampling_i, algo_params['nn_train_lookback']
+        )
 
         key, train_key = jax.random.split(key)
 
@@ -447,22 +460,20 @@ def hjb_characteristics_solver(problem_params, algo_params):
             pl.legend()
             pl.show()
 
-        resampling_type = 'minimal_with_V'
-
-        key, subkey = jax.random.split(key)
 
 
         # resampling step.
         # which type of resampling (minimal or all) is baked into the resample function
         # via algo_params['resample_type'].
+        key, subkey = jax.random.split(key)
         ys_resampled, resampling_mask = resample(
                 final_ys, resampling_t,
-                # V_nn.nn.apply, V_nn.params,
                 V_nn.nn.apply, nn_params,
-                subkey
-                )
+                subkey)
+
         where_resampled[:, resampling_i, None, None] = resampling_mask
 
+        # finished (x, λ, v) vectors for the next integration step.
         init_ys = ys_resampled
 
     plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
@@ -783,11 +794,11 @@ def characteristics_experiment_simple():
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (32, 32, 32),
+            'nn_layersizes': (64, 64, 64),
             'nn_batchsize': 128,
             'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
-            'nn_plot_training': False,
+            'nn_plot_training': True,
             'nn_train_lookback': 1/4
     }
 

@@ -33,7 +33,7 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
     # new      : resampled where we want to resample, old where we don't
 
 
-    # does this work with jit?
+    # does this work with jit? -> yes, apparently
     nx = (ys.shape[1] - 1) // 2
 
     old_xs = ys[:, 0:nx, :]
@@ -45,24 +45,21 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
     # we want to resample.
     if algo_params['resample_type'] == 'minimal':
 
-        # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
-        # 'x_domain': Q_x,
-        ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
+        # x domain is parameterised as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
+        ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x - 1
         ellipse_memberships = jax.vmap(ellipse_membership_fct)(old_xs)
 
         # resample where this mask is 1.
-        resample_mask = (ellipse_memberships > 1).astype(np.float32)
+        resample_mask = (ellipse_memberships > 0).astype(np.float32)
 
     elif algo_params['resample_type'] == 'all':
+
         # additional shape for compatibility with column vector style
         resample_mask = np.ones((algo_params['n_trajectories'], 1, 1))
 
     else:
         raise RuntimeError(f'Invalid resampling type "{algo_params["resampling_type"]}"')
 
-
-    # keep old sample where that mask is 1.
-    not_resample_mask = 1 - resample_mask
 
     # just resample ALL the xs anyway, and later let the mask decide which to keep.
     # resampled_xs = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
@@ -73,8 +70,7 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
             shape=(algo_params['n_trajectories'],)
     ).reshape(algo_params['n_trajectories'], nx, 1)
 
-    new_xs = resample_mask * resampled_xs + \
-            not_resample_mask * old_xs
+    new_xs = np.where(resample_mask, resampled_xs, old_xs)
 
     # every trajectory is at the same time...
     ts = t * np.ones((algo_params['n_trajectories'], 1))
@@ -102,8 +98,9 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
 
     # weird [None] tricks so it doesn't do any wrong broadcasting
     # V grads [1:] because the NN output also is w.r.t. t which at the moment we don't need
-    new_Vs = resample_mask * resampled_Vs[:, None, None] + not_resample_mask * old_Vs
-    new_V_grads = resample_mask * resampled_V_grads[:, 1:, None] + not_resample_mask * old_V_grads
+
+    new_Vs =      np.where(resample_mask, resampled_Vs[:, None, None]   , old_Vs)
+    new_V_grads = np.where(resample_mask, resampled_V_grads[:, 1:, None], old_V_grads)
 
     # circumventing jax's immutable objects.
     # if docs are to be believed, after jit this will do an efficient in place update.

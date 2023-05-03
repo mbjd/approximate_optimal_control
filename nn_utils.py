@@ -77,11 +77,18 @@ class nn_wrapper():
 
     # same loss functions but for the prediction *gradient*
     def point_gradient_loss(self, params, x, label_grad):
-        prediction_grad = jax.grad(self.nn.apply, argnums=1)(params, x)
-        return (prediction_grad - label_grad)**2
+
+        # gradient of output of NN w.r.t. whole NN input = (t, x)
+        # with jacrev it will be a row vector, shaped (1, 1+nx)
+        output_grad_whole = jax.jacrev(self.nn.apply, argnums=1)(params, x)
+
+        # extract the relevant part and remove extra dimension
+        output_grad_x = output_grad_whole[:, 1:].squeeze()
+
+        return (output_grad_x - label_grad)**2
 
     def gradient_loss(self, params, xs, y_grads):
-        losses = jax.vmap(self.point_loss, in_axes=(None, 0, 0))(params, xs, y_grads)
+        losses = jax.vmap(self.point_gradient_loss, in_axes=(None, 0, 0))(params, xs, y_grads)
         return np.mean(losses)
 
     def loss_with_grad(self, params, xs, ys, grad_penalty=0):

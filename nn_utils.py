@@ -97,7 +97,17 @@ class nn_wrapper():
         gradient_loss = self.gradient_loss(params, xs, ys[:, 0:-1])
 
         # scale everything by 1 + grad_penalty so the losses still have similar magnitude
-        return (value_loss + grad_penalty * gradient_loss) / (1 + grad_penalty)
+        full_loss = (value_loss + grad_penalty * gradient_loss) / (1 + grad_penalty)
+        # return also the individual losses.
+
+        aux_outputs = {
+                'full_train_loss': full_loss,
+                # watch out - these are the unscaled versions, so they don't add up to full_loss
+                'value_train_loss': value_loss,
+                'gradient_train_loss': gradient_loss,
+        }
+
+        return full_loss, aux_outputs
 
 
 
@@ -162,7 +172,7 @@ class nn_wrapper():
         # could make these arguments as well...
         factor = .2
         lr_schedule = optax.piecewise_constant_schedule(
-                init_value=0.05,
+                init_value=0.02,
                 boundaries_and_scales = {
                     100: factor,
                     200: factor,
@@ -186,29 +196,33 @@ class nn_wrapper():
 
         def update_step(xs, ys, opt_state, params):
 
-            if algo_params['nn_V_gradient_penalty'] > 0:
-                # loss_fct takes arguments (params, xs, ys) with ys.shape == (?, 3)
-                loss_fct = partial(self.loss_with_grad, grad_penalty=algo_params['nn_V_gradient_penalty'])
-            else:
-                loss_fct = self.loss
+            # full gradient-including loss function in all cases. makes it easier, and the
+            # 0 * .... is probably thrown out in jit anyway when the penalty is 0.
+            loss_fct = partial(self.loss_with_grad, grad_penalty=algo_params['nn_V_gradient_penalty'])
+            loss_val_grad = jax.value_and_grad(loss_fct, argnums=0, has_aux=True)
 
-            # so now in both cases we have a function mapping (params, xs, ys) to (loss_val, loss_grad).
-            # even though the ys have different shape, but this is known at jit compile time so constant.
-            loss_val_grad = jax.value_and_grad(loss_fct, argnums=0)
 
             # the terminology is a bit confusing, but:
             # - loss(_val)_grad = gradient of whatever loss w.r.t. NN parameters
             # - loss_with_grad = loss function penalising value and value gradients w.r.t. inputs
 
-            loss_val, loss_grad = loss_val_grad(params, xs, ys)
+            # now, the whole outut is a dictionary called aux_output with arbitrary keys and (numerical) values
+            # when plotting we just iterate over whatever keys we get.
+            (loss_val, aux_output), loss_grad = loss_val_grad(params, xs, ys)
 
             updates, opt_state = optim.update(loss_grad, opt_state)
             params = optax.apply_updates(params, updates)
 
-            return opt_state, params, loss_val
+            return opt_state, params, aux_output
 
         def eval_test_loss(xs, ys, params):
             return self.loss(params, xs, ys)
+
+        def eval_test_loss_with_grad(xs, ys, params):
+
+            test_loss, aux_output = self.loss_with_grad(params, xs, ys, grad_penalty=algo_params['nn_V_gradient_penalty'])
+            return test_loss, aux_output
+
 
         # the training loop is written with jax.lax.scan
         # basically a fancy version to write a for loop, but nice for jit
@@ -245,17 +259,25 @@ class nn_wrapper():
             ys_batch = ys[batch_data_indices]
 
             # profit
-            opt_state_new, nn_params_new, loss = update_step(
+            opt_state_new, nn_params_new, aux_output = update_step(
                     xs_batch, ys_batch, opt_state, nn_params
             )
 
+            # if gradient penalty = 0, then loss_val is just a scalar loss
+            # if gradient penalty > 0, then loss_val is a tuple:
+            #   (full_loss, (value_loss, gradient_loss))
+
             # output & carry state
-            test_loss = eval_test_loss(xs_test, ys_test, nn_params)
-            output_slice = (loss, test_loss)
+            test_loss, test_aux_output = eval_test_loss_with_grad(xs_test, ys_test, nn_params)
+
+            # pro move
+            for k in test_aux_output.keys():
+                new_key = k.replace('train', 'test')
+                aux_output[new_key] = test_aux_output[k]
 
             new_carry = (nn_params_new, opt_state_new, (i_batch + 1) % N_batches)
 
-            return new_carry, output_slice
+            return new_carry, aux_output
 
         # the training loop!
         # currently the input argument xs is unused (-> None) -- we keep track of the batch

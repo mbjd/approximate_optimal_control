@@ -129,7 +129,6 @@ def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):
     # ax1.set_ylabel('x_1')
     # ax1.set_zlabel('value')
 
-    # pl.show()
 
     fig, ax = pl.subplots()
 
@@ -164,8 +163,6 @@ def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):
         fig.canvas.draw_idle()
 
     time_slider.on_changed(update)
-
-    pl.show()
 
 
 def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
@@ -207,5 +204,34 @@ def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
     pl.xlabel('t')
     pl.ylabel('x')
 
-    pl.show()
+
+
+def plot_nn_train_outputs(outputs):
+
+    pl.figure('NN training visualisation')
+
+    # outputs is a dict where keys are different outputs, and the value
+    # is an array containing that output for ALL relevant training iterations,
+
+    # training subplot
+    ax1 = pl.subplot(211)
+
+    make_nice = lambda s: s.replace('_', ' ')
+
+    for k in outputs.keys():
+        if 'train' in k:
+            pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
+    pl.legend()
+
+    # training subplot
+    pl.subplot(212, sharex=ax1)
+    pl.gca().set_prop_cycle(None)
+
+    for k in outputs.keys():
+        if 'test' in k:
+            pl.semilogy(outputs[k], label=make_nice(k), alpha=1)
+        if 'lr' in k:
+            pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
+    pl.legend()
+
 

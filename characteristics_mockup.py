@@ -199,12 +199,13 @@ def hjb_characteristics_solver(problem_params, algo_params):
     # technically redundant but might make function fitting nicer later
     all_sols[:, -1, :, :] = all_y_T
 
-    train_loss_curves = []
-    test_loss_curves = []
+    training_output_dicts = []
 
     total_start = time.time()
     integration_time = 0
     nn_time = 0
+    jit_time = 0
+    first = True  # to distinguish jit from computation time.
 
     # the main loop.
     # basically, do backwards continuous-time approximate dynamic programming.
@@ -221,7 +222,10 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         integ_start = time.time()
         start_t = resampling_t + algo_params['resample_interval']
-        integration_time += time.time() - integ_start
+        if first:
+            jit_time += time.time() - integ_start
+        else:
+            integration_time += time.time() - integ_start
 
         # the main dish.
         # integrate the pontryagin necessary conditions backward in time, for a time period of
@@ -254,15 +258,20 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # therefore, we take them out
 
         nn_start = time.time()
-        nn_params, train_losses, test_losses = V_nn.train(
+        nn_params, outputs = V_nn.train(
                 train_inputs, train_labels, nn_params, algo_params_nn, train_key
         )
-        nn_time += time.time() - nn_start
+        if first:
+            jit_time += time.time() - nn_start
+        else:
+            nn_time += time.time() - nn_start
 
 
         if algo_params['nn_plot_training']:
-            train_loss_curves.append(train_losses)
-            test_loss_curves.append(test_losses)
+            training_output_dicts.append(outputs)
+
+
+
 
 
         # resampling step.
@@ -280,26 +289,36 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # finished (x, λ, v) vectors for the next integration step.
         init_ys = ys_resampled
 
+        first = False
+
     total_end = time.time()
 
     full_time = total_end - total_start
 
     frac_integration = integration_time / full_time
     frac_nn = nn_time / full_time
+    frac_jit = jit_time / full_time
     rest_time = full_time - integration_time - nn_time
     print(f' --- timing summary ---')
     print(f' total:         {       full_time:.1f}s ')
+    print(f' jit/first runs {        jit_time:.1f}s = {int(100*frac_jit)}% ')
     print(f' integration:   {integration_time:.1f}s = {int(100*frac_integration)}% ')
     print(f' NN training:   {         nn_time:.1f}s = {int(100*frac_nn         )}% ')
     print(f' rest:          {       rest_time:.1f}s = {int(100*(1-frac_integration-frac_nn))}% ')
     plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
 
     if algo_params['nn_plot_training']:
-        pl.figure()
-        pl.semilogy(np.array(train_loss_curves).T, label='training loss', c='gray')
-        pl.semilogy(np.array(test_loss_curves).T, label='test loss', c='blue')
-        pl.legend()
-        pl.show()
+        # training_output_dicts is a list of dicts: [ {'k', [v0,...,vT]} ]
+        # we would like to preserve the dict structure while concatenating the arrays within.
+
+        # stolen from https://colab.research.google.com/github/google/jax/blob/main/docs/jax-101/05.1-pytrees.ipynb#scrollTo=pwNz-rp1JvW4
+        # the concatenate there was just an educated guess but it does exactly what I want.
+        transposed_tree = jax.tree_map(lambda *xs: np.concatenate(list(xs)), *training_output_dicts)
+
+        plotting_utils.plot_nn_train_outputs(transposed_tree)
+
+
+
 
 
     return all_sols, all_ts, where_resampled
@@ -412,7 +431,7 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
 
     algo_params = {
-            'n_trajectories': 32,
+            'n_trajectories': 128,
             'dt': 1/64,
             'resample_interval': 1/4,
             'resample_type': 'minimal',
@@ -420,12 +439,13 @@ def characteristics_experiment_simple():
             'x_domain': Q_x,
 
             'nn_layersizes': (64, 64, 64),
-            'nn_batchsize': 128,
+
+            'nn_batchsize': 32,
             'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
-            'nn_plot_training': False,
+            'nn_plot_training': True,
             'nn_train_lookback': 1/4,
-            'nn_V_gradient_penalty': 1.,
+            'nn_V_gradient_penalty': 1,
     }
 
     # problem_params are parameters of the problem itself

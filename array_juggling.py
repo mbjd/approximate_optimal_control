@@ -155,7 +155,21 @@ def sol_array_to_train_data(all_sols, all_ts, resampling_i, n_timesteps, algo_pa
     # assemble into main data arrays
     # these are of shape (n_datpts, n_inputfeatures) and (n_datapts, 1)
     train_inputs = np.concatenate([train_ts, train_states], axis=1)
-    train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
+
+    if algo_params['nn_V_gradient_penalty'] == 0:
+        train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
+    else:
+        assert algo_params['nn_V_gradient_penalty'] > 0, 'V gradient penalty must be nonnegative'
+
+        # if this penalty is > 0, we also want the value gradient (= costate) to be in the
+        # labels, which becomes vector-valued. in the NN code we then add a loss term penalising
+        # gradient error, something like || grad_x V_nn (x) - λ(x) ||^2
+
+        # we want from the extended state, in this order:
+        # - the costate at indices nx:2*nx
+        # - the value at index 2*nx, which is the last one
+        train_labels = all_sols[:, train_time_idx, nx:, :].reshape(-1, 1 + nx)
+
 
     return train_inputs, train_labels
 

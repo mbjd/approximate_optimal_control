@@ -75,13 +75,38 @@ class nn_wrapper():
         losses = jax.vmap(self.point_loss, in_axes=(None, 0, 0))(params, xs, ys)
         return np.mean(losses)
 
+    # same loss functions but for the prediction *gradient*
+    def point_gradient_loss(self, params, x, label_grad):
+        prediction_grad = jax.grad(self.nn.apply, argnums=1)(params, x)
+        return (prediction_grad - label_grad)**2
+
+    def gradient_loss(self, params, xs, y_grads):
+        losses = jax.vmap(self.point_loss, in_axes=(None, 0, 0))(params, xs, y_grads)
+        return np.mean(losses)
+
+    def loss_with_grad(self, params, xs, ys, grad_penalty=0):
+        # loss function considering value AND gradient error.
+        # here, ys is not of shape (N, 1) but of shape (N, nx+1)
+        # as constructed in:
+        # array_juggling -> sol_array_to_train_data -> if algo_params['nn_V_gradient_penalty'] > 0.
+
+        # the last axis contains the costate = value gradient at [0:nx]
+        # the value at [-1].
+
+        value_loss = self.loss(params, xs, ys[:, -1])
+        gradient_loss = self.gradient_loss(params, xs, ys[:, 0:-1])
+
+        # scale everything by 1 + grad_penalty so the losses still have similar magnitude
+        return (value_loss + grad_penalty * gradient_loss) / (1 + grad_penalty)
+
+
+
     def init_nn_params(self, key):
         params = self.nn.init(key, np.zeros((self.input_dim,)))
         return params
 
 
-    # this will not work because of the self argument
-    # @partial(jax.jit, static_argnames=['self', 'algo_params'])
+
     @filter_jit
     def train(self, xs, ys, nn_params, algo_params, key):
 
@@ -124,7 +149,6 @@ class nn_wrapper():
         assert N_batches == int(N_batches), 'N_batches size not integer'
         N_batches = int(N_batches)
 
-        @jax.jit
         def generate_minibatch_index_array(key):
 
             # discard a bit of data to make equally sized batches
@@ -160,10 +184,22 @@ class nn_wrapper():
         opt_state = optim.init(nn_params)
 
 
-        # @jax.jit
         def update_step(xs, ys, opt_state, params):
 
-            loss_val_grad = jax.value_and_grad(self.loss, argnums=0)
+            if algo_params['nn_V_gradient_penalty'] > 0:
+                # loss_fct takes arguments (params, xs, ys) with ys.shape == (?, 3)
+                loss_fct = partial(self.loss_with_grad, grad_penalty=algo_params['nn_V_gradient_penalty'])
+            else:
+                loss_fct = self.loss
+
+            # so now in both cases we have a function mapping (params, xs, ys) to (loss_val, loss_grad).
+            # even though the ys have different shape, but this is known at jit compile time so constant.
+            loss_val_grad = jax.value_and_grad(loss_fct, argnums=0)
+
+            # the terminology is a bit confusing, but:
+            # - loss(_val)_grad = gradient of whatever loss w.r.t. NN parameters
+            # - loss_with_grad = loss function penalising value and value gradients w.r.t. inputs
+
             loss_val, loss_grad = loss_val_grad(params, xs, ys)
 
             updates, opt_state = optim.update(loss_grad, opt_state)
@@ -171,7 +207,6 @@ class nn_wrapper():
 
             return opt_state, params, loss_val
 
-        # @jax.jit
         def eval_test_loss(xs, ys, params):
             return self.loss(params, xs, ys)
 
@@ -279,7 +314,6 @@ class nn_wrapper():
         assert N_batches == int(N_batches), 'N_batches size not integer'
         N_batches = int(N_batches)
 
-        @jax.jit
         def generate_minibatch_index_array(key):
 
             # discard a bit of data to make equally sized batches

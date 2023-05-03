@@ -385,7 +385,7 @@ def characteristics_experiment_simple():
             'f': f,
             'l': l,
             'h': h,
-            'T': 8,
+            'T': 4,
             'nx': 2,
             'nu': 1
     }
@@ -412,8 +412,8 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
 
     algo_params = {
-            'n_trajectories': 128,
-            'dt': 1/128,
+            'n_trajectories': 32,
+            'dt': 1/64,
             'resample_interval': 1/4,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
@@ -423,8 +423,9 @@ def characteristics_experiment_simple():
             'nn_batchsize': 128,
             'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
-            'nn_plot_training': True,
-            'nn_train_lookback': 1/4
+            'nn_plot_training': False,
+            'nn_train_lookback': 1/4,
+            'nn_V_gradient_penalty': 1.,
     }
 
     # problem_params are parameters of the problem itself

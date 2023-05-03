@@ -201,11 +201,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     training_output_dicts = []
 
-    total_start = time.time()
-    integration_time = 0
-    nn_time = 0
-    jit_time = 0
-    first = True  # to distinguish jit from computation time.
 
     # the main loop.
     # basically, do backwards continuous-time approximate dynamic programming.
@@ -220,12 +215,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
         # at all_sols[save_idx]
 
-        integ_start = time.time()
         start_t = resampling_t + algo_params['resample_interval']
-        if first:
-            jit_time += time.time() - integ_start
-        else:
-            integration_time += time.time() - integ_start
 
         # the main dish.
         # integrate the pontryagin necessary conditions backward in time, for a time period of
@@ -257,15 +247,9 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # luckily the NN training does not need the arrays.
         # therefore, we take them out
 
-        nn_start = time.time()
         nn_params, outputs = V_nn.train(
                 train_inputs, train_labels, nn_params, algo_params_nn, train_key
         )
-        if first:
-            jit_time += time.time() - nn_start
-        else:
-            nn_time += time.time() - nn_start
-
 
         if algo_params['nn_plot_training']:
             training_output_dicts.append(outputs)
@@ -291,20 +275,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         first = False
 
-    total_end = time.time()
-
-    full_time = total_end - total_start
-
-    frac_integration = integration_time / full_time
-    frac_nn = nn_time / full_time
-    frac_jit = jit_time / full_time
-    rest_time = full_time - integration_time - nn_time
-    print(f' --- timing summary ---')
-    print(f' total:         {       full_time:.1f}s ')
-    print(f' jit/first runs {        jit_time:.1f}s = {int(100*frac_jit)}% ')
-    print(f' integration:   {integration_time:.1f}s = {int(100*frac_integration)}% ')
-    print(f' NN training:   {         nn_time:.1f}s = {int(100*frac_nn         )}% ')
-    print(f' rest:          {       rest_time:.1f}s = {int(100*(1-frac_integration-frac_nn))}% ')
     plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
 
     if algo_params['nn_plot_training']:

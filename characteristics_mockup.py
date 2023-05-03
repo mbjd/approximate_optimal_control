@@ -275,7 +275,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         first = False
 
-    plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
+    # plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
 
     if algo_params['nn_plot_training']:
         # training_output_dicts is a list of dicts: [ {'k', [v0,...,vT]} ]
@@ -286,6 +286,9 @@ def hjb_characteristics_solver(problem_params, algo_params):
         transposed_tree = jax.tree_map(lambda *xs: np.concatenate(list(xs)), *training_output_dicts)
 
         plotting_utils.plot_nn_train_outputs(transposed_tree)
+        # for testing different values of the gradient penalty
+        # lam = algo_params['nn_V_gradient_penalty']
+        # pl.savefig(f'./V_grad_penalty_plots/lam_{lam:.3f}.png')
 
 
 
@@ -401,28 +404,28 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
 
     algo_params = {
-            'n_trajectories': 128,
+            'n_trajectories': 256,
             'dt': 1/64,
             'resample_interval': 1/4,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (64, 64, 64),
+            'nn_layersizes': (16, 16, 16),
 
             'nn_batchsize': 32,
-            'nn_N_epochs': 5,
+            'nn_N_epochs': 1,
             'nn_testset_fraction': 0.1,
             'nn_plot_training': True,
             'nn_train_lookback': 1/4,
-            'nn_V_gradient_penalty': 1,
+            'nn_V_gradient_penalty': .1,
     }
 
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
     output = hjb_characteristics_solver(problem_params, algo_params)
 
-    plotting_utils.plot_2d(*output, problem_params, algo_params)
+    # plotting_utils.plot_2d(*output, problem_params, algo_params)
 
     pl.show()
 

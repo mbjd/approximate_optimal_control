@@ -212,7 +212,6 @@ class nn_wrapper():
 
             updates, opt_state = optim.update(loss_grad, opt_state)
             params = optax.apply_updates(params, updates)
-
             return opt_state, params, aux_output
 
         def eval_test_loss(xs, ys, params):
@@ -262,6 +261,8 @@ class nn_wrapper():
             opt_state_new, nn_params_new, aux_output = update_step(
                     xs_batch, ys_batch, opt_state, nn_params
             )
+
+            aux_output['lr'] = lr_schedule(opt_state[0].count)
 
             # if gradient penalty = 0, then loss_val is just a scalar loss
             # if gradient penalty > 0, then loss_val is a tuple:

@@ -10,6 +10,8 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
 
+from functools import partial
+
 def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
 
     tmin, tmax = tbounds
@@ -20,7 +22,7 @@ def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
     # over the state-space at some (adjustable) time.
 
 
-    # @partial(jax.jit, static_argnames=['return_grid'])
+    @partial(jax.jit, static_argnames=['return_grid'])
     def eval_V_grid(t, return_grid=False):
         N_disc = 51
         xgrid = ygrid = np.linspace(xmin, xmax, N_disc)
@@ -208,7 +210,7 @@ def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
 def plot_nn_train_outputs(outputs):
 
-    pl.figure('NN training visualisation')
+    pl.figure('NN training visualisation', figsize=(15, 10))
 
     # outputs is a dict where keys are different outputs, and the value
     # is an array containing that output for ALL relevant training iterations,
@@ -221,6 +223,8 @@ def plot_nn_train_outputs(outputs):
     for k in outputs.keys():
         if 'train' in k:
             pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
+    pl.grid(axis='both')
+    pl.ylim([1e-3, 1e3])
     pl.legend()
 
     # training subplot
@@ -232,6 +236,8 @@ def plot_nn_train_outputs(outputs):
             pl.semilogy(outputs[k], label=make_nice(k), alpha=1)
         if 'lr' in k:
             pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
+    pl.grid(axis='both')
+    pl.ylim([1e-3, 1e3])
     pl.legend()
 
 

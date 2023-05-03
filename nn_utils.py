@@ -169,6 +169,8 @@ class nn_wrapper():
             return batched_data_idx
 
 
+        total_iters = N_batches * N_epochs
+
         # could make these arguments as well...
         factor = .2
         lr_schedule = optax.piecewise_constant_schedule(
@@ -183,12 +185,16 @@ class nn_wrapper():
                 }
         )
 
-        total_iters = N_batches * N_epochs
+
+        lr_schedule = optax.exponential_decay(
+                init_value = 0.01,
+                transition_steps = total_iters,
+                decay_rate = 1e-2,
+                end_value=1e-6
+        )
+
         losses = np.zeros(total_iters)
         test_losses = np.zeros(total_iters)
-
-        # turns out if we remove the last dimension (which made everything a
-        # column vector) we stop having the weird problem of wrong output shape.
 
         optim = optax.adam(learning_rate=lr_schedule)
         opt_state = optim.init(nn_params)

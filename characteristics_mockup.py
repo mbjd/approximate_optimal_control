@@ -275,7 +275,28 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         first = False
 
-    # plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
+    if algo_params['nn_retrain_final']:
+
+        print('starting final retraing with all data')
+
+        # change the algo params to take in all the data.
+        algo_params['nn_train_lookback'] = np.inf
+
+        is_nn_key = lambda key_and_val: key_and_val[0].startswith('nn_')
+        algo_params_nn = frozendict.frozendict(filter(is_nn_key, algo_params.items()))
+
+        train_inputs, train_labels = array_juggling.sol_array_to_train_data(
+                all_sols, all_ts, resampling_i, n_timesteps, algo_params
+        )
+
+        key, train_key = jax.random.split(key)
+
+        nn_params, outputs = V_nn.train(
+                train_inputs, train_labels, nn_params, algo_params_nn, train_key
+        )
+
+        if algo_params['nn_plot_training']:
+            training_output_dicts.append(outputs)
 
     if algo_params['nn_plot_training']:
         # training_output_dicts is a list of dicts: [ {'k', [v0,...,vT]} ]
@@ -291,6 +312,12 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # pl.savefig(f'./V_grad_penalty_plots/lam_{lam:.3f}.png')
 
 
+    if algo_params['plot_final']:
+
+        plotting_utils.plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params)
+        plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
+
+    pl.show()
 
 
 
@@ -404,30 +431,29 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
 
     algo_params = {
-            'n_trajectories': 256,
+            'n_trajectories': 128,
             'dt': 1/64,
-            'resample_interval': 1/4,
+            'resample_interval': 1/2,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (16, 16, 16),
-
+            'nn_layersizes': (64, 64, 64),
             'nn_batchsize': 32,
-            'nn_N_epochs': 1,
+            'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
             'nn_plot_training': True,
-            'nn_train_lookback': 1/4,
-            'nn_V_gradient_penalty': .1,
+            'nn_train_lookback': 1/2,
+            'nn_V_gradient_penalty': 0.01,
+            'nn_retrain_final': True,
+
+            'plot_final': True
     }
 
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
     output = hjb_characteristics_solver(problem_params, algo_params)
 
-    # plotting_utils.plot_2d(*output, problem_params, algo_params)
-
-    pl.show()
 
 
 if __name__ == '__main__':

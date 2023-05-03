@@ -10,6 +10,8 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
 
+import ipdb
+
 from functools import partial
 
 def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
@@ -75,6 +77,57 @@ def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
         pl.draw()
 
     time_slider.on_changed(update)
+
+
+def plot_V_at_random_states(V_nn_wrapper, nn_params, tbounds, algo_params):
+
+    # plots V at some random set of states, as a function of time, so we
+    # can qualitatively assess how/whether the value function converges
+    # to a steady state with growing horizon.
+
+    N_states = 50
+
+    nx = algo_params['x_sample_cov'].shape[0]  # get nx from whereever
+
+    states = jax.random.multivariate_normal(
+            jax.random.PRNGKey(666),  # very pseudorandom
+            mean=np.zeros(nx,),
+            cov=algo_params['x_sample_cov'],
+            shape=(algo_params['n_trajectories'],)
+    ).reshape(algo_params['n_trajectories'], nx)
+
+    tgrid = np.linspace(*tbounds, 101)
+
+    # make a 3D array containing first the time index, then the states
+    # we want shape (n_t, n_trajectories, 3), last dim row to store (t, x)
+
+    reshaped_ts = np.repeat(tgrid[:, None, None], algo_params['n_trajectories'], axis=1)
+    reshaped_xs = np.repeat(states[None, :, :], tgrid.shape[0], axis=0)
+
+    # this will work if shapes are (n_t, n_traj, 1) and (n_t, n_traj, 2)
+    all_state_time_combs = np.concatenate([reshaped_ts, reshaped_xs], axis=2)
+
+    # evaluate the NN :)
+    values = V_nn_wrapper(
+            all_state_time_combs.reshape(-1, 3), nn_params
+    ).reshape(tgrid.shape[0], algo_params['n_trajectories'])
+
+
+    # for plotting we don't really care about the particular state. but we
+    # would like to have a (n_time, n_states) array to plot directly. this
+    # is already our values array?!?
+
+    statenorms = np.linalg.norm(states, axis=1)
+    statenorms_normal = (statenorms - np.min(statenorms)) / (np.max(statenorms) - np.min(statenorms))
+
+    # somehow i was not able to find out how to do this :(
+    # colors = matplotlib.colormaps.get_cmap('cool')(statenorms_normal)
+
+    pl.figure('value over time, at a selection of states')
+    pl.plot(tgrid, values, alpha = .5)
+    pl.show()
+
+
 
 
 def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):

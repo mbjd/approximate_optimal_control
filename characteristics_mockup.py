@@ -316,6 +316,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         plotting_utils.plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params)
         plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
+        plotting_utils.plot_V_at_random_states(V_nn, nn_params, (0, T), algo_params)
 
     pl.show()
 
@@ -404,7 +405,7 @@ def characteristics_experiment_simple():
             'f': f,
             'l': l,
             'h': h,
-            'T': 4,
+            'T': 16,
             'nx': 2,
             'nu': 1
     }
@@ -433,18 +434,18 @@ def characteristics_experiment_simple():
     algo_params = {
             'n_trajectories': 128,
             'dt': 1/64,
-            'resample_interval': 1/2,
+            'resample_interval': 1/4,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
             'nn_layersizes': (64, 64, 64),
             'nn_batchsize': 32,
-            'nn_N_epochs': 5,
+            'nn_N_epochs': 4,
             'nn_testset_fraction': 0.1,
             'nn_plot_training': True,
-            'nn_train_lookback': 1/2,
-            'nn_V_gradient_penalty': 0.01,
+            'nn_train_lookback': 1/8,
+            'nn_V_gradient_penalty': 100,
             'nn_retrain_final': True,
 
             'plot_final': True

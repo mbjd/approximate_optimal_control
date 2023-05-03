@@ -549,3 +549,7 @@ code.
 did huge swath of refactoring. after that started implementing V gradient
 penalty. it runs, but with sketchy result. TODO after lunch: debug this.
 maybe start by extending the loss plots with gradient loss.
+
+found the bug, it was both the fact that I forgot to even use the newly
+defined function properly, and that it was defined with an unintended
+broadcast in it, screwing the results. I think I fixed it successfully now.

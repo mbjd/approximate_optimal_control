@@ -9,6 +9,9 @@ import flax
 from flax import linen as nn
 from typing import Sequence, Optional
 
+# but not for everything
+from equinox import filter_jit
+
 # other, trivial stuff
 import numpy as onp
 
@@ -23,8 +26,6 @@ import ipdb
 import time
 from tqdm import tqdm
 from functools import partial
-
-
 
 class my_nn_flax(nn.Module):
 
@@ -80,8 +81,8 @@ class nn_wrapper():
 
 
     # this will not work because of the self argument
-    # TODO find out in the future whether we can somehow jit this whole function
-    @partial(jax.jit, static_argnames=['self', 'algo_params'])
+    # @partial(jax.jit, static_argnames=['self', 'algo_params'])
+    @filter_jit
     def train(self, xs, ys, nn_params, algo_params, key):
 
         batchsize = algo_params['nn_batchsize']
@@ -314,7 +315,6 @@ class nn_wrapper():
         opt_state = optim.init(nn_params)
 
 
-        # @jax.jit
         def update_step(xs, ys, opt_state, params):
 
             loss_val_grad = jax.value_and_grad(self.loss, argnums=0)
@@ -325,7 +325,6 @@ class nn_wrapper():
 
             return opt_state, params, loss_val
 
-        # @jax.jit
         def eval_test_loss(xs, ys, params):
             return self.loss(params, xs, ys)
 
@@ -362,11 +361,10 @@ class nn_wrapper():
         return nn_params
 
 
-    # this does NOT work yet, this was an attempt to jit the whole train function
-    # once and then save it for rerunning, but it seems to be kinda difficult.
-    # probably in the unflatten function we need to match the __init__ of the class
-    # but then do we recreate everything? we have kind of an involved constructor...
-
+    # now this works - I just had to make the constructor very simple
+    # and do all the important stuff in the train() method, which is now
+    # jitted so we can do whatever we want there without incurring huge
+    # python overhead every time.
     def _tree_flatten(self):
 
         children = ()

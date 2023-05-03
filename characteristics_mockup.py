@@ -18,12 +18,15 @@ import time
 from tqdm import tqdm
 from functools import partial
 
+import pontryagin_utils
+import plotting_utils
+import array_juggling
+
 # https://jax.readthedocs.io/en/latest/faq.html#strategy-3-making-customclass-a-pytree
 from nn_utils import nn_wrapper
 jax.tree_util.register_pytree_node(nn_wrapper,
                                    nn_wrapper._tree_flatten,
                                    nn_wrapper._tree_unflatten)
-import plotting_utils
 
 import frozendict
 
@@ -59,8 +62,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
             output_dim = 1,
     )
 
-    key, init_key = jax.random.split(key)
-    nn_params = V_nn.init_nn_params(init_key)
+    key, subkey = jax.random.split(key)
+    nn_params = V_nn.init_nn_params(subkey)
 
     # the algo params relevant for nn training.
     # so we have only immutable stuff left.
@@ -68,98 +71,10 @@ def hjb_characteristics_solver(problem_params, algo_params):
     algo_params_nn = frozendict.frozendict(filter(is_nn_key, algo_params.items()))
 
 
-    # we want to find the value function V.
-    # for that we want to approximately satisfy the hjb equation:
-    #    0 = V_t(t, x) + inf_u { l(t, x, u) + V_x(t, x).T @ f(t, x, u) }
-    #    V(x, T) = h(x)
 
-    # for this first case let us consider
-    #    f(t, x, u) = f_tx(t, x) + g(t, x) @ u
-    #    l(t, x, u) = l_tx(t, x) + u.T @ R @ u.
-    # so a control affine system with cost quadratic in u. this will make
-    # the inner minimization simpler:
 
-    #       argmin_u l(t, x, u) + V_x(t, x).T @ f(t, x, u)
-    #     = argmin_u l_x(x) + u.T @ R @ u + V_x(t, x).T @ (f_tx(t, x) + g(t, x) @ u)
-    #     = argmin_u          u.T @ R @ u + V_x(t, x).T @ (             g(t, x) @ u)
-
-    # and, with A = V_x(t, x).T @ g(t, x):
-
-    #     = argmin_u u.T @ R @ u + A @ u
-
-    # which is an unconstrained convex QP, solved by setting the gradient to zero.
-
-    #     = u s.t. 0 = (R + R.T) u + A
-    #     = solution of linear system (R + R.T, -A)
-
-    # this is implemented in the following - the pointwise minimization over u of the hamiltonian.
-    # we have a fake version of function overloading -- these do the same thing but with different inputs.
-    # mostly the same though, only cosmetic difference, in the end they all reduce down to the first one.
-    def find_u_star_matrices(R, A):
-        # A is a row vector here...
-        u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
-        return np.clip(u_star_unconstrained, -1, 1)
-
-    def find_u_star_functions(f, l, V, t, x):
-        # assuming that l is actually of the form l(t, x, u) = l_tx(t, x) + u.T @ R @ u,
-        # the hessian R is independent of u. R should be of shape (nu, nu).
-        zero_u = np.zeros((1, 1))
-        R = jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
-
-        grad_V_x = jax.jacobian(V, argnums=1)(t, x).reshape(1, nx)
-        grad_f_u = jax.jacobian(f, argnums=2)(t, x, zero_u).reshape(nx, nu)
-        A = grad_V_x @ grad_f_u        # should have shape (1, nu)
-
-        return find_u_star_matrices(R, A)
-
-    def find_u_star_costate(f, l, costate, t, x):
-        zero_u = np.zeros((1, 1))
-        R = jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
-
-        # costate = grad_V_x.T (costate colvec, grad_V_x col vec)
-        # grad_V_x = jax.jacobian(V, argnums=1)(t, x).reshape(1, nx)
-        grad_f_u = jax.jacobian(f, argnums=2)(t, x, zero_u).reshape(nx, nu)
-        A = costate.T @ grad_f_u        # should have shape (1, nu)
-
-        return find_u_star_matrices(R, A)
-
-    # check. if u is 2d, we need 2x2 R and 1x2 A
-    # R = np.array([[1., 0], [0, 2]])
-    # A = np.array([[0.1, 0.3]])
-    # x = np.array([[1., 1.]]).T
-    # u_star_test = find_u_star_matrices( R, A )
-
-    # the dynamics governing state, costate and value evolution according to
-    # pontryagin minimum principle. normal in forward time.
-    @jax.jit
-    def f_forward(t, y, args=None):
-
-        # unpack. english names to distinguish from function arguments...
-        state   = y[0:nx]
-        costate = y[nx:2*nx]
-        value   = y[2*nx]
-
-        # define ze hamiltonian for that time.
-        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
-
-        u_star = find_u_star_costate(f, l, costate, t, state)
-
-        # the first line is just a restatement of the dynamics
-        # but doesn't it look cool with those partial derivatives??
-        state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx, 1)
-        costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx, 1)
-        value_dot   = -l(t, state, u_star)
-
-        y_dot = np.vstack([state_dot, costate_dot, value_dot])
-        return y_dot
-
+    # generate initial state points according to the specified distribution.
     key, subkey = jax.random.split(key)
-
-    # scale by scale matrix. data will be distributed ~ N(0, scale.T @ scale)
-    # scale = algo_params['x_sample_scale']
-    # all_x_T = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
-
-    # ... not anymore. all parameterized with covariance.
     all_x_T = jax.random.multivariate_normal(
             subkey,
             mean=np.zeros(nx,),
@@ -169,102 +84,15 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     max_steps = int(T / algo_params['dt'])
 
-    @partial(jax.jit, static_argnames=['nn_apply_fct'])
-    def resample(ys, t, nn_apply_fct, nn_params, key):
-
-        # all the ys that have left the interesting region, we want to put back into it.
-
-        # this is the first mockup of the 'actual' resampling function.
-        # It will not only put points in new locations, but also put in the correct value
-        # and costate information, based on the value function approximation given by
-        # (nn_apply_fct, nn_params). nn_apply_fct should be the apply function of the nn
-        # object itself, NOT the wrapper which is mostly used here. This is to separate
-        # NN architecture info (-> in nn object) from the parameters nn_params, which
-        # otherwise would have been in the same nn_wrapper object, perventing jit.
-
-        # variable naming scheme:
-        # old      : before resampling, whatever came out of the last pontryagin integration step
-        # resampled: ALL resampled variables, whether we want them or not
-        # new      : resampled where we want to resample, old where we don't
-
-        old_xs = ys[:, 0:nx, :]
-        old_V_grads = ys[:, nx:2*nx, :]
-        old_Vs = ys[:, -1:, :]  # range to keep shapes consistent
 
 
-        # depending on the resampling condition, set the resampling mask to 1 for the trajectories
-        # we want to resample.
-        if algo_params['resample_type'] == 'minimal':
-
-            # parameterise x domain as ellipse: X = {x in R^n: x.T @ Q_x @ x <= 1}
-            # 'x_domain': Q_x,
-            ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x
-            ellipse_memberships = jax.vmap(ellipse_membership_fct)(old_xs)
-
-            # resample where this mask is 1.
-            resample_mask = (ellipse_memberships > 1).astype(np.float32)
-
-        elif algo_params['resample_type'] == 'all':
-            # additional shape for compatibility with column vector style
-            resample_mask = np.ones((algo_params['n_trajectories'], 1, 1))
-
-        else:
-            raise RuntimeError(f'Invalid resampling type "{algo_params["resampling_type"]}"')
 
 
-        # keep old sample where that mask is 1.
-        not_resample_mask = 1 - resample_mask
-
-        # just resample ALL the xs anyway, and later let the mask decide which to keep.
-        # resampled_xs = scale @ jax.random.normal(key, (algo_params['n_trajectories'], nx, 1))
-        resampled_xs = jax.random.multivariate_normal(
-                key,
-                mean=np.zeros(nx,),
-                cov=algo_params['x_sample_cov'],
-                shape=(algo_params['n_trajectories'],)
-        ).reshape(algo_params['n_trajectories'], nx, 1)
-
-        new_xs = resample_mask * resampled_xs + \
-                not_resample_mask * old_xs
-
-        # every trajectory is at the same time...
-        ts = t * np.ones((algo_params['n_trajectories'], 1))
-
-        # input vector of the NN
-        # squeeze removes the last 1. (n_traj, nx, 1) -> (n_traj, nx).
-        # because the NN doesn't work with explicit (n, 1) shaped column vectors
-        resampled_ts_and_xs = np.concatenate([ts, resampled_xs.squeeze()], axis=1)
-
-        # these value gradients are with respect to (t, x). so we also have time
-        # gradients, not only the ones w.r.t. state. can we do something with those as well?
-
-        # we have d/dt V(t, x(t)) = V_t(t, x(t)) + V_x(t, x(t)).T d/dt x(t)
-        # or d/dt V(t, x(t)) = [V_t(t, x(t))  V_x(t, x(t))] @ [1  d/dt x(t)]
-        # this is basically a linear system which (probably?) we can solve for
-        # V_t(t, x(t)) (partial derivative in first argument, not total time derivative)
-        # so, TODO, also try to incorporate time gradient during training.
-
-        # do some jax magic
-        V_fct = lambda z: nn_apply_fct(nn_params, z).reshape()
-        V_fct_and_grad = jax.value_and_grad(V_fct)
-        V_fct_and_grad_batch = jax.vmap(V_fct_and_grad)
-
-        resampled_Vs, resampled_V_grads = V_fct_and_grad_batch(resampled_ts_and_xs)
-
-        # weird [None] tricks so it doesn't do any wrong broadcasting
-        # V grads [1:] because the NN output also is w.r.t. t which at the moment we don't need
-        new_Vs = resample_mask * resampled_Vs[:, None, None] + not_resample_mask * old_Vs
-        new_V_grads = resample_mask * resampled_V_grads[:, 1:, None] + not_resample_mask * old_V_grads
-
-        # circumventing jax's immutable objects.
-        # if docs are to be believed, after jit this will do an efficient in place update.
-        ys = ys.at[:, 0:nx, :].set(new_xs)
-        ys = ys.at[:, nx:2*nx, :].set(new_V_grads)
-        ys = ys.at[:, -1:, :].set(new_Vs)
-
-        return ys, resample_mask
 
 
+
+    # define the dynamics of optimal trajectories according to PMP.
+    f_forward = pontryagin_utils.define_extended_dynamics(problem_params)
 
     # solve pontryagin backwards, for vampping later.
     def pontryagin_backward_solver(y_final, tstart):
@@ -315,17 +143,23 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         return y
 
+    # construct the initial (=terminal boundary condition...) extended state
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))
     all_y_T = x_to_y_vmap(all_x_T)
-
-    dt = algo_params['dt']
-    t = T  # np.array([T])
-
     init_ys = all_y_T
 
 
 
+
+
+
+
+
     # calculate all the time and index parameters in advance to avoid the mess.
+
+    dt = algo_params['dt']
+    t = T
+
     # image for visualisation:
 
     # 0                                                                     T
@@ -351,6 +185,10 @@ def hjb_characteristics_solver(problem_params, algo_params):
     all_indices = onp.arange(n_timesteps)
     all_ts = all_indices * dt
 
+
+
+
+    # make space for output data
     # full solution array. onp so we can modify in place.
     # every integration step fills a slice all_sols[:, i:i+timesteps_per_resample, :, :], for i in resampling_indices.
     # final ..., 1) in shape so we have nice column vectors just as everywhere else.
@@ -361,49 +199,12 @@ def hjb_characteristics_solver(problem_params, algo_params):
     # technically redundant but might make function fitting nicer later
     all_sols[:, -1, :, :] = all_y_T
 
-    def sol_array_to_train_data(all_sols, all_ts, resampling_i, train_lookback):
+    train_loss_curves = []
+    test_loss_curves = []
 
-        # basically, this takes the data in all_sols and all_ts, slices out the
-        # relevant part between the current resampling (resampling_i) and the
-        # lookback horizon, and reshapes it accordingly so the NN can handle it.
-
-        # training data terminology:
-
-        # input = [t, state], label = V
-
-        # reshape - during training we do not care which is the time and which the
-        # trajectory index, they are all just pairs of ((t, x), V) regardless
-
-        # before we have a shape (n_traj, n_time, 2*nx+1, 1).
-        # here we remove the last dimension - somehow it makes NN stuff easier.
-
-        if train_lookback == np.inf:
-            # use ALL the training data available
-            train_time_idx = np.arange(resampling_i, n_timesteps)
-        else:
-            lookback_indices = int(train_lookback / algo_params['dt'])
-            upper_train_time_idx = resampling_i + lookback_indices
-            if upper_train_time_idx > n_timesteps:
-                # If available data <= lookback, just use whatever we have.
-                upper_train_time_idx = n_timesteps
-
-            train_time_idx = np.arange(resampling_i, upper_train_time_idx)
-
-        train_states = all_sols[:, train_time_idx, 0:nx, :].reshape(-1, nx)
-
-        # make new axes to match train_state
-        train_ts = all_ts[None, train_time_idx, None]
-        # repeat for all trajectories (axis 0), which all have the same ts.
-        train_ts = np.repeat(train_ts, algo_params['n_trajectories'], axis=0)
-        # flatten the same way as train_states
-        train_ts = train_ts.reshape(-1, 1)
-
-        # assemble into main data arrays
-        # these are of shape (n_datpts, n_inputfeatures) and (n_datapts, 1)
-        train_inputs = np.concatenate([train_ts, train_states], axis=1)
-        train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
-
-        return train_inputs, train_labels
+    total_start = time.time()
+    integration_time = 0
+    nn_time = 0
 
     # the main loop.
     # basically, do backwards continuous-time approximate dynamic programming.
@@ -412,13 +213,15 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     it = zip(resampling_indices[::-1], resampling_ts[::-1])
     # for (resampling_i, resampling_t) in it:
-    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings, desc='total progress'):
+    for (resampling_i, resampling_t) in tqdm(it, total=n_resamplings):
 
         # we integrate backwards over the time interval [resampling_t, resampling_t + resample_interval].
         # corresponding data saved with save_idx = [:, resampling_i:resampling_i + timesteps_per_resample, : :]
         # at all_sols[save_idx]
 
+        integ_start = time.time()
         start_t = resampling_t + algo_params['resample_interval']
+        integration_time += time.time() - integ_start
 
         # the main dish.
         # integrate the pontryagin necessary conditions backward in time, for a time period of
@@ -438,8 +241,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # so we save it in the big solution array with reversed indices.
         all_sols[:, save_idx_rev, :, :] = sol_object.ys
 
-        train_inputs, train_labels = sol_array_to_train_data(
-                all_sols, all_ts, resampling_i, algo_params['nn_train_lookback']
+        train_inputs, train_labels = array_juggling.sol_array_to_train_data(
+                all_sols, all_ts, resampling_i, n_timesteps, algo_params
         )
 
         key, train_key = jax.random.split(key)
@@ -450,26 +253,26 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # luckily the NN training does not need the arrays.
         # therefore, we take them out
 
+        nn_start = time.time()
         nn_params, train_losses, test_losses = V_nn.train(
                 train_inputs, train_labels, nn_params, algo_params_nn, train_key
         )
+        nn_time += time.time() - nn_start
 
 
         if algo_params['nn_plot_training']:
-            pl.semilogy(train_losses, label='training loss')
-            pl.semilogy(test_losses, label='test loss')
-            pl.legend()
-            pl.show()
-
+            train_loss_curves.append(train_losses)
+            test_loss_curves.append(test_losses)
 
 
         # resampling step.
         # which type of resampling (minimal or all) is baked into the resample function
         # via algo_params['resample_type'].
         key, subkey = jax.random.split(key)
-        ys_resampled, resampling_mask = resample(
+
+        ys_resampled, resampling_mask = array_juggling.resample(
                 final_ys, resampling_t,
-                V_nn.nn.apply, nn_params,
+                V_nn.nn.apply, nn_params, algo_params,
                 subkey)
 
         where_resampled[:, resampling_i, None, None] = resampling_mask
@@ -477,7 +280,27 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # finished (x, λ, v) vectors for the next integration step.
         init_ys = ys_resampled
 
+    total_end = time.time()
+
+    full_time = total_end - total_start
+
+    frac_integration = integration_time / full_time
+    frac_nn = nn_time / full_time
+    rest_time = full_time - integration_time - nn_time
+    print(f' --- timing summary ---')
+    print(f' total:         {       full_time:.1f}s ')
+    print(f' integration:   {integration_time:.1f}s = {int(100*frac_integration)}% ')
+    print(f' NN training:   {         nn_time:.1f}s = {int(100*frac_nn         )}% ')
+    print(f' rest:          {       rest_time:.1f}s = {int(100*(1-frac_integration-frac_nn))}% ')
     plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
+
+    if algo_params['nn_plot_training']:
+        pl.figure()
+        pl.semilogy(np.array(train_loss_curves).T, label='training loss', c='gray')
+        pl.semilogy(np.array(test_loss_curves).T, label='test loss', c='blue')
+        pl.legend()
+        pl.show()
+
 
     return all_sols, all_ts, where_resampled
 
@@ -562,7 +385,7 @@ def characteristics_experiment_simple():
             'f': f,
             'l': l,
             'h': h,
-            'T': 4,
+            'T': 8,
             'nx': 2,
             'nu': 1
     }
@@ -590,7 +413,7 @@ def characteristics_experiment_simple():
 
     algo_params = {
             'n_trajectories': 128,
-            'dt': 1/64,
+            'dt': 1/128,
             'resample_interval': 1/4,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
@@ -600,7 +423,7 @@ def characteristics_experiment_simple():
             'nn_batchsize': 128,
             'nn_N_epochs': 5,
             'nn_testset_fraction': 0.1,
-            'nn_plot_training': False,
+            'nn_plot_training': True,
             'nn_train_lookback': 1/4
     }
 
@@ -609,6 +432,8 @@ def characteristics_experiment_simple():
     output = hjb_characteristics_solver(problem_params, algo_params)
 
     plotting_utils.plot_2d(*output, problem_params, algo_params)
+
+    pl.show()
 
 
 if __name__ == '__main__':

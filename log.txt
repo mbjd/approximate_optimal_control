@@ -553,3 +553,102 @@ maybe start by extending the loss plots with gradient loss.
 found the bug, it was both the fact that I forgot to even use the newly
 defined function properly, and that it was defined with an unintended
 broadcast in it, screwing the results. I think I fixed it successfully now.
+
+
+2023-05-05
+
+the current stuff works actually quite well. we get nice looking value
+function (for this toy problem...), with the only problem that V seems to
+become negative, indicating the approximation of V itself is not that
+great, but that is not a huge problem as long as V_x is good.
+
+however, the problem could still be that due to the repeating NN
+approximation, we compound various errors (would be interesting however to
+analyse to what degree this is alleviated due to the 'minimal' resampling,
+where we keep the trajectories going which have not left the interesting
+region).
+
+it would be much easier if we took the route of first generating many exact
+(up to numerical ODE solver errors) optimal trajectories, and then fitting
+a function approximation. then however the problem becomes the selection of
+terminal states/costates such that the trajectories stay in the interesting
+region, and the well known problem of sensitivity growing with time horizon
+applies again.
+
+still we might alleviate this with an approach that roughly looks like
+this:
+
+1. generate optimal trajectories by simulating pontryagin backward from T,
+   starting at some terminal distribution of states/costates, until like 1/2
+   the trajectories have left the interesting region (or some similar
+   criterion, like distribution mismatch between trajectories and desired
+   such as data likelihood, KL div, ...).
+   Let Termination time =: t < T.
+
+2. take some desired distribution κ over the state space, and weight each
+   trajectory by w_i = κ(x_i(t)).
+
+3. We have a MC style approximation of the distribution of terminal states
+   which leads to that desired distribution: Σ_i w_i δ(x_i(T) - x). So in
+   particle filter style we can use that to generate new terminal
+   conditions, by sampling from that MC distribution or a smoothed/noisy
+   version of it.
+   (*)
+
+4. Repeat from 1. We have reason to believe that the integration will go
+   further back than last time, because once we reach the last termination
+   t, the trajectories should have our desirable distribution.
+
+terminate once we have reached t=0 and the distribution of x_i(0) is nice
+
+
+Upsides:
+ - no NN in the loop
+ - possible to do the 'time marching' with not too many particles, then
+   when we found the suitable distribution of terminal conditions, do A LOT
+   of samples, then do supervised learning only once
+ - maybe easier to approximate globally optimal controls (just generate ALL
+   the local optimal trajectories, select the best ones in the end), but
+   maybe also more computation
+
+Downsides:
+ - probably data generation has complexity O(T^2)
+     - then again generating data seems to be much cheaper than training NNs
+ - hard to guarantee we will reach the desired distribution
+
+is this just a cross entropy methdod? or a cheap version thereof?
+
+* after thinking about it again, this is not correct. it would be if the
+states x_i(t) were uniformly distributed across state space, but they're
+not. still might work if the distribution is nice enough..?
+
+this is proably what lenart & bhavya already smelled when they said we
+probably still need a step of V, V_x approximation at t, sampling from κ,
+simulating forward with the approximated V, THEN we actually have a
+terminal state distribution which leads to the desired distribution at t.
+but is it worth it? applied iteratively for time marching this seems really
+inefficient. maybe as a one-time step to improve upon a value function
+estimate for the whole horizon T?
+
+actually, because the characteristic curves backwards in time kind of
+diverge, it might be a workable assumption that the distribution is
+uniform-ish, at least for small enough time marching intervals.... which we
+could the repeat. maybe a quite efficient algorithm might be of the form:
+
+1. find some distribution over x(T) that leads to a decent distribution
+over x(0), using the time marching and importance sampling iteration
+outlined above.
+
+2. sample many trajectories, approximate V(0, x) with NN (importantly V_x(0, x))
+
+3. do uncertainty estimation (BNN/ensemble), and find new x(T) that give
+information about uncertain x(0). this should be easy as we have the many
+samples already, so we only need to locally reason about the map from x(0)
+to x(T). probably some approximate kernel method/weighted nearest
+neighbours will do quite well. go back to 2 if not yet happy.
+
+
+these kinds of approaches will probably do better (or at least, be easier)
+with finite horizon and zero terminal constraint (for stability), because
+then we get away with just fitting V(0, x) instead of V(t, x) and don't
+have to care about the data distribution in (t, x) space, just x.

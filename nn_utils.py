@@ -193,11 +193,13 @@ class nn_wrapper():
         )
 
 
+        N_lr_steps = 4
         lr_schedule = optax.exponential_decay(
                 init_value = 0.01,
-                transition_steps = total_iters,
-                decay_rate = 1e-2,
-                end_value=1e-6
+                transition_steps = total_iters // N_lr_steps,
+                decay_rate = (1e-2) ** (1/N_lr_steps),
+                end_value=1e-4,
+                staircase=False
         )
 
         losses = np.zeros(total_iters)

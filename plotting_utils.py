@@ -125,9 +125,20 @@ def plot_V_at_random_states(V_nn_wrapper, nn_params, tbounds, algo_params):
 
     pl.figure('value over time, at a selection of states')
     pl.plot(tgrid, values, alpha = .5)
-    pl.show()
+
+def plot_V_trajectories(all_sols, all_ts, where_resampled):
+    fig = pl.figure('V over the simulated trajectories')
+
+    all_values = all_sols[:, :, -1,       :]
+
+    try:
+        all_values = all_values.at[where_resampled, :].set(np.nan)
+    except:
+        all_values[where_resampled, :] = np.nan
 
 
+    pl.plot(all_ts, all_values.squeeze().T, color='b', alpha=0.1)
+    pl.plot(all_ts, 0 * all_ts, color='b', alpha=0.5, linestyle='--')
 
 
 def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):

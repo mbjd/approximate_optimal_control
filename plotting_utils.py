@@ -79,7 +79,7 @@ def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
     time_slider.on_changed(update)
 
 
-def plot_V_at_random_states(V_nn_wrapper, nn_params, tbounds, algo_params):
+def plot_V_over_time(V_nn_wrapper, nn_params, all_sols, all_ts, where_resampled, algo_params):
 
     # plots V at some random set of states, as a function of time, so we
     # can qualitatively assess how/whether the value function converges
@@ -96,6 +96,7 @@ def plot_V_at_random_states(V_nn_wrapper, nn_params, tbounds, algo_params):
             shape=(algo_params['n_trajectories'],)
     ).reshape(algo_params['n_trajectories'], nx)
 
+    tbounds = (np.min(all_ts), np.max(all_ts))
     tgrid = np.linspace(*tbounds, 101)
 
     # make a 3D array containing first the time index, then the states
@@ -123,11 +124,11 @@ def plot_V_at_random_states(V_nn_wrapper, nn_params, tbounds, algo_params):
     # somehow i was not able to find out how to do this :(
     # colors = matplotlib.colormaps.get_cmap('cool')(statenorms_normal)
 
-    pl.figure('value over time, at a selection of states')
+    # and another plot with value fct over simulated trajectories
+    pl.figure('value function plots')
+    pl.subplot(211)
+    pl.title('V over time, at a selection of states')
     pl.plot(tgrid, values, alpha = .5)
-
-def plot_V_trajectories(all_sols, all_ts, where_resampled):
-    fig = pl.figure('V over the simulated trajectories')
 
     all_values = all_sols[:, :, -1,       :]
 
@@ -137,8 +138,10 @@ def plot_V_trajectories(all_sols, all_ts, where_resampled):
         all_values[where_resampled, :] = np.nan
 
 
-    pl.plot(all_ts, all_values.squeeze().T, color='b', alpha=0.1)
-    pl.plot(all_ts, 0 * all_ts, color='b', alpha=0.5, linestyle='--')
+    pl.subplot(212)
+    pl.title('value function along simulated trajectories')
+    pl.plot(all_ts, all_values.squeeze().T, alpha=0.1)
+    pl.plot(all_ts, 0 * all_ts, color='black', alpha=0.5, linestyle='--')
 
 
 def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):

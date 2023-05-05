@@ -28,8 +28,6 @@ jax.tree_util.register_pytree_node(nn_wrapper,
                                    nn_wrapper._tree_flatten,
                                    nn_wrapper._tree_unflatten)
 
-import frozendict
-
 
 
 def hjb_characteristics_solver(problem_params, algo_params):
@@ -64,14 +62,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
     key, subkey = jax.random.split(key)
     nn_params = V_nn.init_nn_params(subkey)
-
-    # the algo params relevant for nn training.
-    # so we have only immutable stuff left.
-    is_nn_key = lambda key_and_val: key_and_val[0].startswith('nn_')
-    algo_params_nn = frozendict.frozendict(filter(is_nn_key, algo_params.items()))
-
-
-
 
     # generate initial state points according to the specified distribution.
     key, subkey = jax.random.split(key)
@@ -248,7 +238,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # therefore, we take them out
 
         nn_params, outputs = V_nn.train(
-                train_inputs, train_labels, nn_params, algo_params_nn, train_key
+                train_inputs, train_labels, nn_params, algo_params, train_key
         )
 
         if algo_params['nn_plot_training']:
@@ -281,9 +271,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         # change the algo params to take in all the data.
         algo_params['nn_train_lookback'] = np.inf
-
-        is_nn_key = lambda key_and_val: key_and_val[0].startswith('nn_')
-        algo_params_nn = frozendict.frozendict(filter(is_nn_key, algo_params.items()))
+        algo_params['nn_progressbar'] = True
 
         train_inputs, train_labels = array_juggling.sol_array_to_train_data(
                 all_sols, all_ts, resampling_i, n_timesteps, algo_params
@@ -292,7 +280,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
         key, train_key = jax.random.split(key)
 
         nn_params, outputs = V_nn.train(
-                train_inputs, train_labels, nn_params, algo_params_nn, train_key
+                train_inputs, train_labels, nn_params, algo_params, train_key
         )
 
         if algo_params['nn_plot_training']:
@@ -316,8 +304,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
 
         plotting_utils.plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params)
         plotting_utils.plot_2d_V(V_nn, nn_params, (0, T), (-3, 3))
-        plotting_utils.plot_V_at_random_states(V_nn, nn_params, (0, T), algo_params)
-        plotting_utils.plot_V_trajectories(all_sols, all_ts, where_resampled)
+
+        plotting_utils.plot_V_over_time(V_nn, nn_params, all_sols, all_ts, where_resampled, algo_params)
 
 
     pl.show()
@@ -407,7 +395,7 @@ def characteristics_experiment_simple():
             'f': f,
             'l': l,
             'h': h,
-            'T': 16,
+            'T': 2,
             'nx': 2,
             'nu': 1
     }
@@ -434,21 +422,28 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
 
     algo_params = {
-            'n_trajectories': 64,
+            'n_trajectories': 512,
             'dt': 1/256,
             'resample_interval': 1/4,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (64, 64, 64),
+            'nn_layersizes': (32, 32, 32),
             'nn_batchsize': 128,
-            'nn_N_epochs': 4,
+            'nn_N_epochs': 3,
             'nn_testset_fraction': 0.2,
             'nn_plot_training': True,
             'nn_train_lookback': 1/4,
-            'nn_V_gradient_penalty': 10,
-            'nn_retrain_final': False,
+            'nn_V_gradient_penalty': 0.1,
+
+            'nn_retrain_final': True,
+            'nn_progressbar': False,
+
+            'lr_init': 1e-2,
+            'lr_final': 5e-4,
+            'lr_staircase': False,
+            'lr_staircase_steps': 5,
 
             'plot_final': True
     }

@@ -3,6 +3,7 @@ import jax
 import jax.numpy as np
 import optax
 import diffrax
+import jax_tqdm
 
 # cheating on equinox :/
 import flax
@@ -178,28 +179,17 @@ class nn_wrapper():
 
         total_iters = N_batches * N_epochs
 
-        # could make these arguments as well...
-        factor = .2
-        lr_schedule = optax.piecewise_constant_schedule(
-                init_value=0.02,
-                boundaries_and_scales = {
-                    100: factor,
-                    200: factor,
-                    300: factor,
-                    500: factor,
-                    1000: factor,
-                    2000: factor,
-                }
-        )
-
-
-        N_lr_steps = 4
+        # exponential decay. this will go down from lr_init to lr_final over
+        # the whole training duration.
+        # if lr_staircase, then instead of smooth decay, we have stepwise decay
+        # with
+        N_lr_steps = algo_params['lr_staircase_steps']
         lr_schedule = optax.exponential_decay(
-                init_value = 0.01,
+                init_value = algo_params['lr_init'],
                 transition_steps = total_iters // N_lr_steps,
                 decay_rate = (1e-2) ** (1/N_lr_steps),
-                end_value=1e-4,
-                staircase=False
+                end_value=algo_params['lr_final'],
+                staircase=algo_params['lr_staircase']
         )
 
         losses = np.zeros(total_iters)
@@ -294,6 +284,12 @@ class nn_wrapper():
             new_carry = (nn_params_new, opt_state_new, (i_batch + 1) % N_batches)
 
             return new_carry, aux_output
+
+        if algo_params['nn_progressbar']:
+            # somehow this gives an error from within the library :(
+            # f_scan = jax_tqdm.scan_tqdm(n=total_iters)(f_scan)
+            pass
+
 
         # the training loop!
         # currently the input argument xs is unused (-> None) -- we keep track of the batch

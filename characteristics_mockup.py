@@ -422,8 +422,8 @@ def characteristics_experiment_simple():
     # then just say we resample when x is outside of like 4 sigma or similar.
 
     algo_params = {
-            'n_trajectories': 512,
-            'dt': 1/256,
+            'n_trajectories': 256,
+            'dt': 1/128,
             'resample_interval': 1/4,
             'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
@@ -435,7 +435,7 @@ def characteristics_experiment_simple():
             'nn_testset_fraction': 0.2,
             'nn_plot_training': True,
             'nn_train_lookback': 1/4,
-            'nn_V_gradient_penalty': 0.1,
+            'nn_V_gradient_penalty': 1,
 
             'nn_retrain_final': True,
             'nn_progressbar': False,

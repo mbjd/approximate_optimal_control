@@ -652,3 +652,45 @@ these kinds of approaches will probably do better (or at least, be easier)
 with finite horizon and zero terminal constraint (for stability), because
 then we get away with just fitting V(0, x) instead of V(t, x) and don't
 have to care about the data distribution in (t, x) space, just x.
+
+
+
+also, over lunch thought about this: the problem I had in mind for quite
+some time to "fit a NN to the smallest function explained by data" can
+actually be formalised quite nicely. Start from the hypothetical problem we
+would like to solve:
+
+max_θ \int c(x) f_θ(x) dx
+s.t. f_θ(x_i) <= y_i   (for all i).
+
+This assumes some class of parameterised functions f which we choose.
+First, we rewrite the constraint as a penalty function, which is an
+approximation but can be made arbitrarily accurate by multiplying it with a
+big number λ.
+
+max_θ [ \int c(x) f_θ(x) dx + λ Σ_i min(0, y_i - f_θ(x_i)) ]
+
+The distribution c is arbitrary and just serves to weigh how we 'push up'
+the function against the data. We might as well choose the distribution of
+the data itself, as 'pushing up' the function where we have no data is
+probably dumb anyways. Doing that, we end up at:
+
+max_θ  Σ_i [ 1/N f_θ(x_i) + λ min(0, y_i - f_θ(x_i)) ]
+
+And already we have a nice pointwise loss function suitable for machine
+learning. The factors 1/N and λ can of course be combined into a single
+tuning hyperparameter. Also, it might prove useful to replace the min(0, .)
+by a smooth approximation.
+
+Whether this actually works practically and how much data we need is
+another question. Maybe we need some sort of regularization for it to work
+as well.
+
+
+back to the stuff from before. it would be really cool to unify that and
+the previous approach under one algorithm. For example, the number of DP
+steps (pontryagin simulation -> NN approximation) and the method used to
+obtain samples from the desired distribution (None/Resampling, Time
+marching & importance sampling as before) might both be put into
+algo_params and throwin into some BO hyperparameter optimisation toolbox.
+TODO do that next week.

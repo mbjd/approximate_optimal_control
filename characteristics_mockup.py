@@ -31,7 +31,29 @@ jax.tree_util.register_pytree_node(nn_wrapper,
 
 
 def hjb_characteristics_solver(problem_params, algo_params):
+
     '''
+
+    this is the initial version of the solver.
+
+    basic idea: we solve the HJB equation semi-globally, i.e. over some
+    state space distribution. We do this by iterating the following steps:
+
+    1. Solve the characteristic curves (= pontryagin minimum principle)
+       backwards over some small time interval
+    2. Find NN approximation of V at that time
+    3. Find out which trajectories have left the interesting region,
+       re-initialise only those at some more interesting state using the NN
+
+    the fundamental problem with this is that we iterate between
+    approximation and solution many times, and that when resampling, we
+    initialise the trajectories with information we basically don't have
+    (ie. have guessed with the NN). Specifically, at T=0, basically the
+    whole solution 'comes from' a very small region in state space at large
+    T. If we have some error there, it will affect all of the state space,
+    and we have compounding errors. Also, the solution is formed for more
+    points in state-time space than may be necessary.
+
     (all in problem_params:)
     f: dynamics. vector-valued function of t, x, u.
     l: cost. scalar-valued function of t, x, u.
@@ -429,13 +451,13 @@ def characteristics_experiment_simple():
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
 
-            'nn_layersizes': (32, 32, 32),
+            'nn_layersizes': (64, 64, 64, 64),
             'nn_batchsize': 128,
-            'nn_N_epochs': 3,
+            'nn_N_epochs': 5,
             'nn_testset_fraction': 0.2,
             'nn_plot_training': True,
             'nn_train_lookback': 1/4,
-            'nn_V_gradient_penalty': 1,
+            'nn_V_gradient_penalty': 100,
 
             'nn_retrain_final': True,
             'nn_progressbar': False,

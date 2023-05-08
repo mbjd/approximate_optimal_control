@@ -694,3 +694,68 @@ obtain samples from the desired distribution (None/Resampling, Time
 marching & importance sampling as before) might both be put into
 algo_params and throwin into some BO hyperparameter optimisation toolbox.
 TODO do that next week.
+
+
+2023-05-08
+
+
+again thinking about methods to find pontryagin-optimal trajectories over
+the whole horizon, without approximations in between. thinking about
+importance sampling to find good terminal condition distribution.
+
+basic importance sampling theory goes as follows: we have a 'difficult'
+distribution q and an easier distribution p. We would like to estimate the
+quantity E_{x~q} l(x)
+
+We cannot sample from q for whatever reason, but we can evaluate its pdf up
+to a normalisation factor. so instead we sample x ~ q, but weigh each
+sample with the additional correction factor w = p(x) / q(x), so that
+finally we replace the expectation above by E_{x~p} l(x) p(x)/q(x).
+
+(is this basically the change of variables formula?)
+
+However in our case we want a bit less I think, we don't need to estimate
+some quantity, instead we basically have y=f(x) and want to find a
+distribution over x that gives some desired distribution over y.
+
+We can find a 'proxy' for the desired distribution. suppose we sample
+x_i(T) ~ pT, then simulate backwards. The trajectories at x_i(0) will be
+distributed according to some distribution p0, but we would like them to be
+distributed according to q (the desired initial state distribution). To do
+this we in turn have to find a better version of pT, one that ideally
+achieves p0 = q.
+
+A proposal for improvement could be the following distribution:
+
+pT(x) <- Σ_i δ(x - x_i(T)) * q(x_i(0))/p0(x_i(0))
+
+So basically a reweighted version of the previous terminal condition
+distribution. One problem is that we don't know p0(x_i(0)) -- is it
+obtainable with some change of variables formula, like multiplying pT by
+the jacobian of the map from x(T) to x(0)?
+
+basically we have x(0) = f(x(T)), where f contains the whole ODE solver
+used to follow the characteristic curves, which is differentiable.
+
+Turns out this is the good old multivariable change of variables formula.
+Basically we scale the input pdf by the |(df(x)/dx)^-1|. BUT for this the
+change of variables needs to be bijective, this is not given if we have
+multiple locally optimal trajectories, as is usual in many interesting
+cases. what happens then???
+
+If we ditch the jacobian and assume it is 'constant enough' we can lump it
+with the other scaling factors on the t=0 side. then we get more of a
+heuristic method of the type "sample terminal conditions, throw away ones
+we don't like, sample more of the ones we like". Which might still be
+great, who knows \o/ After all the jacobian is not that informative, it
+will be very large anyway, dominated by the fastest dynamics, this is
+exactly the well known sensitivity thing.
+
+
+
+
+---- other ways to possibly think about this problem ----
+
+normalising flows???
+cross entropy methods in optimisation (probably pretty close to above)
+brute force: sample lots of x(0) and find initial costates with usual gradient methods

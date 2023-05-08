@@ -184,10 +184,13 @@ class nn_wrapper():
         # if lr_staircase, then instead of smooth decay, we have stepwise decay
         # with
         N_lr_steps = algo_params['lr_staircase_steps']
+
+        total_decay = algo_params['lr_final'] / algo_params['lr_init']
+
         lr_schedule = optax.exponential_decay(
                 init_value = algo_params['lr_init'],
                 transition_steps = total_iters // N_lr_steps,
-                decay_rate = (1e-2) ** (1/N_lr_steps),
+                decay_rate = (total_decay) ** (1/N_lr_steps),
                 end_value=algo_params['lr_final'],
                 staircase=algo_params['lr_staircase']
         )

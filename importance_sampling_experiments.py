@@ -186,6 +186,11 @@ def importance_sampling_bvp(problem_params, algo_params):
 
 
     # compare the two pontryagin solvers.
+
+    # TODO next week on monday: do this properly, put ODE solver timing
+    # weirdness behind us once and for all.
+    # something still does not work in the own implementation. shape
+    # mismatch somewhere.
     x = np.array([.1, -.1]).reshape(2, 1)
     sol_old, ys_old = pontryagin_backward_solver(x_to_y(x, h), T, 0)
     ts_new, ys_new = pontryagin_backward_solver_own(x_to_y(x, h), T, 0)

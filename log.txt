@@ -759,3 +759,15 @@ exactly the well known sensitivity thing.
 normalising flows???
 cross entropy methods in optimisation (probably pretty close to above)
 brute force: sample lots of x(0) and find initial costates with usual gradient methods
+
+
+2023-05-10
+
+meeting this morning. talked about new sampling-then-approximation path
+which they generally like. GPs instead of NNs after all?
+
+Spent all day trying to implement importance sampling (iteratively, with
+growing horizon, so we don't have so wildly different distributions). Am
+mainly fighting with diffrax's weird way of handling time steps.
+
+write a simple own rk4 loop with fixed width????

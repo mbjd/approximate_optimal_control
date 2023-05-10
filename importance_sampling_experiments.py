@@ -94,9 +94,13 @@ def importance_sampling_bvp(problem_params, algo_params):
         # setup ODE solver
         term = diffrax.ODETerm(f_forward)
         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
-        saveat = diffrax.SaveAt(steps=True)
+        ts = np.linspace(t0, t1, algo_params['integ_steps'])
         steps = algo_params['integ_steps']
-        dt = (t1 - t0)/(steps)  # negative if t1 < t0, backward integration just works
+        dt = (t1 - t0)/steps  # negative if t1 < t0, backward integration just works
+
+        # maybe easier to control the timing intervals like this?
+        saveat = diffrax.SaveAt(ts = ts)
+        # saveat = diffrax.SaveAt(steps=True)
 
         # and solve :)
         solution = diffrax.diffeqsolve(
@@ -105,6 +109,57 @@ def importance_sampling_bvp(problem_params, algo_params):
         )
 
         return solution, solution.ys[-1]
+
+    def pontryagin_backward_solver_own(y0, t0, t1):
+
+        # hand-written fixed width RK4 ODE solver.
+
+        # because diffrax seems to arrange everything for adaptive step
+        # width, there is no way to really deterministically determine the
+        # output size. if we specify max_steps and dt, sometimes floating
+        # point weirdness makes it so the allocated array is not fully used
+        # (leading to nan or inf) or the solver would need more steps to
+        # cover the integration interval, leading to a runtime error.
+
+        # this circumvents this by defining the ts array right from the start and
+        # making the output array based on that.
+
+        # warning, different output signature, only ts and ys array and not
+        # a big fancy solution object.
+
+        # we write a scan 'for' loop with input t and output y
+        ts = np.linspace(t0, t1, algo_params['integ_steps'])
+
+        def RK4_step_scan(carry, inp):
+
+            (t_prev, y_prev) = carry
+            t_next = inp
+
+            # step width
+            h = t_next - t_prev
+
+            k1 = f_forward(t_prev, y_prev)
+            k2 = f_forward(t_prev + h/2, y_prev + h1 * k1/2)
+            k3 = f_forward(t_prev + h/2, y_prev + h1 * k2/2)
+            k4 = f_forward(t_prev + h,   y_prev + h1 * k3  )
+
+            y_next = y_prev + (h/6) * (k1 + 2*k2 + 2*k3 + k4)
+
+            next_carry = (t_next, y_next)
+            output = y_next
+
+            return next_carry, output
+
+
+
+        init_carry = (ts[0], y0)
+        carry, outputs = jax.lax.scan(RK4_step_scan, init_carry, y0, ts)
+        ys = outputs[0]
+
+        return ts, ys
+
+
+
 
     # vmap = gangster!
     # vmap only across first argument.
@@ -128,6 +183,14 @@ def importance_sampling_bvp(problem_params, algo_params):
     # later, when we have a (N_trajectories, nx) shaped vector of # terminal states x...
     # all_y_T = x_to_y_vmap(all_x_T)
     # init_ys = all_y_T
+
+
+    # compare the two pontryagin solvers.
+    x = np.array([.1, -.1]).reshape(2, 1)
+    sol_old, ys_old = pontryagin_backward_solver(x_to_y(x, h), T, 0)
+    ts_new, ys_new = pontryagin_backward_solver_own(x_to_y(x, h), T, 0)
+
+    ipdb.set_trace()
 
 
     key, subkey = jax.random.split(key)
@@ -171,9 +234,12 @@ def importance_sampling_bvp(problem_params, algo_params):
         t1 = inp
 
         sol_object, sol_vec = batch_pontryagin_backward_solver(y_T, T, t1)
+        desired_likelihoods = desired_pdf(sol_vec[:, 0:nx, 0])
+
+        sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(
+            x, sampling_mean, sampling_cov)
 
         desired_likelihoods = desired_pdf(sol_vec[:, 0:nx, 0])
-        sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, sampling_mean, sampling_cov)
         sampling_likelihoods = sampling_pdf(x_T[:, 0])
 
         # importance sampling weight
@@ -203,39 +269,31 @@ def importance_sampling_bvp(problem_params, algo_params):
         # then we have (wide matrix of column vecs) @ (tall matrix of row vecs)
         sampling_cov = sqrt_scaled_datapts.T @ sqrt_scaled_datapts
 
-        # just for plotting, also put the state distribution at t1 in the output.
-        t1_states = sol_vec[:, 0:nx, 0]
-        t1_mu = np.mean(t1_states, axis=0)
-        t1_states_zm = t1_states - t1_mu[None, :]
-
-        t1_cov = t1_states.T @ t1_states / (algo_params['n_trajectories'] + 1)
-
-        output = (sol_object, sampling_cov, resampling_weights, t1_cov)
+        output = (sol_object, sampling_cov, resampling_weights)
         new_carry = (sampling_mean, sampling_cov, key)
 
         return new_carry, output
 
-    N=10
+    N = 40
 
-    # a couple ehrenrunden at the end.
-    t1s = np.concatenate([np.linspace(0, T, N, endpoint=False)[::-1], np.zeros([4])])
+    t1s = np.concatenate([
+        np.linspace(0, T, N, endpoint=False)[::-1],
+        np.ones(algo_params['n_extrarounds']), # a couple of ehrenrunden
+    ])
 
     N = t1s.shape[0]
 
     init_carry = (np.zeros(nx,), algo_params['x_sample_cov'], key)
-    final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s)
+    final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s, length=N)
 
     sol_object = outputs[0]
     all_ys = sol_object.ys
 
     sampling_covs = outputs[1]
     resampling_ws = outputs[2]
-    t1_covs = outputs[3]
-
-    resampling_ws = (resampling_ws / resampling_ws.max(axis=1)[:, None])
 
     fig = pl.figure(figsize=(8, 3))
-    ax0 = fig.add_subplot(111, projection='3d')
+    ax0 = fig.add_subplot(111)
 
     for i in range(N):
         print(f'plotting iteration {i}...')
@@ -244,29 +302,18 @@ def importance_sampling_bvp(problem_params, algo_params):
         x_plot = sol_object.ys[i, :, :, 0, 0].T
         y_plot = sol_object.ys[i, :, :, 1, 0].T
 
-        c = matplotlib.colormaps.get_cmap('cividis')(i/N)
+        c = matplotlib.colormaps.get_cmap('coolwarm')(i/N)
+        a = onp.array(resampling_ws[i] / np.max(resampling_ws[i]))
 
         # bc. apparently alpha cannot be a vector :(
         for j in range(x_plot.shape[1]):
-            ax0.plot(t_plot, x_plot[:, j], y_plot[:, j], color=c, alpha=resampling_ws[i, j].item())
+            ax0.plot(t_plot, x_plot[:, j], y_plot[:, j], color=c, alpha=a[j])
+            # ax1.plot(t_plot, y_plot[:, j], color=c, alpha=a[j])
 
 
     pl.figure()
-    def plot_covs(covs, col):
-        pl.subplot(221)
-        pl.plot(covs[:, 0, 0], c=col)
-        pl.subplot(222)
-        pl.plot(covs[:, 1, 0], c=col)
-        pl.subplot(223)
-        pl.plot(covs[:, 0, 1], c=col)
-        pl.subplot(224)
-        pl.plot(covs[:, 1, 1], c=col)
-
-    plot_covs(sampling_covs, color='blue')
-    plot_covs(t1_covs, color='green')
-    pl.legend()
+    pl.plot(sampling_covs.reshape(N, -1))
     pl.show()
-    ipdb.set_trace()
 
 
 
@@ -296,7 +343,7 @@ if __name__ == '__main__':
             'f': f,
             'l': l,
             'h': h,
-            'T': 16,
+            'T': 2,
             'nx': 2,
             'nu': 1
     }
@@ -312,13 +359,14 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'n_trajectories': 128,
+            'n_trajectories': 32,
             # 'dt': 1/128,
             # 'resample_interval': 1/4,
             # 'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
             'x_domain': Q_x,
-            'integ_steps': 256,
+            'integ_steps': 64,
+            'n_extrarounds': 4
 
             # 'nn_layersizes': (64, 64, 64, 64),
             # 'nn_batchsize': 128,
@@ -343,3 +391,5 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     output = importance_sampling_bvp(problem_params, algo_params)
+
+

@@ -2,7 +2,6 @@
 import jax
 import jax.numpy as np
 import optax
-import diffrax
 import jax_tqdm
 
 # cheating on equinox :/
@@ -24,7 +23,6 @@ import matplotlib.pyplot as pl
 
 import ipdb
 
-import time
 from tqdm import tqdm
 from functools import partial
 

@@ -771,3 +771,54 @@ growing horizon, so we don't have so wildly different distributions). Am
 mainly fighting with diffrax's weird way of handling time steps.
 
 write a simple own rk4 loop with fixed width????
+
+
+2023-05-15
+
+smoothed out a couple kinks in the importance sampling code. ditched
+writing my own ODE integrator and wrote code that fits the design choices
+of diffrax instead (thanks @Patrick Kidger!). Fixed a bug where invisible
+shape-rank-promotion-broadcasting stuff was happening. it works quite well
+now. also made the plotting nicer.
+
+BUT remark: several things should still be considered.
+- if we increase the time horizon, as we will have to if we want to model
+  complex multiscale systems, the sensitivity problem pops up again, as we
+  cannot reliably represent gaussians with very small covariance matrices.
+
+- there are several approximations at play.
+  - The distribution is 're-parameterised' as a gaussian at each iteration,
+    removing the possibility of modelling multimodal distributions, which
+    might well arise in practical settings (-> nonconvex decisions,
+    intersecting characteristics).
+  - we ditch the factor of det(jacobian_x(f(x))), where f is the function
+    mapping terminal conditions to initial conditions. this means we don't
+    have the actual sampling density in the importance sampling likelihood
+    ratio, only something roughly proportional to it. in the (very small)
+    example it works well nevertheless.
+
+so if we want to improve it even more, basically two possibilities exist:
+- make the sampling much better by modelling a wider class of distributions
+  than gaussians (gaussian mixture? particle filter style?)
+- go with this approach, later generate more data based on some uncertainty
+  estimate
+  - very natural with GPs, since they give us a) predictive uncertainty and
+    b) the weights of how much each training example contributed to the
+    prediction, so we basically have a nice 'approximate inverse' of the f
+    mentioned before and can just say that if x0 = w.T x0_train, then
+    probably also the same convex combination can be made in terms of the
+    terminal conditions, together with some local linearity approximation
+    at least.
+
+
+TODO tomorrow:
+- read up on GPs
+  - jax implementations
+  - conditioning on gradient observations
+  - hyperparam/kernel optimisation?
+
+- think about ways to approach stability guarantee
+  - probably: bounded approximation error -> stability?
+    - probably need some dubious assumptions on smoothness etc.
+  - hoeffding like hertneck et al 2018? bit of a cheap way out
+

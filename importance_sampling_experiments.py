@@ -287,7 +287,16 @@ def importance_sampling_bvp(problem_params, algo_params):
     N = t1s.shape[0]
 
     init_carry = (np.zeros(nx,), algo_params['x_sample_cov'], key)
+
+    start = time.perf_counter()
     final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s, length=N)
+    end = time.perf_counter()
+    print(f'time for jit/first run: {end-start}')
+    start = time.perf_counter()
+    for i in range(10):
+        final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s, length=N)
+    end = time.perf_counter()
+    print(f'time for second run: {end-start}')
 
     sol_object = outputs['solutions']
     all_ys = sol_object.ys
@@ -296,49 +305,57 @@ def importance_sampling_bvp(problem_params, algo_params):
     t1_covs = outputs['t1_covs']
     resampling_ws = outputs['resampling_ws']
 
-    fig = pl.figure(figsize=(8, 3))
-    ax0 = fig.add_subplot(211)
-    ax1 = fig.add_subplot(212)
+    if algo_params['plot']:
+        fig = pl.figure(figsize=(8, 3))
+        ax0 = fig.add_subplot(211)
+        ax1 = fig.add_subplot(212)
 
-    # basically the same but in a phase plot
-    fig = pl.figure(figsize=(4, 4))
-    ax_phase = fig.add_subplot(111)
+        # basically the same but in a phase plot
+        fig = pl.figure(figsize=(4, 4))
+        ax_phase = fig.add_subplot(111)
 
-    for i in range(N):
-        print(f'plotting iteration {i}...')
-        t_plot = sol_object.ts[i, 0]
+        for i in range(N):
+            print(f'plotting iteration {i}...')
+            t_plot = sol_object.ts[i, 0]
 
-        # the two state vectors...
-        x_plot = sol_object.ys[i, :, :, 0, 0].T
-        y_plot = sol_object.ys[i, :, :, 1, 0].T
+            # the two state vectors...
+            x_plot = sol_object.ys[i, :, :, 0, 0].T
+            y_plot = sol_object.ys[i, :, :, 1, 0].T
 
-        # color basically shows iteration number
-        # alpha shows likelihood of trajectory for resampling?
-        c = matplotlib.colormaps.get_cmap('coolwarm')(i/N)
-        a = onp.array(resampling_ws[i] / np.max(resampling_ws[i]))
+            # color basically shows iteration number
+            # alpha shows likelihood of trajectory for resampling?
+            c = matplotlib.colormaps.get_cmap('gist_gray')(i/N)
+            a = onp.array(resampling_ws[i] / np.max(resampling_ws[i]))
 
-        if i==N-1:
-            # visualise final distribution differently...
-            c = 'black'
-            a = onp.ones_like(a) * .25
+            if i==N-1:
+                # visualise final distribution differently...
+                c = 'red'
+                a = onp.ones_like(a) * .25
 
-
-        # bc. apparently alpha cannot be a vector :(
-        for j in range(x_plot.shape[1]):
-            ax0.plot(t_plot, x_plot[:, j], color=c, alpha=a[j])
-            ax1.plot(t_plot, y_plot[:, j], color=c, alpha=a[j])
-            ax_phase.plot(x_plot[:, j], y_plot[:, j], color=c, alpha=a[j])
+            # colors_with_alpha = onp.zeros((algo_params['n_trajectories'], 4))
+            # colors_with_alpha[:, 3] = a
+            # colors_with_alpha[:, 0:3] = onp.array(c)[None, 0:3]
+            # ipdb.set_trace()
 
 
-    pl.figure()
-    pl.subplot(211)
-    pl.plot(sampling_covs.reshape(N, -1), label='sampling cov. entries')
-    pl.legend()
-    pl.subplot(212)
-    pl.plot(t1_covs.reshape(N, -1), label='t1 cov. entries')
-    pl.legend()
-    pl.show()
+            # bc. apparently alpha cannot be a vector :(
+            for j in range(x_plot.shape[1]):
+                ax0.plot(t_plot, x_plot[:, j], color=c, alpha=a[j])
+                ax1.plot(t_plot, y_plot[:, j], color=c, alpha=a[j])
+                ax_phase.plot(x_plot[:, j], y_plot[:, j], color=c, alpha=a[j])
 
+
+        pl.figure()
+        pl.subplot(211)
+        pl.plot(sampling_covs.reshape(N, -1), label='sampling cov. entries')
+        pl.legend()
+        pl.subplot(212)
+        pl.plot(t1_covs.reshape(N, -1), label='t1 cov. entries')
+        pl.legend()
+        pl.show()
+
+
+    return end-start
 
 
 
@@ -393,6 +410,7 @@ if __name__ == '__main__':
             'n_resampling_iters': 8,
             'n_extrarounds': 2,
             'deterministic': True,
+            'plot': True,
 
             # 'nn_layersizes': (64, 64, 64, 64),
             # 'nn_batchsize': 128,
@@ -416,6 +434,16 @@ if __name__ == '__main__':
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    output = importance_sampling_bvp(problem_params, algo_params)
+    importance_sampling_bvp(problem_params, algo_params)
+
+    # nts = 2**np.arange(4, 18)
+    # ts = []
+    # for nt in nts:
+    #     print(f'trying n_trajectories = {nt}')
+    #     algo_params['n_trajectories'] = nt
+    #     ts.append(importance_sampling_bvp(problem_params, algo_params))
+
+    # pl.plot(nts, np.array(ts))
+    # pl.show()
 
 

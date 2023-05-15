@@ -220,11 +220,9 @@ def importance_sampling_bvp(problem_params, algo_params):
                 x, sampling_mean[None, :], sampling_cov)
 
         desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx, 0])
-        sampling_likelihoods = sampling_pdf(x_T[:, 0])
+        sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['n_trajectories'], nx))
 
-        # importance sampling weight
-        # somehow these are the most theoretically sound, but perform the worst.
-        # we get inexplicable bimodal distributions over state space at t1.
+        # importance sampling weight - some different choices.
         resampling_weights_importance = desired_likelihoods / (1e-9 + sampling_likelihoods)
 
         # rejection sampling weights
@@ -236,17 +234,17 @@ def importance_sampling_bvp(problem_params, algo_params):
 
         # if we are in the final iterations (t1=0), take the importance sampling weighting.
         # otherwise, 'between' ones seem to work better.
-        # is_final = np.allclose(t1, 0)
-        # resampling_weights = is_final * resampling_weights_importance + (1-is_final) * resampling_weights_between
+        is_final = np.allclose(t1, 0)
+        resampling_weights_switched = is_final * resampling_weights_importance + (1-is_final) * resampling_weights_between
 
         # or just always take the 'between' ones....
-        resampling_weights = resampling_weights_rejection
+        resampling_weights = resampling_weights_switched
 
         resampling_weights = resampling_weights / np.sum(resampling_weights)
 
         xs_flat = x_T.reshape(-1, nx)
 
-        sampling_mean = np.mean(resampling_weights[:, None] * xs_flat, axis=0)  # or just zero?
+        sampling_mean = np.mean(resampling_weights[:, None] * xs_flat, axis=0) * 0  # or just zero?
 
         # subtract mean
         xs_zm = xs_flat - sampling_mean[None, :]
@@ -319,11 +317,11 @@ def importance_sampling_bvp(problem_params, algo_params):
         c = matplotlib.colormaps.get_cmap('coolwarm')(i/N)
         a = onp.array(resampling_ws[i] / np.max(resampling_ws[i]))
 
-        if i < N-1:
-            # lower alpha for all but the final iteration.
-            a = a/2
-        else:
-            a = onp.ones_like(a)
+        if i==N-1:
+            # visualise final distribution differently...
+            c = 'black'
+            a = onp.ones_like(a) * .25
+
 
         # bc. apparently alpha cannot be a vector :(
         for j in range(x_plot.shape[1]):

@@ -134,12 +134,26 @@ def importance_sampling_bvp(problem_params, algo_params):
     # helper function, expands the state vector x to the extended state vector y = [x, λ, v]
     # λ is the costate in the pontryagin minimum principle
     # h is the terminal value function
-    def x_to_y(x, h):
+    def x_to_y_terminalcost(x, h):
         costate = jax.grad(h)(x)
         v = h(x)
         y = np.vstack([x, costate, v])
 
         return y
+
+    # slight abuse here: the same argument is used for λ as for x, be aware
+    # that x_to_y in that case is a misnomer, it should be λ_to_y.
+    # but as with a terminal constraint we are really just searching a
+    # distribution over λ instead of x, but the rest stays the same.
+    def x_to_y_terminalconstraint(λ, h=None):
+        x = np.zeros((nx, 1))
+        costate = λ
+        v = 0
+        y = np.vstack([x, costate, v])
+        return y
+
+    # x_to_y = x_to_y_terminalcost
+    x_to_y = x_to_y_terminalconstraint
 
     # construct the initial (=terminal boundary condition...) extended state
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))

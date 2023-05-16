@@ -822,3 +822,48 @@ TODO tomorrow:
     - probably need some dubious assumptions on smoothness etc.
   - hoeffding like hertneck et al 2018? bit of a cheap way out
 
+
+
+2023-05-16
+
+first removed the weird (..., 1) shapes from all the code. also refactored
+a bit generally. took quite long.
+
+basic idea on a high level:
+- leave sampling code as it is, it does not need to be perfect
+- instead rely on GP uncertainty estimation to generate more samples as needed
+
+so the whole algorithm could look like this:
+- find initial data set of optimal trajectories using current sampling code.
+- approximate (V/V_x/u) with GP (or BNN, NN ensemble)
+- while (approximation not good enough):
+    - Find point x with high uncertainty estimate
+    - Our GP approximation looks like: E[u(x)] = Σ_i k(x, x_i) * u_i,
+      where x_i and u_i are the known 'training data'.
+    - We form a linear combination of terminal boundary conditions, with
+      the same weights k(x_0, x_i), and hope it will give interesting new
+      training data through the PMP, at some state close to x.
+    - re-fit GP/etc.
+
+thoughts on GPs:
+https://github.com/JaxGaussianProcesses/GPJax
+https://github.com/JaxGaussianProcesses/MOGPJax
+https://proceedings.neurips.cc/paper_files/paper/2018/file/c2f32522a84d5e6357e6abac087f1b0b-Paper.pdf
+
+either we use a fancy gradient-enabled GP to condition on value function
+and its gradients. OR we just fit the gradients using more usual gp tools.
+or even just directly the controls? we have all the data anyways... maybe
+interesting to compare these options with each other...
+
+
+
+anyways, thoughts about the software architecture side of things:
+
+we would profit from having a sampling thing that is jitted once and can
+subsequently run quickly. maybe a 'sampler' class, with methods for
+a) finding suitable terminal condition distribution (what it does now)
+b) only doing batched backward integration of PMP (to refine solution)
+
+we need a GP implementation from which we can easily get the weights/kernel
+matrix. probably all of them do this, should be simple. Also need a decent
+way to store variable-sized data without destroying all the nice jax stuff.

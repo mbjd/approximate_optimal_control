@@ -130,12 +130,12 @@ def plot_V_over_time(V_nn_wrapper, nn_params, all_sols, all_ts, where_resampled,
     pl.title('V over time, at a selection of states')
     pl.plot(tgrid, values, alpha = .5)
 
-    all_values = all_sols[:, :, -1,       :]
+    all_values = all_sols[:, :, -1]
 
     try:
-        all_values = all_values.at[where_resampled, :].set(np.nan)
+        all_values = all_values.at[where_resampled].set(np.nan)
     except:
-        all_values[where_resampled, :] = np.nan
+        all_values[where_resampled] = np.nan
 
 
     pl.subplot(212)
@@ -155,15 +155,15 @@ def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
     nx = problem_params['nx']
     T = problem_params['T']
-    all_xs       = all_sols[:, :,  0:nx,    :]
-    all_costates = all_sols[:, :,  nx:2*nx, :]
-    all_values   = all_sols[:, :, -1,       :]
+    all_xs       = all_sols[:, :,  0:nx   ]
+    all_costates = all_sols[:, :,  nx:2*nx]
+    all_values   = all_sols[:, :, -1      ]
 
     max_norm = 1e5
 
     # -1 becomes number of time steps
     # ipdb.set_trace()
-    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algo_params['n_trajectories'], -1, 1, 1)
+    x_norms = np.linalg.norm(all_xs, axis=2).reshape(algo_params['n_trajectories'], -1, 1)
     # when norm <= max_norm, scalings = 1, otherwise, scales to max_norm
     scalings = np.minimum(1, max_norm/x_norms)
 
@@ -180,7 +180,7 @@ def plot_2d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
     # neat hack - if we set the xs to nan where resamplings occurred, it breaks up the plot and does not
     # connect the trajectories before and after resampling
-    all_xs = all_xs.at[where_resampled, :, :].set(np.nan)
+    all_xs = all_xs.at[where_resampled, :].set(np.nan)
 
     # so now we go back to the stone age
     for i in range(algo_params['n_trajectories']):
@@ -243,9 +243,9 @@ def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
     nx = problem_params['nx']
     T = problem_params['T']
-    all_xs       = all_sols[:, :,  0:nx,    :]
-    all_costates = all_sols[:, :,  nx:2*nx, :]
-    all_values   = all_sols[:, :, -1,       :]
+    all_xs       = all_sols[:, :,  0:nx   ]
+    all_costates = all_sols[:, :,  nx:2*nx]
+    all_values   = all_sols[:, :, -1      ]
 
     max_norm = 1e5
 

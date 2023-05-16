@@ -36,9 +36,9 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
     # does this work with jit? -> yes, apparently
     nx = (ys.shape[1] - 1) // 2
 
-    old_xs = ys[:, 0:nx, :]
-    old_V_grads = ys[:, nx:2*nx, :]
-    old_Vs = ys[:, -1:, :]  # range to keep shapes consistent
+    old_xs = ys[:, 0:nx]
+    old_V_grads = ys[:, nx:2*nx]
+    old_Vs = ys[:, -1]
 
 
     # depending on the resampling condition, set the resampling mask to 1 for the trajectories
@@ -49,13 +49,11 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
         ellipse_membership_fct = lambda x: x.T @ algo_params['x_domain'] @ x - 1
         ellipse_memberships = jax.vmap(ellipse_membership_fct)(old_xs)
 
-        # resample where this mask is 1.
         resample_mask = (ellipse_memberships > 0).astype(np.float32)
 
     elif algo_params['resample_type'] == 'all':
 
-        # additional shape for compatibility with column vector style
-        resample_mask = np.ones((algo_params['n_trajectories'], 1, 1))
+        resample_mask = np.ones((algo_params['n_trajectories']))
 
     else:
         raise RuntimeError(f'Invalid resampling type "{algo_params["resampling_type"]}"')
@@ -68,9 +66,11 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
             mean=np.zeros(nx,),
             cov=algo_params['x_sample_cov'],
             shape=(algo_params['n_trajectories'],)
-    ).reshape(algo_params['n_trajectories'], nx, 1)
+    )
 
-    new_xs = np.where(resample_mask, resampled_xs, old_xs)
+
+    # add extra dimension to resampling mask for broadcasting
+    new_xs = np.where(resample_mask[:, None], resampled_xs, old_xs)
 
     # every trajectory is at the same time...
     ts = t * np.ones((algo_params['n_trajectories'], 1))
@@ -78,7 +78,7 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
     # input vector of the NN
     # squeeze removes the last 1. (n_traj, nx, 1) -> (n_traj, nx).
     # because the NN doesn't work with explicit (n, 1) shaped column vectors
-    resampled_ts_and_xs = np.concatenate([ts, resampled_xs.squeeze()], axis=1)
+    resampled_ts_and_xs = np.concatenate([ts, resampled_xs], axis=1)
 
     # these value gradients are with respect to (t, x). so we also have time
     # gradients, not only the ones w.r.t. state. can we do something with those as well?
@@ -98,15 +98,14 @@ def resample(ys, t, nn_apply_fct, nn_params, algo_params, key):
 
     # weird [None] tricks so it doesn't do any wrong broadcasting
     # V grads [1:] because the NN output also is w.r.t. t which at the moment we don't need
-
-    new_Vs =      np.where(resample_mask, resampled_Vs[:, None, None]   , old_Vs)
-    new_V_grads = np.where(resample_mask, resampled_V_grads[:, 1:, None], old_V_grads)
+    new_Vs =      np.where(resample_mask         , resampled_Vs            , old_Vs)
+    new_V_grads = np.where(resample_mask[:, None], resampled_V_grads[:, 1:], old_V_grads)
 
     # circumventing jax's immutable objects.
     # if docs are to be believed, after jit this will do an efficient in place update.
-    ys = ys.at[:, 0:nx, :].set(new_xs)
-    ys = ys.at[:, nx:2*nx, :].set(new_V_grads)
-    ys = ys.at[:, -1:, :].set(new_Vs)
+    ys = ys.at[:, 0:nx].set(new_xs)
+    ys = ys.at[:, nx:2*nx].set(new_V_grads)
+    ys = ys.at[:, -1].set(new_Vs)
 
     return ys, resample_mask
 
@@ -143,10 +142,10 @@ def sol_array_to_train_data(all_sols, all_ts, resampling_i, n_timesteps, algo_pa
 
         train_time_idx = np.arange(resampling_i, upper_train_time_idx)
 
-    train_states = all_sols[:, train_time_idx, 0:nx, :].reshape(-1, nx)
+    train_states = all_sols[:, train_time_idx, 0:nx].reshape(-1, nx)
 
     # make new axes to match train_state
-    train_ts = all_ts[None, train_time_idx, None]
+    train_ts = all_ts[None, train_time_idx]
     # repeat for all trajectories (axis 0), which all have the same ts.
     train_ts = np.repeat(train_ts, algo_params['n_trajectories'], axis=0)
     # flatten the same way as train_states
@@ -157,7 +156,7 @@ def sol_array_to_train_data(all_sols, all_ts, resampling_i, n_timesteps, algo_pa
     train_inputs = np.concatenate([train_ts, train_states], axis=1)
 
     if algo_params['nn_V_gradient_penalty'] == 0:
-        train_labels = all_sols[:, train_time_idx, 2*nx, :].reshape(-1, 1)
+        train_labels = all_sols[:, train_time_idx, 2*nx].reshape(-1, 1)
     else:
         assert algo_params['nn_V_gradient_penalty'] > 0, 'V gradient penalty must be nonnegative'
 
@@ -168,7 +167,7 @@ def sol_array_to_train_data(all_sols, all_ts, resampling_i, n_timesteps, algo_pa
         # we want from the extended state, in this order:
         # - the costate at indices nx:2*nx
         # - the value at index 2*nx, which is the last one
-        train_labels = all_sols[:, train_time_idx, nx:, :].reshape(-1, 1 + nx)
+        train_labels = all_sols[:, train_time_idx, nx:].reshape(-1, 1 + nx)
 
 
     return train_inputs, train_labels

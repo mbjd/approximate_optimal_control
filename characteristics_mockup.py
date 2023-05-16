@@ -92,7 +92,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
             mean=np.zeros(nx,),
             cov=algo_params['x_sample_cov'],
             shape=(algo_params['n_trajectories'],)
-    ).reshape(algo_params['n_trajectories'], nx, 1)
+    )
 
     max_steps = int(T / algo_params['dt'])
 
@@ -110,12 +110,6 @@ def hjb_characteristics_solver(problem_params, algo_params):
     def pontryagin_backward_solver(y_final, tstart):
 
         '''
-        to assemble the y vector, do this, but outside and with adjustments for vmap:
-        # final condition (integration goes backwards...)
-        costate_T = jax.grad(h)(x_T)
-        v_T = h(x_T)
-        y_final = np.vstack([x_T, costate_T, v_T])
-
         here we have t0 > t1, and negative dt (already defined here), to do backward integration
 
         when vmapping this we get back not a vector of solution objects, but a single
@@ -150,8 +144,8 @@ def hjb_characteristics_solver(problem_params, algo_params):
     # h is the terminal value function
     def x_to_y(x, h):
         costate = jax.grad(h)(x)
-        v = h(x)
-        y = np.vstack([x, costate, v])
+        v = h(x).reshape(1)
+        y = np.concatenate([x, costate, v])
 
         return y
 
@@ -203,13 +197,13 @@ def hjb_characteristics_solver(problem_params, algo_params):
     # make space for output data
     # full solution array. onp so we can modify in place.
     # every integration step fills a slice all_sols[:, i:i+timesteps_per_resample, :, :], for i in resampling_indices.
-    # final ..., 1) in shape so we have nice column vectors just as everywhere else.
-    all_sols = onp.zeros((algo_params['n_trajectories'], n_timesteps, 2*nx+1, 1))
+    # no final ..., 1) in shape anymore!
+    all_sols = onp.zeros((algo_params['n_trajectories'], n_timesteps, 2*nx+1))
     where_resampled = onp.zeros((algo_params['n_trajectories'], n_timesteps), dtype=bool)
 
     # the terminal condition separately
     # technically redundant but might make function fitting nicer later
-    all_sols[:, -1, :, :] = all_y_T
+    all_sols[:, -1, :] = all_y_T
 
     training_output_dicts = []
 
@@ -245,7 +239,7 @@ def hjb_characteristics_solver(problem_params, algo_params):
         # assert(np.allclose(tdiffs, 0, atol=1e-3)), 'time array not like expected'
 
         # so we save it in the big solution array with reversed indices.
-        all_sols[:, save_idx_rev, :, :] = sol_object.ys
+        all_sols[:, save_idx_rev, :] = sol_object.ys
 
         train_inputs, train_labels = array_juggling.sol_array_to_train_data(
                 all_sols, all_ts, resampling_i, n_timesteps, algo_params
@@ -278,9 +272,10 @@ def hjb_characteristics_solver(problem_params, algo_params):
         ys_resampled, resampling_mask = array_juggling.resample(
                 final_ys, resampling_t,
                 V_nn.nn.apply, nn_params, algo_params,
-                subkey)
+                subkey
+        )
 
-        where_resampled[:, resampling_i, None, None] = resampling_mask
+        where_resampled[:, resampling_i] = resampling_mask
 
         # finished (x, λ, v) vectors for the next integration step.
         init_ys = ys_resampled

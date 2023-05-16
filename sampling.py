@@ -38,50 +38,41 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
-def importance_sampling_bvp(problem_params, algo_params):
+def pontryagin_sampler(problem_params, algo_params):
 
     '''
-
     we have the following problem. there is some distribution of states at
     t=0 for which we want to know the optimal controls. We can do this with
-    the pontryagin principle. but we need to know the terminal (co)state
-    distribution* that leads to the desired outcome at t=0.
+    the pontryagin principle. but we need to sample from a suitable
+    distribution over terminal boundary conditions (state or costate) to
+    get interesting data.
 
-    this is a first attempt at this by importance sampling.
+    This function does that by importance sampling. Very rough description:
 
-    Idea:
+    - We sample from some distribution of terminal BC's and simulate
+      optimal trajectories according to the PMP, up to t=t1.
+    - We assign a weight to each of the trajectories that quantifies 'how
+      much we like them'. the technicalities of how this weight is set
+      basically define the method: importance sampling, rejection sampling,
+      etc.
+    - We find a new distribution (gaussian) over terminal BC's that most
+      closely matches the reweighted version of the previous sampling
+      distribution.
 
-    let κ = some desired distribution of states
-    let μ_0 = κ
+    These steps are iterated, and gradually t1 is stepped from T towards 0,
+    so each time the distribution only changes a bit.
 
-    loop for k=0, 1, ...:
-        - sample x_i(T) ~ μ_k, find characteristic curves from there
-        - decide for each characteristic curve how much we like it
-            - concretely: define weights w_i for each trajectory i
-            - maybe w_i ~ κ(x_i(0))
-            - or w_i ~ κ(x_i(0)) / (something compensating for μ_i)
-        - update μ to approximate the re-weighted distribution Σ_i w_i δ(x - x_i(T))
-            - simplest method: gaussian with appropriate mean and cov.
-            - or gaussian mixture model
-            - or just MC style, like particle filter.
+    It seems to work well. But due to the fact that we always 'collapse'
+    the distribution over terminal BCs back to a gaussian, and due to some
+    other approximations, we have no guarantees that the desired state
+    distribution at t=0 is actually reached.
 
-    the obvious problem with this is that the distributions can only
-    shrink, not grow.
-
-
-    *state for terminal value, costate for terminal constraint
-
-    (all in problem_params:)
-    f: dynamics. vector-valued function of t, x, u.
-    l: cost. scalar-valued function of t, x, u.
-    h: terminal cost. scalar-valued function of x.
-    T: time horizon > 0. problem is solved over t ∈ [0, T] with V(T, x) = h(x).
-    nx, nu: dimensions of state and input spaces. obvs should match f, l, h.
+    problem_params: same as usual
+    algo_params: dict with algorithm tuning parameters. see code.
     '''
 
     key = jax.random.PRNGKey(0)
 
-    # do this with keyword arguments and **dict instead?
     f  = problem_params['f' ]
     l  = problem_params['l' ]
     h  = problem_params['h' ]
@@ -89,22 +80,19 @@ def importance_sampling_bvp(problem_params, algo_params):
     nx = problem_params['nx']
     nu = problem_params['nu']
 
-
-
     # define the dynamics of optimal trajectories according to PMP.
+    # TODO in here the input constraints are defined. move them to problem_params somehow?
     f_forward = pontryagin_utils.define_extended_dynamics(problem_params)
 
     # solve pontryagin backwards, for vampping later.
+    # slightly differently parameterised than in other version.
     def pontryagin_backward_solver(y0, t0, t1):
 
         # setup ODE solver
         term = diffrax.ODETerm(f_forward)
         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
-        # ts = np.linspace(t0, t1, algo_params['integ_steps'])
-        # steps = algo_params['integ_steps']
 
         # negative if t1 < t0, backward integration just works
-        # dt = (t1 - t0)/steps
         assert algo_params['dt'] > 0
         dt = algo_params['dt'] * np.sign(t1 - t0)
 
@@ -112,7 +100,6 @@ def importance_sampling_bvp(problem_params, algo_params):
         max_steps = int(1 + problem_params['T'] / algo_params['dt'])
 
         # maybe easier to control the timing intervals like this?
-        # saveat = diffrax.SaveAt(ts = ts)
         saveat = diffrax.SaveAt(steps=True)
 
         # and solve :)
@@ -124,12 +111,13 @@ def importance_sampling_bvp(problem_params, algo_params):
         # this should return the last calculated (= non-inf) solution.
         return solution, solution.ys[solution.stats['num_accepted_steps']-1]
 
-
     # vmap = gangster!
     # vmap only across first argument.
     batch_pontryagin_backward_solver = jax.jit(jax.vmap(
         pontryagin_backward_solver, in_axes=(0, None, None)
     ))
+
+    # construct the terminal extended state
 
     # helper function, expands the state vector x to the extended state vector y = [x, λ, v]
     # λ is the costate in the pontryagin minimum principle
@@ -152,23 +140,17 @@ def importance_sampling_bvp(problem_params, algo_params):
         y = np.vstack([x, costate, v])
         return y
 
-    # x_to_y = x_to_y_terminalcost
-    x_to_y = x_to_y_terminalconstraint
+    if problem_params['terminal_constraint']:
+        # we instead assume a zero terminal constraint.
+        x_to_y = x_to_y_terminalconstraint
+    else:
+        x_to_y = x_to_y_terminalcost
 
-    # construct the initial (=terminal boundary condition...) extended state
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))
 
-    # later, when we have a (N_trajectories, nx) shaped vector of # terminal states x...
-    # all_y_T = x_to_y_vmap(all_x_T)
-    # init_ys = all_y_T
-
-
-    # use diffrax again, not worth writing own solver
-    # with very easy tweak in pontryagin_backward_solver, it also returns the last valid
-    # solution, even though we calculate for (at jax compile time) unknown time interval
-    # x_test = np.array([.1, -.1]).reshape(2, 1)
-    # sol_test, ys_test = pontryagin_backward_solver(x_to_y(x_test, h), T, 0)
-
+    # this is the initial distribution. choosing the desired state distribution here
+    # has proven to work well for the toy example. but if units are weird or something
+    # we may have to find something smarter.
     key, subkey = jax.random.split(key)
     x_T = jax.random.multivariate_normal(
             subkey,
@@ -179,24 +161,38 @@ def importance_sampling_bvp(problem_params, algo_params):
 
     y_T = x_to_y_vmap(x_T)
 
-    # very coarse example of importance sampling to find out which
-    # terminal conditions lead to relevant initial states.
 
+    # the desired distribution of states at t=0.
     desired_mean = np.zeros((nx,))
-    desired_cov = np.eye(nx)
+    desired_cov = algo_params['x_sample_cov']
     desired_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, desired_mean[None, :], desired_cov)
+
+
+    # main loop iteration, for jax.lax.scan.
+
+    # basically, this does the following:
+    # - sample terminal boundary conditions ~ N(sampling_mean, sampling_cov)
+    # - simulate optimal trajectories backwards using PMP, from T to t1.
+    # - weigh them according to how much we like them. here we have several schemes:
+    #   - importance sampling
+    #   - cheap importance sampling without compensation for sampling likelihood
+    #   - rejection sampling
+    # - find the gaussian distribution over terminal boundary conditions that leads to
+    #   the re-weighted distribution at t1.
+
+    # to make the problem easier we solve this iteratively, each time making the integration
+    # interval a bit longer, so the distribution does not change too wildly.
 
     def scan_fct(carry, inp):
 
-        # input = (t1)  # END of integration interval. t1 < t0 = T
+        # input = t1 = END of integration interval. t1 < t0 = T
         # carry = (sampling_mean, sampling_cov, key)
-        # output = (sol_object)
+        # output = dict with various useful entries, see for yourself :)
 
         sampling_mean, sampling_cov, key = carry
 
         # sampling step first.
-        # nicer for code but maybe reverse it for practical application?
-
+        # if deterministic, we choose the same sample each time.
         if algo_params['deterministic']:
             subkey = key
         else:
@@ -213,13 +209,16 @@ def importance_sampling_bvp(problem_params, algo_params):
 
         t1 = inp
 
+        # find optimal trajectories by pontryagin principle.
         sol_object, last_sol_vec = batch_pontryagin_backward_solver(y_T, T, t1)
-        desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx, 0])
 
-        sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(
-                x, sampling_mean[None, :], sampling_cov)
-
+        # find the relevant likelihoods.
+        # IMPORTANT: the sampling likelihood is wrong, to be correct we would have to multiply by
+        # the inverse jacobian determinant of the mapping from terminal BCs to initial state.
+        # we find that omittig this gives satisfactory results. because the weights are normalised anyway,
+        # it does not matter too much.
         desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx, 0])
+        sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, sampling_mean[None, :], sampling_cov)
         sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['n_trajectories'], nx))
 
         # importance sampling weight - some different choices.
@@ -237,28 +236,39 @@ def importance_sampling_bvp(problem_params, algo_params):
         is_final = np.allclose(t1, 0)
         resampling_weights_switched = is_final * resampling_weights_importance + (1-is_final) * resampling_weights_between
 
-        # or just always take the 'between' ones....
-        resampling_weights = resampling_weights_switched
+        if algo_params['sampling_strategy'] == 'importance':
+            resampling_weights = resampling_weights_importance
+        elif algo_params['sampling_strategy'] == 'rejection':
+            resampling_weights = resampling_weights_rejection
+        elif algo_params['sampling_strategy'] == 'between':
+            resampling_weights = resampling_weights_between
+        elif algo_params['sampling_strategy'] == 'switched':
+            resampling_weights = resampling_weights_switched
+        else:
+            st = algo_params['sampling_strategy']
+            raise ValueError(f'Invalid sampling strategy "{st}"')
 
         resampling_weights = resampling_weights / np.sum(resampling_weights)
 
         xs_flat = x_T.reshape(-1, nx)
 
+        # calculate mean and covariance of the re-weighted terminal BC distribution.
         sampling_mean = np.mean(resampling_weights[:, None] * xs_flat, axis=0) * 0  # or just zero?
 
         # subtract mean
         xs_zm = xs_flat - sampling_mean[None, :]
 
         # for zero mean RV x: cov(x) = E[x x'] = Σ_x p(x) * x x' = Σ_x (x*sqrt(p(x)) * (x*sqrt(p(x))'
-        # so basically in comparison to the 'regular' covariance formula, we need to scale the
+        # so basically to apply the 'regular' covariance formula, we need to scale the
         # data points by the square root of their weights.
         # but where did the n-1 go? bessel correction mean estimate what?
         sqrt_scaled_datapts = np.sqrt(1e-9 + resampling_weights[:, None]) * xs_flat
 
-        # then we have (wide matrix of column vecs) @ (tall matrix of row vecs)
+        # (wide matrix of column vecs) @ (tall matrix of row vecs)
         sampling_cov = sqrt_scaled_datapts.T @ sqrt_scaled_datapts
 
         # do the same but for the y_T vector - the covariance we get at t1.
+        # just for output bookkeeping.
         last_sol_zm = last_sol_vec[:, 0:nx, 0]
         last_sol_zm = last_sol_zm - last_sol_zm.mean(axis=0)[None, :]  # (N_traj, nx) - (1, nx) promotes correctly
         last_sol_cov = last_sol_zm.T @ last_sol_zm / (algo_params['n_trajectories'] - 1)
@@ -269,6 +279,7 @@ def importance_sampling_bvp(problem_params, algo_params):
         # a dict of arrays, not an array of dicts :)
         output = {
                 'solutions': sol_object,
+                'sampling_means': sampling_mean,
                 'sampling_covs': sampling_cov,
                 't1_covs': last_sol_cov,
                 'resampling_ws': resampling_weights,
@@ -279,22 +290,24 @@ def importance_sampling_bvp(problem_params, algo_params):
         return new_carry, output
 
     # the sequence of times to integrate. always from T to t1s[i].
+    # at the end we iterate a couple of times at t1=0, just to be sure.
     t1s = np.concatenate([
         np.linspace(0, T, algo_params['n_resampling_iters'], endpoint=False)[::-1],
-        np.zeros(algo_params['n_extrarounds']), # a couple of ehrenrunden
+        np.zeros(algo_params['n_extrarounds']),
     ])
 
     N = t1s.shape[0]
 
     init_carry = (np.zeros(nx,), algo_params['x_sample_cov'], key)
 
+    # do it twice so we see how fast it actually is...
+
     start = time.perf_counter()
     final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s, length=N)
     end = time.perf_counter()
     print(f'time for jit/first run: {end-start}')
     start = time.perf_counter()
-    for i in range(10):
-        final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s, length=N)
+    final_carry, outputs = jax.lax.scan(scan_fct, init_carry, t1s, length=N)
     end = time.perf_counter()
     print(f'time for second run: {end-start}')
 
@@ -305,10 +318,17 @@ def importance_sampling_bvp(problem_params, algo_params):
     t1_covs = outputs['t1_covs']
     resampling_ws = outputs['resampling_ws']
 
+
     if algo_params['plot']:
         fig = pl.figure(figsize=(8, 3))
-        ax0 = fig.add_subplot(211)
-        ax1 = fig.add_subplot(212)
+
+        dims = 2
+        if dims==3:
+            ax3 = fig.add_subplot(111, projection='3d')
+        else:
+            assert dims==2
+            ax0 = fig.add_subplot(211)
+            ax1 = fig.add_subplot(212)
 
         # basically the same but in a phase plot
         fig = pl.figure(figsize=(4, 4))
@@ -335,14 +355,17 @@ def importance_sampling_bvp(problem_params, algo_params):
             # colors_with_alpha = onp.zeros((algo_params['n_trajectories'], 4))
             # colors_with_alpha[:, 3] = a
             # colors_with_alpha[:, 0:3] = onp.array(c)[None, 0:3]
-            # ipdb.set_trace()
 
 
             # bc. apparently alpha cannot be a vector :(
             for j in range(x_plot.shape[1]):
-                ax0.plot(t_plot, x_plot[:, j], color=c, alpha=a[j])
-                ax1.plot(t_plot, y_plot[:, j], color=c, alpha=a[j])
-                ax_phase.plot(x_plot[:, j], y_plot[:, j], color=c, alpha=a[j])
+                if dims==3:
+                    ax3.plot(t_plot, x_plot[:, j], y_plot[:, j], color=c, alpha=a[j])
+                else:
+                    ax0.plot(t_plot, x_plot[:, j], color=c, alpha=a[j])
+                    ax1.plot(t_plot, y_plot[:, j], color=c, alpha=a[j])
+                ax_phase.plot(x_plot[:, j], y_plot[:, j], color=c, alpha=a[j]/5)
+                ax_phase.scatter(x_plot[0, j], y_plot[0, j])
 
 
         pl.figure()
@@ -355,7 +378,13 @@ def importance_sampling_bvp(problem_params, algo_params):
         pl.show()
 
 
-    return end-start
+    # previously for benchmarking
+    # return end-start
+
+    last_sampling_mean = outputs['sampling_means'][-1]
+    last_sampling_cov = outputs['sampling_covs'][-1]
+
+    return (last_sampling_mean, last_sampling_cov)
 
 
 
@@ -387,54 +416,30 @@ if __name__ == '__main__':
             'h': h,
             'T': 8,
             'nx': 2,
-            'nu': 1
+            'nu': 1,
+            'terminal_constraint': True,
     }
 
     x_sample_scale = 1 * np.eye(2)
     x_sample_cov = x_sample_scale @ x_sample_scale.T
-
-    # resample when the mahalanobis distance (to the sampling distribution) is larger than this.
-    resample_mahalanobis_dist = 2
-
-    Q_x = np.linalg.inv(x_sample_cov) / resample_mahalanobis_dist**2
 
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
             'n_trajectories': 128,
             'dt': 1/16,
-            # 'resample_interval': 1/4,
-            # 'resample_type': 'minimal',
             'x_sample_cov': x_sample_cov,
-            'x_domain': Q_x,
             'n_resampling_iters': 8,
+            'sampling_strategy': 'switched',
             'n_extrarounds': 2,
             'deterministic': True,
             'plot': True,
-
-            # 'nn_layersizes': (64, 64, 64, 64),
-            # 'nn_batchsize': 128,
-            # 'nn_N_epochs': 5,
-            # 'nn_testset_fraction': 0.2,
-            # 'nn_plot_training': True,
-            # 'nn_train_lookback': 1/4,
-            # 'nn_V_gradient_penalty': 100,
-
-            # 'nn_retrain_final': True,
-            # 'nn_progressbar': False,
-
-            # 'lr_init': 1e-2,
-            # 'lr_final': 5e-4,
-            # 'lr_staircase': False,
-            # 'lr_staircase_steps': 5,
-
-            # 'plot_final': True
     }
 
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    importance_sampling_bvp(problem_params, algo_params)
+    pontryagin_sampler(problem_params, algo_params)
 
     # nts = 2**np.arange(4, 18)
     # ts = []

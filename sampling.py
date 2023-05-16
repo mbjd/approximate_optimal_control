@@ -125,7 +125,8 @@ def pontryagin_sampler(problem_params, algo_params):
     def x_to_y_terminalcost(x, h):
         costate = jax.grad(h)(x)
         v = h(x)
-        y = np.vstack([x, costate, v])
+        ipdb.set_trace()
+        y = np.concatenate([x, costate, v])
 
         return y
 
@@ -134,10 +135,10 @@ def pontryagin_sampler(problem_params, algo_params):
     # but as with a terminal constraint we are really just searching a
     # distribution over λ instead of x, but the rest stays the same.
     def x_to_y_terminalconstraint(λ, h=None):
-        x = np.zeros((nx, 1))
+        x = np.zeros(nx)
         costate = λ
-        v = 0
-        y = np.vstack([x, costate, v])
+        v = np.zeros(1)
+        y = np.concatenate([x, costate, v])
         return y
 
     if problem_params['terminal_constraint']:
@@ -157,10 +158,9 @@ def pontryagin_sampler(problem_params, algo_params):
             mean=np.zeros(nx,),
             cov=algo_params['x_sample_cov'],
             shape=(algo_params['n_trajectories'],)
-    ).reshape(algo_params['n_trajectories'], nx, 1)
+    )
 
     y_T = x_to_y_vmap(x_T)
-
 
     # the desired distribution of states at t=0.
     desired_mean = np.zeros((nx,))
@@ -203,7 +203,7 @@ def pontryagin_sampler(problem_params, algo_params):
                 mean=sampling_mean,
                 cov=sampling_cov,
                 shape=(algo_params['n_trajectories'],)
-        ).reshape(algo_params['n_trajectories'], nx, 1)
+        )
 
         y_T = x_to_y_vmap(x_T)
 
@@ -217,7 +217,7 @@ def pontryagin_sampler(problem_params, algo_params):
         # the inverse jacobian determinant of the mapping from terminal BCs to initial state.
         # we find that omittig this gives satisfactory results. because the weights are normalised anyway,
         # it does not matter too much.
-        desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx, 0])
+        desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx])
         sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, sampling_mean[None, :], sampling_cov)
         sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['n_trajectories'], nx))
 
@@ -269,7 +269,7 @@ def pontryagin_sampler(problem_params, algo_params):
 
         # do the same but for the y_T vector - the covariance we get at t1.
         # just for output bookkeeping.
-        last_sol_zm = last_sol_vec[:, 0:nx, 0]
+        last_sol_zm = last_sol_vec[:, 0:nx]
         last_sol_zm = last_sol_zm - last_sol_zm.mean(axis=0)[None, :]  # (N_traj, nx) - (1, nx) promotes correctly
         last_sol_cov = last_sol_zm.T @ last_sol_zm / (algo_params['n_trajectories'] - 1)
 
@@ -339,8 +339,8 @@ def pontryagin_sampler(problem_params, algo_params):
             t_plot = sol_object.ts[i, 0]
 
             # the two state vectors...
-            x_plot = sol_object.ys[i, :, :, 0, 0].T
-            y_plot = sol_object.ys[i, :, :, 1, 0].T
+            x_plot = sol_object.ys[i, :, :, 0].T
+            y_plot = sol_object.ys[i, :, :, 1].T
 
             # color basically shows iteration number
             # alpha shows likelihood of trajectory for resampling?
@@ -432,14 +432,19 @@ if __name__ == '__main__':
             'n_resampling_iters': 8,
             'sampling_strategy': 'switched',
             'n_extrarounds': 2,
-            'deterministic': True,
+            'deterministic': False,
             'plot': True,
     }
 
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    pontryagin_sampler(problem_params, algo_params)
+    mean, cov = pontryagin_sampler(problem_params, algo_params)
+
+    print('mean:')
+    print(mean)
+    print('cov:')
+    print(cov)
 
     # nts = 2**np.arange(4, 18)
     # ts = []

@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as np
+import ipdb
 
 # we want to find the value function V.
 # for that we want to approximately satisfy the hjb equation:
@@ -48,7 +49,7 @@ def u_star_functions(f, l, V, t, x, nx, nu):
     return u_star_matrices(R, A)
 
 def u_star_costate(f, l, costate, t, x, nx, nu):
-    zero_u = np.zeros((1, 1))
+    zero_u = np.zeros(1)  # u is a rank-1 array!
     R = jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
 
     # costate = grad_V_x.T (costate colvec, grad_V_x col vec)
@@ -88,11 +89,12 @@ def define_extended_dynamics(problem_params):
 
         # the first line is just a restatement of the dynamics
         # but doesn't it look cool with those partial derivatives??
-        state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx, 1)
-        costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx, 1)
-        value_dot   = -l(t, state, u_star)
+        # the jacobian has shape (1, 1, nx, 1)? wtf?
+        state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
+        costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
+        value_dot   = -l(t, state, u_star).reshape(1)
 
-        y_dot = np.vstack([state_dot, costate_dot, value_dot])
+        y_dot = np.concatenate([state_dot, costate_dot, value_dot])
         return y_dot
 
     return f_forward

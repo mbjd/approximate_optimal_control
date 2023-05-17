@@ -867,3 +867,30 @@ b) only doing batched backward integration of PMP (to refine solution)
 we need a GP implementation from which we can easily get the weights/kernel
 matrix. probably all of them do this, should be simple. Also need a decent
 way to store variable-sized data without destroying all the nice jax stuff.
+
+
+2023-05-17
+
+cool blog posts about conditioning a GP on derivative observations. seems
+to be not too hard, basically if the observation is a gradient we swap the
+kernel function for the gradient of the kernel function? can it really be
+that simple? although it seems we make the kernel matrix much larger,
+because the derivative observation is nx-dimensional, so definitely not
+really scalable... but nice testbed probably.
+
+interesting experiment would be to compare different methods of GP
+regression, for example:
+
+- fit V(x) using only value observations, compute control by argmin_u H
+- fit V(x) using V & V_x = λ observations, compute control by argmin_u H
+- fit λ(x) directly, compute control by argmin_u H
+- compute controls by argmin_u H, fit u(x) using GP
+
+criteria to optimise could be the test error on a holdout set, or the
+closed loop control cost. also choose whether to do this with the same
+dataset for each method or including some sort of uncertainty sampling.
+
+
+
+http://herbsusmann.com/2020/07/06/gaussian-process-derivatives/
+http://herbsusmann.com/2020/12/01/conditioning-on-gaussian-process-derivative-observations/

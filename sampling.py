@@ -462,7 +462,7 @@ if __name__ == '__main__':
             'sampler_n_extrarounds': 2,
             'sampler_strategy': 'importance',
             'sampler_deterministic': False,
-            'sampler_plot': False,
+            'sampler_plot': True,
             'sampler_returns': 'sampling_fct',
 
             'x_sample_cov': x_sample_cov,

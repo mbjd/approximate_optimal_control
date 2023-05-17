@@ -890,7 +890,15 @@ criteria to optimise could be the test error on a holdout set, or the
 closed loop control cost. also choose whether to do this with the same
 dataset for each method or including some sort of uncertainty sampling.
 
-
+https://gaussianprocess.org/gpml/chapters/RW.pdf, p191: 9.4 derivative observations
 
 http://herbsusmann.com/2020/07/06/gaussian-process-derivatives/
 http://herbsusmann.com/2020/12/01/conditioning-on-gaussian-process-derivative-observations/
+
+https://blogs.ed.ac.uk/datasciencecdt/2020/08/31/derivatives-and-gaussian-processes/o
+https://github.com/sighellan/GP_derivatives_example/blob/master/Derivative_example.ipynb
+
+https://docs.gpytorch.ai/en/latest/examples/08_Advanced_Usage/Simple_GP_Regression_Derivative_Information_1d.html
+
+did some small experiments. basic gaussian process example, 1d, toy
+function. just like in all the textbooks :)

@@ -69,6 +69,25 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
     problem_params: same as usual
     algo_params: dict with algorithm tuning parameters. see code.
+
+    it will return different things based on algo_params configuration.
+
+    if algo_params['sampler_returns'] == 'distribution_params', it will return
+    a tuple containing mean and cov of the final sampling distribution.
+
+    if algo_params['sampler_returns'] == 'sampling_fct', it will return a tuple of
+    functions: (sample, integrate).
+
+        sample takes a PRNGKey and an integer n specifying the number of
+        samples, and returns a (n, nx) array of terminal conditions drawn
+        from the final distribution.
+
+        integrate is the function taking terminal conditions to optimal
+        trajectories according to PMP. It returns a tuple containing the
+        full solution object and the extended state at time 0, i.e. an
+        array of shape (n, 2*nx+1), with the last dimension indexing
+        state, costate, and value.
+
     '''
 
     f  = problem_params['f' ]
@@ -150,7 +169,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
     def sample_terminal_conditions(key, mean, cov, n_samples):
         return jax.random.multivariate_normal(
-                subkey,
+                key,
                 mean=mean,
                 cov=cov,
                 shape=(n_samples,)
@@ -387,7 +406,9 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         return (last_sampling_mean, last_sampling_cov)
     elif algo_params['sampler_returns'] == 'sampling_fct':
         sampling_fct = lambda key, n: sample_terminal_conditions(key, last_sampling_mean, last_sampling_cov, n)
-        return (sampling_fct, batch_pontryagin_backward_solver)
+
+        integrate_fct = lambda xT: batch_pontryagin_backward_solver(x_to_y_vmap(xT), T, 0)
+        return (sampling_fct, integrate_fct)
     else:
         ret = algo_params['sampler_returns']
         raise ValueError('invalid sampler return value specification "{ret}"')
@@ -396,6 +417,9 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
 
 if __name__ == '__main__':
+
+    # minimal example of how to use the sampler.
+    # explanation in docstring of pontryagin_sampler.
 
     # simple control system. double integrator with friction term.
     def f(t, x, u):
@@ -438,7 +462,7 @@ if __name__ == '__main__':
             'sampler_n_extrarounds': 2,
             'sampler_strategy': 'importance',
             'sampler_deterministic': False,
-            'sampler_plot': True,
+            'sampler_plot': False,
             'sampler_returns': 'sampling_fct',
 
             'x_sample_cov': x_sample_cov,
@@ -448,21 +472,9 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     sample, integrate = pontryagin_sampler(problem_params, algo_params)
-    ipdb.set_trace()
 
-    print('mean:')
-    print(mean)
-    print('cov:')
-    print(cov)
-
-    # nts = 2**np.arange(4, 18)
-    # ts = []
-    # for nt in nts:
-    #     print(f'trying sampler_n_trajectories = {nt}')
-    #     algo_params['sampler_n_trajectories'] = nt
-    #     ts.append(importance_sampling_bvp(problem_params, algo_params))
-
-    # pl.plot(nts, np.array(ts))
-    # pl.show()
+    sol_obj, ys = integrate(sample(jax.random.PRNGKey(0), 10))
+    with np.printoptions(precision=3, linewidth=np.inf, suppress=True):
+        print(ys)
 
 

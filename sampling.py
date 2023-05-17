@@ -91,11 +91,11 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
 
         # negative if t1 < t0, backward integration just works
-        assert algo_params['dt'] > 0
-        dt = algo_params['dt'] * np.sign(t1 - t0)
+        assert algo_params['sampler_dt'] > 0
+        dt = algo_params['sampler_dt'] * np.sign(t1 - t0)
 
         # what if we accept that we could create NaNs?
-        max_steps = int(1 + problem_params['T'] / algo_params['dt'])
+        max_steps = int(1 + problem_params['T'] / algo_params['sampler_dt'])
 
         # maybe easier to control the timing intervals like this?
         saveat = diffrax.SaveAt(steps=True)
@@ -160,7 +160,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     # has proven to work well for the toy example. but if units are weird or something
     # we may have to find something smarter.
     key, subkey = jax.random.split(key)
-    x_T = sample_terminal_conditions(subkey, np.zeros(nx,), algo_params['x_sample_cov'], algo_params['n_trajectories'])
+    x_T = sample_terminal_conditions(subkey, np.zeros(nx,), algo_params['x_sample_cov'], algo_params['sampler_n_trajectories'])
 
 
     y_T = x_to_y_vmap(x_T)
@@ -196,12 +196,12 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
         # sampling step first.
         # if deterministic, we choose the same sample each time.
-        if algo_params['deterministic']:
+        if algo_params['sampler_deterministic']:
             subkey = key
         else:
             key, subkey = jax.random.split(key)
 
-        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['n_trajectories'])
+        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['sampler_n_trajectories'])
         y_T = x_to_y_vmap(x_T)
 
         t1 = inp
@@ -216,7 +216,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         # it does not matter too much.
         desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx])
         sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, sampling_mean[None, :], sampling_cov)
-        sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['n_trajectories'], nx))
+        sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['sampler_n_trajectories'], nx))
 
         # importance sampling weight - some different choices.
         resampling_weights_importance = desired_likelihoods / (1e-9 + sampling_likelihoods)
@@ -233,16 +233,16 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         is_final = np.allclose(t1, 0)
         resampling_weights_switched = is_final * resampling_weights_importance + (1-is_final) * resampling_weights_between
 
-        if algo_params['sampling_strategy'] == 'importance':
+        if algo_params['sampler_strategy'] == 'importance':
             resampling_weights = resampling_weights_importance
-        elif algo_params['sampling_strategy'] == 'rejection':
+        elif algo_params['sampler_strategy'] == 'rejection':
             resampling_weights = resampling_weights_rejection
-        elif algo_params['sampling_strategy'] == 'between':
+        elif algo_params['sampler_strategy'] == 'between':
             resampling_weights = resampling_weights_between
-        elif algo_params['sampling_strategy'] == 'switched':
+        elif algo_params['sampler_strategy'] == 'switched':
             resampling_weights = resampling_weights_switched
         else:
-            st = algo_params['sampling_strategy']
+            st = algo_params['sampler_strategy']
             raise ValueError(f'Invalid sampling strategy "{st}"')
 
         resampling_weights = resampling_weights / np.sum(resampling_weights)
@@ -268,7 +268,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         # just for output bookkeeping.
         last_sol_zm = last_sol_vec[:, 0:nx]
         last_sol_zm = last_sol_zm - last_sol_zm.mean(axis=0)[None, :]  # (N_traj, nx) - (1, nx) promotes correctly
-        last_sol_cov = last_sol_zm.T @ last_sol_zm / (algo_params['n_trajectories'] - 1)
+        last_sol_cov = last_sol_zm.T @ last_sol_zm / (algo_params['sampler_n_trajectories'] - 1)
 
 
         # output = (sol_object, sampling_cov, resampling_weights)
@@ -289,8 +289,8 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     # the sequence of times to integrate. always from T to t1s[i].
     # at the end we iterate a couple of times at t1=0, just to be sure.
     t1s = np.concatenate([
-        np.linspace(0, T, algo_params['n_resampling_iters'], endpoint=False)[::-1],
-        np.zeros(algo_params['n_extrarounds']),
+        np.linspace(0, T, algo_params['sampler_n_iters'], endpoint=False)[::-1],
+        np.zeros(algo_params['sampler_n_extrarounds']),
     ])
 
     N = t1s.shape[0]
@@ -316,7 +316,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     resampling_ws = outputs['resampling_ws']
 
 
-    if algo_params['plot']:
+    if algo_params['sampler_plot']:
         fig = pl.figure(figsize=(8, 3))
 
         dims = 2
@@ -349,7 +349,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
                 c = 'red'
                 a = onp.ones_like(a) * .25
 
-            # colors_with_alpha = onp.zeros((algo_params['n_trajectories'], 4))
+            # colors_with_alpha = onp.zeros((algo_params['sampler_n_trajectories'], 4))
             # colors_with_alpha[:, 3] = a
             # colors_with_alpha[:, 0:3] = onp.array(c)[None, 0:3]
 
@@ -386,7 +386,6 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         # now, return the parameters of the terminal condition distribution
         return (last_sampling_mean, last_sampling_cov)
     elif algo_params['sampler_returns'] == 'sampling_fct':
-        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['n_trajectories'])
         sampling_fct = lambda key, n: sample_terminal_conditions(key, last_sampling_mean, last_sampling_cov, n)
         return (sampling_fct, batch_pontryagin_backward_solver)
     else:
@@ -433,14 +432,14 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'n_trajectories': 128,
-            'dt': 1/16,
-            'n_resampling_iters': 8,
-            'sampling_strategy': 'importance',
-            'n_extrarounds': 2,
-            'deterministic': False,
-            'plot': True,
-            'sampler_returns': 'sampling_fct'
+            'sampler_n_trajectories': 128,
+            'sampler_dt': 1/16,
+            'sampler_n_iters': 8,
+            'sampler_n_extrarounds': 2,
+            'sampler_strategy': 'importance',
+            'sampler_deterministic': False,
+            'sampler_plot': True,
+            'sampler_returns': 'sampling_fct',
 
             'x_sample_cov': x_sample_cov,
     }
@@ -459,8 +458,8 @@ if __name__ == '__main__':
     # nts = 2**np.arange(4, 18)
     # ts = []
     # for nt in nts:
-    #     print(f'trying n_trajectories = {nt}')
-    #     algo_params['n_trajectories'] = nt
+    #     print(f'trying sampler_n_trajectories = {nt}')
+    #     algo_params['sampler_n_trajectories'] = nt
     #     ts.append(importance_sampling_bvp(problem_params, algo_params))
 
     # pl.plot(nts, np.array(ts))

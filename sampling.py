@@ -38,7 +38,7 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
-def pontryagin_sampler(problem_params, algo_params):
+def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)):
 
     '''
     we have the following problem. there is some distribution of states at
@@ -70,8 +70,6 @@ def pontryagin_sampler(problem_params, algo_params):
     problem_params: same as usual
     algo_params: dict with algorithm tuning parameters. see code.
     '''
-
-    key = jax.random.PRNGKey(0)
 
     f  = problem_params['f' ]
     l  = problem_params['l' ]
@@ -149,16 +147,21 @@ def pontryagin_sampler(problem_params, algo_params):
 
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x, h))
 
+
+    def sample_terminal_conditions(key, mean, cov, n_samples):
+        return jax.random.multivariate_normal(
+                subkey,
+                mean=mean,
+                cov=cov,
+                shape=(n_samples,)
+        )
+
     # this is the initial distribution. choosing the desired state distribution here
     # has proven to work well for the toy example. but if units are weird or something
     # we may have to find something smarter.
     key, subkey = jax.random.split(key)
-    x_T = jax.random.multivariate_normal(
-            subkey,
-            mean=np.zeros(nx,),
-            cov=algo_params['x_sample_cov'],
-            shape=(algo_params['n_trajectories'],)
-    )
+    x_T = sample_terminal_conditions(subkey, np.zeros(nx,), algo_params['x_sample_cov'], algo_params['n_trajectories'])
+
 
     y_T = x_to_y_vmap(x_T)
 
@@ -198,13 +201,7 @@ def pontryagin_sampler(problem_params, algo_params):
         else:
             key, subkey = jax.random.split(key)
 
-        x_T = jax.random.multivariate_normal(
-                subkey,
-                mean=sampling_mean,
-                cov=sampling_cov,
-                shape=(algo_params['n_trajectories'],)
-        )
-
+        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['n_trajectories'])
         y_T = x_to_y_vmap(x_T)
 
         t1 = inp
@@ -381,10 +378,20 @@ def pontryagin_sampler(problem_params, algo_params):
     # previously for benchmarking
     # return end-start
 
+
     last_sampling_mean = outputs['sampling_means'][-1]
     last_sampling_cov = outputs['sampling_covs'][-1]
 
-    return (last_sampling_mean, last_sampling_cov)
+    if algo_params['sampler_returns'] == 'distribution_params':
+        # now, return the parameters of the terminal condition distribution
+        return (last_sampling_mean, last_sampling_cov)
+    elif algo_params['sampler_returns'] == 'sampling_fct':
+        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['n_trajectories'])
+        sampling_fct = lambda key, n: sample_terminal_conditions(key, last_sampling_mean, last_sampling_cov, n)
+        return (sampling_fct, batch_pontryagin_backward_solver)
+    else:
+        ret = algo_params['sampler_returns']
+        raise ValueError('invalid sampler return value specification "{ret}"')
 
 
 
@@ -428,18 +435,21 @@ if __name__ == '__main__':
     algo_params = {
             'n_trajectories': 128,
             'dt': 1/16,
-            'x_sample_cov': x_sample_cov,
             'n_resampling_iters': 8,
-            'sampling_strategy': 'switched',
+            'sampling_strategy': 'importance',
             'n_extrarounds': 2,
             'deterministic': False,
             'plot': True,
+            'sampler_returns': 'sampling_fct'
+
+            'x_sample_cov': x_sample_cov,
     }
 
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    mean, cov = pontryagin_sampler(problem_params, algo_params)
+    sample, integrate = pontryagin_sampler(problem_params, algo_params)
+    ipdb.set_trace()
 
     print('mean:')
     print(mean)

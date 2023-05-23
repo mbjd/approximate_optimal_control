@@ -359,7 +359,7 @@ def example_gradient():
     N_pts = 256
     nx = 2
 
-    noise_size = 1e-4
+    noise_size = 1e-2
 
     key, subkey = jax.random.split(key)
     xs_f = jax.random.normal(subkey, (N_pts, nx))
@@ -374,6 +374,16 @@ def example_gradient():
     grad_fs = jax.vmap(jax.grad(f))(xs_f) + noise_size * jax.random.normal(subkey, (N_pts, nx))
 
 
+    # some reshaping magic to get data in required format.
+    # we have: (N, nx) array of x values, (N,) array of observations, (N, # nx) array of observed gradients
+    # we want:
+    # - (N*(1+nx), nx) array of x values for all observations and gradients (just repeat)
+    # - (N*(1+nx)) array of first observations, then gradients w.r.t x1, then x2, etc.
+    extended_xs = np.kron(np.ones(3)[:, None], xs_f)  # it just works
+
+    # .T will give [x1, x1, ..., x2, x2, ... ], otherwise it is [x1 x2 x3 ... x1 x2 x3...]
+    extended_ys = np.concatenate([fs, grad_fs.T.reshape(-1)])
+    extended_gradient_flags = np.kron(np.arange(1+nx), np.ones(N_pts)).astype(np.int8)
 
     def build_gp(params, X, g):
         # exp transform for >0 constraint.
@@ -433,6 +443,7 @@ def example_gradient():
     print('nll and params after optimisation:')
     print(v)
     print(params)
+    pl.figure()
     pl.plot(losses)
 
 
@@ -459,16 +470,74 @@ def example_gradient():
             c=fs, ec='black',
             vmin=y_true.min(), vmax=y_true.max()
     )
-    pl.suptitle('Data & GP posterior mean')
+    axs[0].set_title('Data & GP posterior mean')
 
     pc = axs[1].pcolor(x_, y_, y_std, cmap='plasma', vmin=y_std.min(), vmax=y_std.max())
     fig.colorbar(pc, ax=axs[1])
-    pl.suptitle('GP posterior std deviation, no gradient info')
-    pl.show()
+    axs[1].set_title('GP posterior std deviation, no gradient info')
 
 
     # do it again, but with gradient data.
+    # build the gradient data
 
+
+    optimize_again = False
+    if optimize_again:
+        opti = optax.adam(learning_rate=.05)
+        opt_state = opti.init(params)
+
+        losses = []
+        for i in tqdm.tqdm(range(100)):
+            loss_val, grads = nll_value_grad(
+                    params, extended_xs,
+                    extended_ys, extended_gradient_flags
+            )
+            losses.append(loss_val)
+            updates, opt_state = opti.update(grads, opt_state)
+            params = optax.apply_updates(params, updates)
+
+        v, _ = nll_value_grad(params, extended_xs, extended_ys, extended_gradient_flags)
+        print('nll and params after 2nd optimisation:')
+        print(v)
+        print(params)
+        pl.figure()
+        pl.plot(losses)
+
+    trained_gp = build_gp(params, extended_xs, extended_gradient_flags)
+
+    extent = 3
+    x_grid, y_grid = np.linspace(-extent, extent, 50), np.linspace(-extent, extent, 50)
+    x_, y_ = np.meshgrid(x_grid, y_grid)
+    X_pred = np.vstack((x_.flatten(), y_.flatten())).T
+    y_true = jax.vmap(f)(X_pred).reshape(x_.shape)
+
+    pred_grad_flag = np.zeros(X_pred.shape[0], dtype=np.int8)
+    pred_gp = trained_gp.condition(extended_ys, (X_pred, pred_grad_flag)).gp
+    y_pred = pred_gp.loc.reshape(y_true.shape)
+    y_std_new = np.sqrt(pred_gp.variance.reshape(y_true.shape))
+
+    # make a plot.
+    fig, axs = pl.subplots(1, 2, figsize=(12, 6), sharex=True, sharey=True)
+    axs[0].pcolor(x_, y_, y_pred, vmin=y_true.min(), vmax=y_true.max())
+    axs[0].scatter(
+            xs_f[:, 0], xs_f[:, 1],
+            c=fs, ec='black',
+            vmin=y_true.min(), vmax=y_true.max()
+    )
+    axs[0].set_title('Data & GP posterior mean')
+
+    pc = axs[1].pcolor(x_, y_, y_std_new, cmap='plasma', vmin=y_std.min(), vmax=y_std.max())
+    fig.colorbar(pc, ax=axs[1])
+    axs[1].set_title('GP posterior std deviation, with gradient info')
+
+    pl.figure()
+    diff = y_std_new - y_std
+    vmax = np.max(np.abs(diff))
+    pc = pl.pcolor(diff, cmap='seismic', vmin=-vmax, vmax=vmax)
+    pl.gca().set_title('difference in std before and after including gradient info')
+    pl.colorbar(pc, ax=pl.gca())
+
+    pl.show()
 
     ipdb.set_trace()
 

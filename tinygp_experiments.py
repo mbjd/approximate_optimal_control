@@ -365,7 +365,8 @@ def example_gradient():
     xs_f = jax.random.normal(subkey, (N_pts, nx))
 
     def f(x):
-        return x[0]**2 + (x[1]-x[0]**2)**2
+        # return x[0]**2 + (x[1]-x[0]**2)**2
+        return x[0]**2 + np.sin(3*x[1]+0.3*x[0])
 
     key, subkey = jax.random.split(key)
     fs = jax.vmap(f)(xs_f) + noise_size * jax.random.normal(subkey, (N_pts,))
@@ -478,10 +479,8 @@ def example_gradient():
 
 
     # do it again, but with gradient data.
-    # build the gradient data
 
-
-    optimize_again = False
+    optimize_again = True
     if optimize_again:
         opti = optax.adam(learning_rate=.05)
         opt_state = opti.init(params)

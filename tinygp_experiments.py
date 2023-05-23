@@ -8,6 +8,7 @@ import optax
 
 import ipdb
 import matplotlib.pyplot as pl
+import tqdm
 
 # recommended by tinygp docs...
 jax.config.update("jax_enable_x64", True)
@@ -373,8 +374,8 @@ def example_gradient():
     grad_fs = jax.vmap(jax.grad(f))(xs_f) + noise_size * jax.random.normal(subkey, (N_pts, nx))
 
 
-    gradient_flag = np.zeros(xs_f.shape[0], dtype=np.int8)
-    def build_gp(params, X):
+
+    def build_gp(params, X, g):
         # exp transform for >0 constraint.
         amp = np.exp(params['log_amp'])
         scale_vec = np.exp(params['log_scale'])
@@ -392,11 +393,11 @@ def example_gradient():
         # the gradient flag is read here as a global variable.
         # kind of shady right? what if we later have data with different
         # gradient flags?
-        return tinygp.GaussianProcess(kernel, (X, gradient_flag), diag=noise_size**2)
+        return tinygp.GaussianProcess(kernel, (X, g), diag=noise_size**2)
 
 
-    def nll(params, X, y):
-        gp = build_gp(params, X)
+    def nll(params, X, y, g):
+        gp = build_gp(params, X, g)
         return -gp.log_probability(y)
 
 
@@ -408,34 +409,36 @@ def example_gradient():
 
     nll_value_grad = jax.jit(jax.value_and_grad(nll, argnums=0))
 
-
     # fs_expanded = np.column_stack([fs, gradient_flag])
 
-    v, g = nll_value_grad(params, xs_f, fs)
+    gradient_flag = np.zeros(xs_f.shape[0], dtype=np.int8)
+
+    v, _ = nll_value_grad(params, xs_f, fs, gradient_flag)
+    print('nll and params before optimisation:')
     print(v)
-    print(g)
-    ipdb.set_trace()
+    print(params)
 
     # set up optimiser for neg log likelihood
-    opti = optax.adam(learning_rate=.02)
+    opti = optax.adam(learning_rate=.05)
     opt_state = opti.init(params)
 
     losses = []
-    for i in range(500):
-        loss_val, grads = nll_value_grad(params, xs_f, fs)
+    for i in tqdm.tqdm(range(100)):
+        loss_val, grads = nll_value_grad(params, xs_f, fs, gradient_flag)
         losses.append(loss_val)
         updates, opt_state = opti.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
 
-    v, g = nll_value_grad(params, xs_f, fs)
+    v, _ = nll_value_grad(params, xs_f, fs, gradient_flag)
+    print('nll and params after optimisation:')
     print(v)
-    print(g)
+    print(params)
     pl.plot(losses)
-    pl.show()
 
 
-    # do the inference, make a plot.
-    trained_gp = build_gp(params, xs_f)
+    # do the inference
+    # this is basically the same as during training, but with optimal # params.
+    trained_gp = build_gp(params, xs_f, gradient_flag)
 
     extent = 3
     x_grid, y_grid = np.linspace(-extent, extent, 50), np.linspace(-extent, extent, 50)
@@ -448,18 +451,23 @@ def example_gradient():
     y_pred = pred_gp.loc.reshape(y_true.shape)
     y_std = np.sqrt(pred_gp.variance.reshape(y_true.shape))
 
+    # make a plot.
     fig, axs = pl.subplots(1, 2, figsize=(12, 6), sharex=True, sharey=True)
-    ipdb.set_trace()
     axs[0].pcolor(x_, y_, y_pred, vmin=y_true.min(), vmax=y_true.max())
     axs[0].scatter(
             xs_f[:, 0], xs_f[:, 1],
             c=fs, ec='black',
             vmin=y_true.min(), vmax=y_true.max()
     )
+    pl.suptitle('Data & GP posterior mean')
 
-    y_std = np.log(y_std)
-    axs[1].pcolor(x_, y_, y_std, cmap='plasma', vmin=y_std.min(), vmax=y_std.max())
+    pc = axs[1].pcolor(x_, y_, y_std, cmap='plasma', vmin=y_std.min(), vmax=y_std.max())
+    fig.colorbar(pc, ax=axs[1])
+    pl.suptitle('GP posterior std deviation, no gradient info')
     pl.show()
+
+
+    # do it again, but with gradient data.
 
 
     ipdb.set_trace()

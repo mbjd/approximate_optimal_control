@@ -919,3 +919,14 @@ b) do it from the ground up. a very simplistic GP toolbox is basically a
    couple of manipulations on large gaussian distributions. then we could
    easily populate the K matrix with the right (value or gradient) info.
 
+
+2023-05-23
+
+finally implemented GP with derivative observation. used tinygp, a
+(relatively) low level GP library, but it makes it easy to define new
+kernel functions etc. in retrospect it was not too hard, just as always it
+took some time to figure out which data to put where in what shape.
+
+next steps, probably: wrap it in a class that provides high-level
+operations without much boilerplate, try to use that for the 'complete'
+algorithm of iteratively refining the value estimate.

@@ -381,7 +381,12 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
                     ax0.plot(t_plot, x_plot[:, j], color=c, alpha=a[j])
                     ax1.plot(t_plot, y_plot[:, j], color=c, alpha=a[j])
                 ax_phase.plot(x_plot[:, j], y_plot[:, j], color=c, alpha=a[j]/5)
-                ax_phase.scatter(x_plot[0, j], y_plot[0, j])
+
+        # sol_object.ys indexed by [iter, trajectory, timeindex, extended state dim]
+        # note that time index is 0 at T and N at 0, so reversed.
+        last_valid_index = sol_object.stats['num_accepted_steps'][-1, 0]-1
+        init_states = sol_object.ys[-1, :, last_valid_index, 0:2]
+        ax_phase.scatter(init_states[:, 0], init_states[:, 1], c='red', alpha=1/4)
 
 
         pl.figure()
@@ -396,7 +401,6 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
     # previously for benchmarking
     # return end-start
-
 
     last_sampling_mean = outputs['sampling_means'][-1]
     last_sampling_cov = outputs['sampling_covs'][-1]

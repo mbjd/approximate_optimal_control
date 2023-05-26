@@ -46,6 +46,13 @@ def run_algo(problem_params, algo_params, key=None):
 
     for i in range(4):
 
+        # idea:
+        # - find points where the approximation is inaccurate
+        # - guess which terminal conditions we might use to get useful new data
+        #   at these points (hoping for help from the GP here)
+        # - get the new data with the pontryagin solver
+        # - re-fit the GP.
+
         # as a first attempt, we just generate loads of random states
         # and choose the ones with hightest GP uncertainty to take the
         # next samples.
@@ -76,9 +83,24 @@ def run_algo(problem_params, algo_params, key=None):
         k = algo_params['sampler_n_trajectories']
         largest_vars, idx = jax.lax.top_k(pred_gp.variance, k)
 
+        # these are the states we'd like to know more about.
+        uncertain_xs = xs_eval[idx]
+        uncertain_xs_gradflag = np.ones(k, dtype=np.int8)
 
-        (xs_eval, gradflags_eval)
+        # find the weights the gp used to predict y = w.T @ ys_train
+        # TODO next week: continue with this.
+        X_pred = (uncertain_xs, uncertain_xs_gradflag)
+
+        # very brute force for now...
+        K_pt = gp.kernel(X_pred, gp.X)
+        K_pp = gp.kernel(gp.X, gp.X)
+        ws_pred = K_pt @ np.linalg.inv(K_pp)
+
+        # somehow this is very nonzero
+        print(ws_pred @ ys_gp - pred_gp.mean[idx])
         ipdb.set_trace()
+
+        # ws = gradient_gp.get_gp_prediction_weights(gp, pred_gp, X_pred)
 
 
 

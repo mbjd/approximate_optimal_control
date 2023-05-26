@@ -930,3 +930,22 @@ took some time to figure out which data to put where in what shape.
 next steps, probably: wrap it in a class that provides high-level
 operations without much boilerplate, try to use that for the 'complete'
 algorithm of iteratively refining the value estimate.
+
+
+
+2023-05-26
+
+starting to combine the basic ingredients. idea:
+- generate initial trajectory samples with pontryagin sampler
+- fit GP
+- iteratively sample more trajectories where uncertainty is high.
+
+intuitively I was just going to take the uncertainty in V(x) to take more
+samples. but for the controls ultimately, grad_x V(x) is relevant. granted
+when we have samples of V(x) and V_x(x) at the same locations it probably
+won't matter too much. but still, we should think about how to adaptively
+sample if we decide to adaptively sample.
+
+the other approach would be to use a better sampling method in the first
+place which guarantees that we actually reach some desired distribution.
+but that is probably a bit harder...

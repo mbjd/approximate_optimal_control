@@ -57,41 +57,38 @@ def run_algo(problem_params, algo_params, key=None):
     # the pontryagin solver is already in nice functional form as integrate
 
 
-    # re-jit if gp changes, keep fast for iterative search over terminal_conds.
-    @partial(jax.jit, static_argnames=['gp'])
-    def terminal_conds_to_uncertainties(gp, ys_gp, terminal_conds):
+    # @partial(jax.jit, static_argnames=['gp'])
+    def terminal_cond_to_uncertainty(terminal_cond, gp, ys_gp):
         '''
+        same as the other one, but only for one point. so we can first get
+        the gradient mapping, then vmap. hoping that jit will compensate
+        for the unnecessary vmap that already is in the integrate fct.
+
         inputs:
         gp:             tinygp gaussian process object for V approximation
         ys_gp:          data to condition gp on (V and V_x,
                         gp.X = (xs, gradflags) define which are where)
-        terminal_conds: (N_pts, nx) array with either of:
+        terminal_conds: (nx,) array with either of:
                         x(T) if using terminal state + state cost
                         λ(T) if using terminal state constraint at 0
 
-        output: (N_pts,) array of posterior uncertainty in V approx.
+        output: posterior uncertainty in V approx.
           the units or σ vs σ**2 don't matter too much, we just search for
           high uncertainty.
 
-        this is already batched/vmapped manually along the first axis,
-        just because the integrate function already is. probably makes no
-        difference after jitting both versions.
+
         '''
 
-        # e.g. terminal_conds = sample(subkey, algo_params['sampler_n_trajectories'])
-        sol_obj, init_ys = integrate(terminal_conds)
+        # reshape because it is vmapped already inside...
+        sol_obj, init_ys = integrate(terminal_cond.reshape(1, nx))
 
         init_states = init_ys[:, 0:nx]
 
-        # evaluate only V, not gradients.
-        gradflags = np.zeros(init_states.shape[0], dtype=np.int8)
-
         # condition the GP on available data & evaluate uncertainty at xs_eval.
+        gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
         pred_gp = gp.condition(ys_gp, (init_states, gradflags)).gp
 
-        uncertainties = pred_gp.variance
-
-        return uncertainties
+        return pred_gp.variance.item()  # just a scalar
 
 
     # new version: gradient based search for high uncertainty in terms
@@ -101,15 +98,16 @@ def run_algo(problem_params, algo_params, key=None):
     # this here just as a small test.
     key, subkey = jax.random.split(key)
     tcs = sample(key, algo_params['sampler_n_trajectories'])
-    uncertainties = terminal_conds_to_uncertainties(gp, ys_gp, tcs)
 
-    # but this is dumb, obviously the uncertainty only depends on the
-    # individual entry, so there will be a big fat jacobian matrix but only
-    # the diagonal nonzero. better to define it for a single point again
-    # and vmap both value and gradient?
-    jac = jax.jacobian(terminal_conds_to_uncertainties, argnums=2)(gp, ys_gp, tcs)
+    uncertainty0 = terminal_cond_to_uncertainty(tcs[0], gp, ys_gp)
+
+    tc_to_var_vmapped = jax.vmap(terminal_cond_to_uncertainty, in_axes=(0, None, None))
+
+
+    uncertainties = tc_to_var_vmapped(tcs, gp, ys_gp)
 
     ipdb.set_trace()
+
 
 
 

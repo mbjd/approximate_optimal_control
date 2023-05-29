@@ -949,3 +949,66 @@ sample if we decide to adaptively sample.
 the other approach would be to use a better sampling method in the first
 place which guarantees that we actually reach some desired distribution.
 but that is probably a bit harder...
+
+also tried to implement a simple approach where after finding some new
+states with uncertain V estimate, we try to 'predict' which terminal
+conditions can generate new data there, by basically reusing the GP that
+predicts V from x(0) to predict λ(T) from x(0).
+
+
+
+2023-05-29
+
+tried a bit more to do the last thing, turns out it is not so easy, if I
+manually apply the gaussian conditioning formula with (I think) the right
+kernel matrices inside, I still get different predictions than with the GP.
+In any case, a method like this would not scale to NNs at all. Maybe it
+would be easier to do something like this:
+
+sample trajectories, fit V
+
+loop:
+  sample new trajectories
+  subloop:
+    adjust the terminal conditions in direction of ascending uncertainty.
+  add these new trajectories to the training set
+
+
+this could easily be done with GPs and NNs, probably by connecting it to
+the right theory in the realm of sampling algorithms etc. we can show that
+it is an approximation of sampling from a distribution proportional to
+exp(uncertainty estimate), a boltzmann-ish distribution.
+
+problems could be the sensitivity problem again - probably difficult to
+tune gradient descent algorithms. maybe if we do some PCA-like
+transformation at the input?
+
+or ditch gradient altogether and do everything as a sampling-type
+algorithm? as in, sample new trajectories and then run a evolutionary
+algorithm kind of thing to arrive at a set of terminal conditions with high
+value estimate uncertainty...
+
+generally I see a couple different flavours of this kind of stuff:
+
+1. separately maximise uncertainty in terms of x(0) directly, and then
+   search for terminal conditions that give information there.
+
+2. maximise uncertainty as a function of x(T). This would be the nicest,
+   but maybe leads to sensitivity problems etc. but with the right tricks
+   it might work. i am thinking of
+   a) reparameterising the input space by pre-scaling Σ^(1/2), the sqrtm
+   covariance of the terminal condition distribution found by the
+   pontryagin sampling code
+   b) trust region.
+
+3. maximise uncertainty in terms of x(0) as well, but after each gradient
+   step, estimate a new terminal condition (probably w linearization), and
+   simulate from there to get next 'actual' x(0).
+
+probably 3 is most promising? at least in terms of immediate practicality.
+on the other hand I feel like 2 is the one which would lead to the best
+scalability.
+
+decision for now: investigate 2. seems the nicest in terms of theory,
+probably more computation than strictly necessary, but it is offline so who
+cares \o/ still better than RL hehe

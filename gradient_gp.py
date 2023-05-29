@@ -185,20 +185,18 @@ def get_gp_prediction_weights(gp, cond_gp, X_pred):
     assert gp.X is cond_gp.mean_function.X
     assert gp.kernel is cond_gp.mean_function.kernel
 
-    k_star = gp.kernel(gp.X, X_pred)
     # reuse previous alpha. in the docs it says alpha = L^-1 y.
     # to do the prediction, we would:
     # mean = k_star.T @ cond_gp.mean_function.alpha
     # instead we want the weights, so that mean = prediction_weights @ y.
 
-    ipdb.set_trace()
-
     # brute force solution: recalculate it...
     K_tt = gp.kernel(gp.X, gp.X)
+    K_pt = gp.kernel(X_pred, gp.X)
+    ipdb.set_trace()
 
-    prediction_weights = k_star.T @ np.linalg.inv(K_tt)
-
-
+    ws = K_pt @ np.linalg.inv(K_tt)
+    return ws
 
 
 def reshape_for_gp(ys):

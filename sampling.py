@@ -405,17 +405,26 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     last_sampling_mean = outputs['sampling_means'][-1]
     last_sampling_cov = outputs['sampling_covs'][-1]
 
+    sampling_fct = lambda key, n: sample_terminal_conditions(key, last_sampling_mean, last_sampling_cov, n)
+
+    integrate_fct = lambda xT: batch_pontryagin_backward_solver(x_to_y_vmap(xT), T, 0)
+
     if algo_params['sampler_returns'] == 'distribution_params':
         # now, return the parameters of the terminal condition distribution
         return (last_sampling_mean, last_sampling_cov)
     elif algo_params['sampler_returns'] == 'sampling_fct':
-        sampling_fct = lambda key, n: sample_terminal_conditions(key, last_sampling_mean, last_sampling_cov, n)
-
-        integrate_fct = lambda xT: batch_pontryagin_backward_solver(x_to_y_vmap(xT), T, 0)
         return (sampling_fct, integrate_fct)
+    elif algo_params['sampler_returns'] == 'both':
+        # put it all in a dictionary
+        return {
+                'mean': last_sampling_mean,
+                'cov': last_sampling_cov,
+                'sampling_fct': sampling_fct,
+                'integrate_fct': integrate_fct,
+        }
     else:
         ret = algo_params['sampler_returns']
-        raise ValueError('invalid sampler return value specification "{ret}"')
+        raise ValueError(f'invalid sampler return value specification "{ret}"')
 
 
 

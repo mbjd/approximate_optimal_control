@@ -9,6 +9,7 @@ import sampling
 import ipdb
 import matplotlib.pyplot as pl
 import tqdm
+from functools import partial
 
 
 def run_algo(problem_params, algo_params, key=None):
@@ -18,7 +19,12 @@ def run_algo(problem_params, algo_params, key=None):
 
     # first we generate a bunch of trajectories with the pontryagin sampler.
     key, subkey = jax.random.split(key)
-    sample, integrate = sampling.pontryagin_sampler(problem_params, algo_params, key=subkey)
+    sampler_output = sampling.pontryagin_sampler(problem_params, algo_params, key=subkey)
+
+    sample =        sampler_output['sampling_fct']
+    integrate =     sampler_output['integrate_fct']
+    sampling_mean = sampler_output['mean']
+    sampling_cov =  sampler_output['cov']
 
     key, subkey = jax.random.split(key)
     sol_obj, ys = integrate(sample(subkey, algo_params['sampler_n_trajectories']))
@@ -44,9 +50,74 @@ def run_algo(problem_params, algo_params, key=None):
 
     all_ys = ys
 
+    # we want to locally optimise the uncertainty in the V approximation,
+    # with respect to the terminal condition. so basically we compose the
+    # pontryagin solver with the uncertainty model to obtain model
+    # uncertainty directly as a function of terminal condition.
+    # the pontryagin solver is already in nice functional form as integrate
+
+
+    # re-jit if gp changes, keep fast for iterative search over terminal_conds.
+    @partial(jax.jit, static_argnames=['gp'])
+    def terminal_conds_to_uncertainties(gp, ys_gp, terminal_conds):
+        '''
+        inputs:
+        gp:             tinygp gaussian process object for V approximation
+        ys_gp:          data to condition gp on (V and V_x,
+                        gp.X = (xs, gradflags) define which are where)
+        terminal_conds: (N_pts, nx) array with either of:
+                        x(T) if using terminal state + state cost
+                        λ(T) if using terminal state constraint at 0
+
+        output: (N_pts,) array of posterior uncertainty in V approx.
+          the units or σ vs σ**2 don't matter too much, we just search for
+          high uncertainty.
+
+        this is already batched/vmapped manually along the first axis,
+        just because the integrate function already is. probably makes no
+        difference after jitting both versions.
+        '''
+
+        # e.g. terminal_conds = sample(subkey, algo_params['sampler_n_trajectories'])
+        sol_obj, init_ys = integrate(terminal_conds)
+
+        init_states = init_ys[:, 0:nx]
+
+        # evaluate only V, not gradients.
+        gradflags = np.zeros(init_states.shape[0], dtype=np.int8)
+
+        # condition the GP on available data & evaluate uncertainty at xs_eval.
+        pred_gp = gp.condition(ys_gp, (init_states, gradflags)).gp
+
+        uncertainties = pred_gp.variance
+
+        return uncertainties
+
+
+    # new version: gradient based search for high uncertainty in terms
+    # of terminal conditions. hopefully nicer to implement, and more
+    # obvious scaling to larger state spaces & NNs.
+
+    # this here just as a small test.
+    key, subkey = jax.random.split(key)
+    tcs = sample(key, algo_params['sampler_n_trajectories'])
+    uncertainties = terminal_conds_to_uncertainties(gp, ys_gp, tcs)
+
+    # but this is dumb, obviously the uncertainty only depends on the
+    # individual entry, so there will be a big fat jacobian matrix but only
+    # the diagonal nonzero. better to define it for a single point again
+    # and vmap both value and gradient?
+    jac = jax.jacobian(terminal_conds_to_uncertainties, argnums=2)(gp, ys_gp, tcs)
+
+    ipdb.set_trace()
+
+
+
+
     for i in range(4):
 
-        # idea:
+
+        # older version. idea:
         # - find points where the approximation is inaccurate
         # - guess which terminal conditions we might use to get useful new data
         #   at these points (hoping for help from the GP here)
@@ -62,7 +133,9 @@ def run_algo(problem_params, algo_params, key=None):
         # this way it will just choose the outermost, most unlikely draws for
         # new samples because there we have no data yet.
 
+
         n_eval = 256
+        key, subkey = jax.random.split(key)
         xs_eval = jax.random.multivariate_normal(
                 subkey,
                 mean=np.zeros(nx),
@@ -91,16 +164,11 @@ def run_algo(problem_params, algo_params, key=None):
         # TODO next week: continue with this.
         X_pred = (uncertain_xs, uncertain_xs_gradflag)
 
-        # very brute force for now...
-        K_pt = gp.kernel(X_pred, gp.X)
-        K_pp = gp.kernel(gp.X, gp.X)
-        ws_pred = K_pt @ np.linalg.inv(K_pp)
+        ws_pred = gradient_gp.get_gp_prediction_weights(gp, pred_gp, X_pred)
 
-        # somehow this is very nonzero
-        print(ws_pred @ ys_gp - pred_gp.mean[idx])
+        print(ws_pred @ ys_gp)
+
         ipdb.set_trace()
-
-        # ws = gradient_gp.get_gp_prediction_weights(gp, pred_gp, X_pred)
 
 
 
@@ -157,7 +225,7 @@ if __name__ == '__main__':
             'sampler_strategy': 'importance',
             'sampler_deterministic': False,
             'sampler_plot': False,  # plotting takes like 1000x longer than the computation
-            'sampler_returns': 'sampling_fct',
+            'sampler_returns': 'both',
 
             'x_sample_cov': x_sample_cov,
 

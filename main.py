@@ -135,48 +135,64 @@ def run_algo(problem_params, algo_params, key=None):
 
     for i in range(N):
 
-        # a) sample terminal conditions, push them in direction of
-        #    increasing uncertainty. but keep the points within the state
-        #    space region of interest.
+        gradient = True
+        if gradient:
+            # a) sample terminal conditions, push them in direction of
+            #    increasing uncertainty. but keep the points within the state
+            #    space region of interest.
 
-        # something to consider: uncertainty will always be higher for
-        # larger states outside the region we're interested in. for now,
-        # just ignore this and hope most of the points will stay within the
-        # interesting region and come close to some local optimum. sadly we
-        # can't exactly do simple projected gradient ascent because our
-        # input is the terminal condition not the initial state... maybe
-        # just resample the variables that stray too far outside? or reject
-        # all the updates that go outside the interesting state space?
+            # something to consider: uncertainty will always be higher for
+            # larger states outside the region we're interested in. for now,
+            # just ignore this and hope most of the points will stay within the
+            # interesting region and come close to some local optimum. sadly we
+            # can't exactly do simple projected gradient ascent because our
+            # input is the terminal condition not the initial state... maybe
+            # just resample the variables that stray too far outside? or reject
+            # all the updates that go outside the interesting state space?
 
-        # also, maybe build in a check of some sort that exist when the
-        # uncertainty appears to be below some threshold?
+            # also, maybe build in a check of some sort that exist when the
+            # uncertainty appears to be below some threshold?
 
-        # also, maybe better to use adam instead of plain gradient descent?
+            # also, maybe better to use adam instead of plain gradient descent?
 
-        key, subkey = jax.random.split(key)
-        tcs_norm = jax.random.normal(subkey, shape=(algo_params['sampler_n_trajectories'], nx))
+            key, subkey = jax.random.split(key)
+            tcs_norm = jax.random.normal(subkey, shape=(algo_params['sampler_n_trajectories'], nx))
 
-        def gradient_step(tcs_norm, lr):
+            def gradient_step(tcs_norm, lr):
 
-            V_var_grads = V_var_grad_vmap(tcs_norm, gp, ys_gp)
-            V_vars = V_var_vmap(tcs_norm, gp, ys_gp)  # to debug
+                V_var_grads = V_var_grad_vmap(tcs_norm, gp, ys_gp)
+                V_vars = V_var_vmap(tcs_norm, gp, ys_gp)  # to debug
 
-            return (tcs_norm + lr * V_var_grads, V_vars)
+                return (tcs_norm + lr * V_var_grads, V_vars)
 
-        lrs = np.logspace(-1, -2, 50)  # decreasing step size?
-        print('finding uncertain points...')
-        tcs_norm, V_vars = jax.lax.scan(gradient_step, tcs_norm, lrs)
+            lrs = np.logspace(-1, -2, 50)  # decreasing step size?
+            print('finding uncertain points...')
+            tcs_norm, V_vars = jax.lax.scan(gradient_step, tcs_norm, lrs)
 
-        new_tcs = jax.vmap(unnormalise_term_cond)(tcs_norm)
-        # did this already in V_var_grad_vmap but messy to keep solution
-        print('integrating PMP again...')
-        new_sol_obj, new_ys = integrate(new_tcs)
+            new_tcs = jax.vmap(unnormalise_term_cond)(tcs_norm)
+            # did this already in V_var_grad_vmap but messy to keep solution
+            print('integrating PMP again...')
+            new_sol_obj, new_ys = integrate(new_tcs)
+
+        else:
+            # maybe easier to just generate very many many trajectories and
+            # chooose the ones with highest uncertainty?
+            # just an idea, not tested, this is pseudocode!
+            # but maybe if we fully embrace the sampling-type algorithms
+            # everything will be less shitty
+
+            tcs = sample_lots_of_terminal_conditions(n=4096)
+            sol_object, ys = integrate(tcs)
+            V_vars = V_var_vmap(tcs, gp, ys_gp)
+            highest_vars, idx = jax.lax.top_k(V_vars, k=n_trajectories)
+            new_ys = ys[idx]
+            # then continue the same way.
+
+
+
 
         cmap = matplotlib.cm.get_cmap('viridis')
         pl.scatter(new_ys[:, 0], new_ys[:, 1], color=cmap(i/N))
-
-
-
 
         # add the newly found data to the training set.
         print('stacking data...')

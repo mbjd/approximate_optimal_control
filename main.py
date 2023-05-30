@@ -199,8 +199,6 @@ def run_algo(problem_params, algo_params, key=None):
         all_ys = np.concatenate([all_ys, new_ys], axis=0)
         xs_gp, ys_gp, grad_flags_gp = gradient_gp.reshape_for_gp(ys)
 
-        # TODO after lunch: condition the GP on the new data.
-
         # something like this apparently does not work because the gp can
         # not change its x points
         # gp_cond = gp.condition(ys, (xs, gradflags)).gp

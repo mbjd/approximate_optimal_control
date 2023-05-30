@@ -1012,3 +1012,60 @@ scalability.
 decision for now: investigate 2. seems the nicest in terms of theory,
 probably more computation than strictly necessary, but it is offline so who
 cares \o/ still better than RL hehe
+
+
+2023-05-30
+
+did some small steps, first implementation of the complete algorithm is
+running, very small example and GP. it goes like this:
+
+generate initial set of PMP-optimal trajectories with importance sampling
+fit GP
+loop:
+    generate new terminal conditions from same distribution used initially
+    take N gradient steps adjusting x(T)/λ(T) in direction of ascending value uncertainty
+    re-fit GP with that data
+
+probably this can nicely be explained theoretically as a sampling algorithm
+(MCMC/SGLD style) that samples from a distribution concentrated around
+regions (in terminal condition space) that lead to uncertain value function
+estimate in x(0) space. this in turn means we should be able to 'cover' the
+complete interesting state space at t=0, because, for example:
+
+- the interesting region is contained within the set for which optimal
+  trajectories towards the goal exist
+- the sampling algorithm (in theory) can explore ALL of x(T)/λ(T), so for
+  every interesting initial condition there will be a good value estimate
+  eventually.
+
+or, ditching the first assumption, then we get at each initial state x(0)
+one of two outcomes:
+- either the sampling algorithm eventually finds terminal conditions that
+  inform the value function at x(0), to some desired accuracy
+- or there exists no such terminal condition, which will lead to large
+  uncertainty at x(0), so with a sublevel set of the model uncertainty we
+  get an estimate of the stabilizable set as well :)
+
+this looks actually promising, many practical things can be addressed
+nicely like this. for example, the interesting region can be added as a
+penalty term which decreases likelihood significantly, making the sampling
+algorithm naturally 'uninterested' in regions outside the pre-defined
+interesting region, which is not given in the current mockup
+implementation.
+
+furthermore, (i think that) nonconvexities/multiple locally optimal
+solutions could be handled gracefully. by defining some desired
+distribution over the state space at t=0, we also define a distribution
+over x(T)/λ(T), but not in the obvious sense - if there exist different
+local solutions starting at some x(0) then the corresponding probability
+density will show up twice in the terminal condition space. this causes
+issues with normalization, probably one of them will have to stop being a
+proper probability density function, just some sort of handwavy analogue,
+but that should not stop us from trying to sample from it. but probably not
+in this semester project...
+
+also, the distributions can also be quite ugly for this type of algorithm,
+which is exactly what will happen once we try to include state constraints,
+which will introduce additional costate-like lagrange multipliers which
+probably will need to be found at T to produce optimal controls at some
+state at t=0. but surely not in this semester project :o

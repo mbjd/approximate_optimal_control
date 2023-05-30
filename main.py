@@ -7,6 +7,7 @@ import gradient_gp
 import sampling
 
 import ipdb
+import matplotlib
 import matplotlib.pyplot as pl
 import tqdm
 from functools import partial
@@ -39,6 +40,7 @@ def run_algo(problem_params, algo_params, key=None):
 
     xs_gp, ys_gp, grad_flags_gp = gradient_gp.reshape_for_gp(ys)
 
+    print('optimising GP...')
     gp, gp_params = gradient_gp.get_optimised_gp(
             gradient_gp.build_gp,
             gp_params,
@@ -46,6 +48,7 @@ def run_algo(problem_params, algo_params, key=None):
             ys_gp,
             grad_flags_gp,
             steps=algo_params['gp_iters'],
+            plot=algo_params['gp_train_plot'],
     )
 
     all_ys = ys
@@ -127,21 +130,29 @@ def run_algo(problem_params, algo_params, key=None):
     V_var_vmap = jax.vmap(V_var_normalised, in_axes=(0, None, None))
     V_var_grad_vmap = jax.vmap(V_var_grad, in_axes=(0, None, None))
 
-    for i in range(4):
 
-        # a)
+    N = algo_params['active_learning_iters']
 
-        # sample terminal conditions, push them in direction of increasing
-        # uncertainty. but keep the points within the state space region
-        # of interest.
+    for i in range(N):
+
+        # a) sample terminal conditions, push them in direction of
+        #    increasing uncertainty. but keep the points within the state
+        #    space region of interest.
 
         # something to consider: uncertainty will always be higher for
         # larger states outside the region we're interested in. for now,
         # just ignore this and hope most of the points will stay within the
-        # interesting region and come close to some local optimum.
+        # interesting region and come close to some local optimum. sadly we
+        # can't exactly do simple projected gradient ascent because our
+        # input is the terminal condition not the initial state... maybe
+        # just resample the variables that stray too far outside? or reject
+        # all the updates that go outside the interesting state space?
 
         # also, maybe build in a check of some sort that exist when the
         # uncertainty appears to be below some threshold?
+
+        # also, maybe better to use adam instead of plain gradient descent?
+
         key, subkey = jax.random.split(key)
         tcs_norm = jax.random.normal(subkey, shape=(algo_params['sampler_n_trajectories'], nx))
 
@@ -153,20 +164,38 @@ def run_algo(problem_params, algo_params, key=None):
             return (tcs_norm + lr * V_var_grads, V_vars)
 
         lrs = np.logspace(-1, -2, 50)  # decreasing step size?
+        print('finding uncertain points...')
         tcs_norm, V_vars = jax.lax.scan(gradient_step, tcs_norm, lrs)
 
         new_tcs = jax.vmap(unnormalise_term_cond)(tcs_norm)
-
+        # did this already in V_var_grad_vmap but messy to keep solution
+        print('integrating PMP again...')
         new_sol_obj, new_ys = integrate(new_tcs)
 
+        cmap = matplotlib.cm.get_cmap('viridis')
+        pl.scatter(new_ys[:, 0], new_ys[:, 1], color=cmap(i/N))
+
+
+
+
         # add the newly found data to the training set.
+        print('stacking data...')
         all_ys = np.concatenate([all_ys, new_ys], axis=0)
+        xs_gp, ys_gp, grad_flags_gp = gradient_gp.reshape_for_gp(ys)
 
         # TODO after lunch: condition the GP on the new data.
-        ipdb.set_trace()
-        # something like:
-        xs, ys, grad_flags = gradient_gp.reshape_for_gp(ys)
-        gp_cond = gp.condition(ys, (xs, gradflags)).gp
+
+        # something like this apparently does not work because the gp can
+        # not change its x points
+        # gp_cond = gp.condition(ys, (xs, gradflags)).gp
+
+        # so instead:
+        print('conditioning GP...')
+        gp = gradient_gp.build_gp(gp_params, xs_gp, grad_flags_gp)
+
+    pl.show()
+    ipdb.set_trace()
+
 
 
 
@@ -294,6 +323,8 @@ if __name__ == '__main__':
             'x_sample_cov': x_sample_cov,
 
             'gp_iters': 100,
+            'gp_train_plot': False,
+            'active_learning_iters': 4,
 
     }
 

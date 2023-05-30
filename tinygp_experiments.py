@@ -400,10 +400,9 @@ def example_gradient():
 
         kernel = GradientKernel(base_kernel)
 
-        # small noise of same shape as x variable.
-        # the gradient flag is read here as a global variable.
-        # kind of shady right? what if we later have data with different
-        # gradient flags?
+        # the gradient flag is passed with the data, it supports data in pytree
+        # format as long as the kernel function resolves it correctly, see
+        # tinygp tutorial about derivative observations
         return tinygp.GaussianProcess(kernel, (X, g), diag=noise_size**2)
 
 

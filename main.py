@@ -57,8 +57,7 @@ def run_algo(problem_params, algo_params, key=None):
     # the pontryagin solver is already in nice functional form as integrate
 
 
-    # @partial(jax.jit, static_argnames=['gp'])
-    def terminal_cond_to_uncertainty(terminal_cond, gp, ys_gp):
+    def V_var(terminal_cond, gp, ys_gp):
         '''
         same as the other one, but only for one point. so we can first get
         the gradient mapping, then vmap. hoping that jit will compensate
@@ -88,85 +87,152 @@ def run_algo(problem_params, algo_params, key=None):
         gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
         pred_gp = gp.condition(ys_gp, (init_states, gradflags)).gp
 
-        return pred_gp.variance.item()  # just a scalar
+        # reshape to make scalar.
+        return pred_gp.variance.reshape()
+
+    # these are to make the sensitivity problem somewhat less severe, and
+    # to make the tuning of gradient descent type optimisers easier.
+    # instead of directly taking x(T) or λ(T) as input for everything, we
+    # take a re-scaled version, which we can sample from N(0,1) and get
+    # sensible results.
+
+    def normalise_term_cond(term_cond):
+        Σ_half_inv = jax.scipy.linalg.sqrtm(sampling_cov).real
+        return Σ_half_inv @ term_cond
+
+    def unnormalise_term_cond(term_cond_normalised):
+        Σ_half = jax.scipy.linalg.sqrtm(sampling_cov).real
+        return Σ_half @ term_cond_normalised
+
+    def V_var_normalised(term_cond_normalised, gp, ys_gp):
+        term_cond = unnormalise_term_cond(term_cond_normalised)
+        return V_var(term_cond, gp, ys_gp)
 
 
     # new version: gradient based search for high uncertainty in terms
     # of terminal conditions. hopefully nicer to implement, and more
     # obvious scaling to larger state spaces & NNs.
+    # each loop iteration consists of these steps:
+    # a) find terminal conditions that generate new data at x(0) which
+    #    currently have an uncertain V estimate
+    # b) use that data to update the GP
 
     # this here just as a small test.
     key, subkey = jax.random.split(key)
     tcs = sample(key, algo_params['sampler_n_trajectories'])
 
-    uncertainty0 = terminal_cond_to_uncertainty(tcs[0], gp, ys_gp)
-
-    tc_to_var_vmapped = jax.vmap(terminal_cond_to_uncertainty, in_axes=(0, None, None))
-
-
-    uncertainties = tc_to_var_vmapped(tcs, gp, ys_gp)
-
-    ipdb.set_trace()
-
-
-
-
+    # all based on normalised terminal conditions!!
+    # so be sure to scale by cov^(1/2) with functions above
+    V_var_grad = jax.grad(V_var_normalised, argnums=0)
+    V_var_vmap = jax.vmap(V_var_normalised, in_axes=(0, None, None))
+    V_var_grad_vmap = jax.vmap(V_var_grad, in_axes=(0, None, None))
 
     for i in range(4):
 
+        # a)
 
-        # older version. idea:
-        # - find points where the approximation is inaccurate
-        # - guess which terminal conditions we might use to get useful new data
-        #   at these points (hoping for help from the GP here)
-        # - get the new data with the pontryagin solver
-        # - re-fit the GP.
+        # sample terminal conditions, push them in direction of increasing
+        # uncertainty. but keep the points within the state space region
+        # of interest.
 
-        # as a first attempt, we just generate loads of random states
-        # and choose the ones with hightest GP uncertainty to take the
-        # next samples.
+        # something to consider: uncertainty will always be higher for
+        # larger states outside the region we're interested in. for now,
+        # just ignore this and hope most of the points will stay within the
+        # interesting region and come close to some local optimum.
 
-        # not sure if this is guaranteed to do anything smart, probably to get
-        # decent convergence guarantees we have to sample over a bounded domain,
-        # this way it will just choose the outermost, most unlikely draws for
-        # new samples because there we have no data yet.
-
-
-        n_eval = 256
+        # also, maybe build in a check of some sort that exist when the
+        # uncertainty appears to be below some threshold?
         key, subkey = jax.random.split(key)
-        xs_eval = jax.random.multivariate_normal(
-                subkey,
-                mean=np.zeros(nx),
-                cov=algo_params['x_sample_cov'],
-                shape=(n_eval,)
-        )
+        tcs_norm = jax.random.normal(subkey, shape=(algo_params['sampler_n_trajectories'], nx))
 
-        # no gradients! only the function.
-        # although, should we not mainly care about accurate representation
-        # of the gradient.....?
-        gradflags_eval = np.zeros((n_eval,), dtype=np.int8)
+        def gradient_step(tcs_norm, lr):
 
-        # condition the GP on available data & evaluate uncertainty at xs_eval.
-        pred_gp = gp.condition(ys_gp, (xs_eval, gradflags_eval)).gp
+            V_var_grads = V_var_grad_vmap(tcs_norm, gp, ys_gp)
+            V_vars = V_var_vmap(tcs_norm, gp, ys_gp)  # to debug
 
-        # find xs with largest value uncertainty. for simplicity again the same
-        # number of trajectories as sampling -> less re-jitting.
-        k = algo_params['sampler_n_trajectories']
-        largest_vars, idx = jax.lax.top_k(pred_gp.variance, k)
+            return (tcs_norm + lr * V_var_grads, V_vars)
 
-        # these are the states we'd like to know more about.
-        uncertain_xs = xs_eval[idx]
-        uncertain_xs_gradflag = np.ones(k, dtype=np.int8)
+        lrs = np.logspace(-1, -2, 50)  # decreasing step size?
+        tcs_norm, V_vars = jax.lax.scan(gradient_step, tcs_norm, lrs)
 
-        # find the weights the gp used to predict y = w.T @ ys_train
-        # TODO next week: continue with this.
-        X_pred = (uncertain_xs, uncertain_xs_gradflag)
+        new_tcs = jax.vmap(unnormalise_term_cond)(tcs_norm)
 
-        ws_pred = gradient_gp.get_gp_prediction_weights(gp, pred_gp, X_pred)
+        new_sol_obj, new_ys = integrate(new_tcs)
 
-        print(ws_pred @ ys_gp)
+        # add the newly found data to the training set.
+        all_ys = np.concatenate([all_ys, new_ys], axis=0)
 
+        # TODO after lunch: condition the GP on the new data.
         ipdb.set_trace()
+        # something like:
+        xs, ys, grad_flags = gradient_gp.reshape_for_gp(ys)
+        gp_cond = gp.condition(ys, (xs, gradflags)).gp
+
+
+
+
+
+
+
+
+
+
+    if False:
+        for i in range(4):
+
+
+            # older version. idea:
+            # - find points where the approximation is inaccurate
+            # - guess which terminal conditions we might use to get useful new data
+            #   at these points (hoping for help from the GP here)
+            # - get the new data with the pontryagin solver
+            # - re-fit the GP.
+
+            # as a first attempt, we just generate loads of random states
+            # and choose the ones with hightest GP uncertainty to take the
+            # next samples.
+
+            # not sure if this is guaranteed to do anything smart, probably to get
+            # decent convergence guarantees we have to sample over a bounded domain,
+            # this way it will just choose the outermost, most unlikely draws for
+            # new samples because there we have no data yet.
+
+
+            n_eval = 256
+            key, subkey = jax.random.split(key)
+            xs_eval = jax.random.multivariate_normal(
+                    subkey,
+                    mean=np.zeros(nx),
+                    cov=algo_params['x_sample_cov'],
+                    shape=(n_eval,)
+            )
+
+            # no gradients! only the function.
+            # although, should we not mainly care about accurate representation
+            # of the gradient.....?
+            gradflags_eval = np.zeros((n_eval,), dtype=np.int8)
+
+            # condition the GP on available data & evaluate uncertainty at xs_eval.
+            pred_gp = gp.condition(ys_gp, (xs_eval, gradflags_eval)).gp
+
+            # find xs with largest value uncertainty. for simplicity again the same
+            # number of trajectories as sampling -> less re-jitting.
+            k = algo_params['sampler_n_trajectories']
+            largest_vars, idx = jax.lax.top_k(pred_gp.variance, k)
+
+            # these are the states we'd like to know more about.
+            uncertain_xs = xs_eval[idx]
+            uncertain_xs_gradflag = np.ones(k, dtype=np.int8)
+
+            # find the weights the gp used to predict y = w.T @ ys_train
+            # TODO next week: continue with this.
+            X_pred = (uncertain_xs, uncertain_xs_gradflag)
+
+            ws_pred = gradient_gp.get_gp_prediction_weights(gp, pred_gp, X_pred)
+
+            print(ws_pred @ ys_gp)
+
+            ipdb.set_trace()
 
 
 

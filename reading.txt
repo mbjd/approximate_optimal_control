@@ -316,3 +316,36 @@ that make something easier for me?
 (i think) their central important ingredient is also finding new optimal
 trajectories by PMP, with inintal costates estimated by approximate value
 function.
+
+
+Deep Learning Approximation for Stochastic Control Problems
+https://arxiv.org/pdf/1611.07422v1.pdf
+
+They solve discrete time, finite horizon, stochastic optimal control
+problems. basically they write one big fat equation which applies some NN
+controller to each state, calculates with that and a sample of the
+stochastic component the next state, and applies the next NN controller
+(time varying!). The cost is calculated, and they do direct gradient,
+trying to minimise the expected cost w.r.t all controller NN weights, with
+a MC-approximated expectation over stochastic components.
+
+they have quite a limited theory discussion and basically no correctness
+results.
+
+continuous-time versions would basically be neural ODEs right? ofc we can
+do that, but also who knows about convergence guarantees. probably it works
+alright though..
+
+
+
+
+also watched this talk:
+Wei Kang: "Data Development and Deep Learning for HJB Equations"
+https://www.youtube.com/watch?v=ABY-Wo6w77I&list=PLHyI3Fbmv0ScvcPAT9IK6YPEZGnj-6Sqk&index=24
+
+mentions a lot of the interesting papers summarised above and collected on
+semantic scholar in the "VERY interesting" section. especially in the
+discussion afterwards there are some interesting thoughts on global vs
+local optimality. no concrete research mentioned though. could this be my
+niche???
+

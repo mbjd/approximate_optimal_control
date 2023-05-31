@@ -230,7 +230,7 @@ def run_algo(problem_params, algo_params, key=None):
 
 
 
-        cmap = matplotlib.cm.get_cmap('viridis')
+        cmap = matplotlib.colormaps.get_cmap('viridis')
         pl.scatter(new_ys[:, 0], new_ys[:, 1], color=cmap(i/N))
 
         # b) add the newly found data to the training set.

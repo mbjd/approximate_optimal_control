@@ -100,7 +100,7 @@ def run_algo(problem_params, algo_params, key=None):
     # sensible results.
 
     def normalise_term_cond(term_cond):
-        Σ_half_inv = jax.scipy.linalg.sqrtm(sampling_cov).real
+        Σ_half_inv = jax.scipy.linalg.sqrtm(np.linalg.inv(sampling_cov)).real
         return Σ_half_inv @ term_cond
 
     def unnormalise_term_cond(term_cond_normalised):
@@ -115,28 +115,34 @@ def run_algo(problem_params, algo_params, key=None):
     # now including the state constraints as a penalty term.
     # otherwise the same as V_var_normalised.
     def desirability_fct(term_cond_normalised, gp, ys_gp):
+
         term_cond = unnormalise_term_cond(term_cond_normalised)
 
-        sol_obj, init_ys = integrate(terminal_cond.reshape(1, nx))
-        init_states = init_ys[:, 0:nx]
+        # calculate initial state according to PMP
+        sol_obj, init_ys = integrate(term_cond.reshape(1, nx))
+        init_states = init_ys[:, 0:nx]  # will give (1, nx) 'row vector'
+        return desirability_fct_x0(init_states, gp, ys_gp)
+
+    def desirability_fct_x0(x0, gp, ys_gp):
+        # because of weirdness x0 needs to be (1, nx) shaped
+        # find GP variance at initial state
         gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
-        pred_gp = gp.condition(ys_gp, (init_states, gradflags)).gp
-        predictive_variance = pred_gp.variance.reshape()
+        pred_gp = gp.condition(ys_gp, (x0, gradflags)).gp
+        predictive_variance = pred_gp.variance
 
-        # come to think of it: is sqrt(x.T Σ x) = x.T @ Σ^(1/2) @ x ??
-        # feels like it shouldn't be that way
-        # certainly || Σ^(-1/2) x ||_2^2 == x.T @ Σ^-1 @ x
-        Σ_inv = algo_params['x_sample_cov']
-        mahalanobis_dist = np.sqrt(init_states.T @ Σ_inv @ init_states)
+        # calculate penalty for leaving interesting state region
+        # outer penalty function - we allow being slightly outside, we
+        # would rather have no interference within the interesting region
+        Σ_inv = np.linalg.inv(algo_params['x_sample_cov'])
+        mahalanobis_dist = np.sqrt(x0 @ Σ_inv @ x0.T)
 
-        # penalise large distances to stay within interesting state region
-        # square again so larger adjustments are made if very far outside
-        state_penalty = 100 * np.max(0, mahalanobis_dist - 2)**2
+        max_dist = algo_params['x_max_mahalanobis_dist']
+        state_penalty = 10 * np.maximum(0, mahalanobis_dist - max_dist)
 
         # we are maximising to get the most desirable terminal condition
         # large predictive variance = good
         # large state penalty = bad
-        desirability = predictive_variance - state_penalty
+        desirability = predictive_variance.reshape() - state_penalty.reshape()
 
         return desirability
 
@@ -175,6 +181,11 @@ def run_algo(problem_params, algo_params, key=None):
     V_var_vmap = jax.vmap(V_var_normalised, in_axes=(0, None, None))
     V_var_grad_vmap = jax.vmap(V_var_grad, in_axes=(0, None, None))
 
+    # same but for the new desirability function.
+    desirability_grad = jax.grad(desirability_fct, argnums=0)
+    desirability_vmap = jax.vmap(desirability_fct, in_axes=(0, None, None))
+    desirability_grad_vmap = jax.vmap(desirability_grad, in_axes=(0, None, None))
+
 
     N = algo_params['active_learning_iters']
 
@@ -202,9 +213,16 @@ def run_algo(problem_params, algo_params, key=None):
 
                 return (tcs_norm + lr * V_var_grads, V_vars)
 
+            def gradient_step_desirability(tcs_norm, lr):
+
+                V_var_grads = desirability_grad_vmap(tcs_norm, gp, ys_gp)
+                V_vars = desirability_vmap(tcs_norm, gp, ys_gp)  # to debug
+
+                return (tcs_norm + lr * V_var_grads, V_vars)
+
             lrs = np.logspace(-1, -2, 50)  # decreasing step size?
             print('finding uncertain points...')
-            tcs_norm, V_vars = jax.lax.scan(gradient_step, tcs_norm, lrs)
+            tcs_norm, V_vars = jax.lax.scan(gradient_step_desirability, tcs_norm, lrs)
 
             new_tcs = jax.vmap(unnormalise_term_cond)(tcs_norm)
             # did this already in V_var_grad_vmap but messy to keep solution
@@ -214,6 +232,7 @@ def run_algo(problem_params, algo_params, key=None):
         else:
             # this we can probably throw away wlog. Just set iterations=0
             # for the gradient type algorithms and we have this already.
+
             # maybe easier to just generate very many many trajectories and
             # chooose the ones with highest uncertainty?
             # just an idea, not tested, this is pseudocode!
@@ -246,9 +265,56 @@ def run_algo(problem_params, algo_params, key=None):
         print('conditioning GP...')
         gp = gradient_gp.build_gp(gp_params, xs_gp, grad_flags_gp)
 
+    def plot_gp_uncertainty_2d(gp, ys_gp, extent, N=50):
+
+        x_grid = y_grid = np.linspace(-extent, extent, N)
+        x_, y_ = np.meshgrid(x_grid, y_grid)
+        x_pred = np.vstack((x_.flatten(), y_.flatten())).T
+
+        grid_shape = x_.shape
+
+        X_pred = (x_pred, np.ones(x_pred.shape[0], dtype=np.int8))
+
+        pred_gp = gp.condition(ys_gp, X_pred).gp
+        y_pred = pred_gp.loc.reshape(grid_shape)
+        y_std = np.sqrt(pred_gp.variance.reshape(grid_shape))
+
+        pl.pcolor(x_, y_, y_std)
+
+    def plot_desirability_2d(gp, ys_gp, extent, N=50):
+
+        x_grid = y_grid = np.linspace(-extent, extent, N)
+        x_, y_ = np.meshgrid(x_grid, y_grid)
+        x_pred = np.vstack((x_.flatten(), y_.flatten())).T
+
+        grid_shape = x_.shape
+
+        X_pred = (x_pred, np.ones(x_pred.shape[0], dtype=np.int8))
+
+        desirabilities = jax.vmap(desirability_fct_x0, in_axes=(0, None, None))(x_pred[:, None, :], gp, ys_gp)
+
+        pl.pcolor(x_, y_, desirabilities.reshape(grid_shape))
+
+
+    pl.figure('GP uncertainty and initial state desirability')
+    pl.subplot(211)
+    plot_gp_uncertainty_2d(gp, ys_gp, 4)
+
+    # also plot an ellipse showing the interesting state distribution.
+    thetas = np.linspace(0, 2*np.pi, 201)
+    xs = np.cos(thetas)
+    ys = np.sin(thetas)
+    unitcircle = np.row_stack([xs, ys])
+    Σ_half = jax.scipy.linalg.sqrtm(algo_params['x_sample_cov']).real
+    max_dist = algo_params['x_max_mahalanobis_dist']
+    scaled_circle = Σ_half @ unitcircle * max_dist
+    pl.plot(scaled_circle[0, :], scaled_circle[1, :])
+
+    pl.subplot(212)
+    plot_desirability_2d(gp, ys_gp, 4)
+    pl.plot(scaled_circle[0, :], scaled_circle[1, :])
     pl.show()
     ipdb.set_trace()
-
 
 
 
@@ -374,6 +440,7 @@ if __name__ == '__main__':
             'sampler_returns': 'both',
 
             'x_sample_cov': x_sample_cov,
+            'x_max_mahalanobis_dist': 2,
 
             'gp_iters': 100,
             'gp_train_plot': False,

@@ -112,6 +112,36 @@ def run_algo(problem_params, algo_params, key=None):
         return V_var(term_cond, gp, ys_gp)
 
 
+    # now including the state constraints as a penalty term.
+    # otherwise the same as V_var_normalised.
+    def desirability_fct(term_cond_normalised, gp, ys_gp):
+        term_cond = unnormalise_term_cond(term_cond_normalised)
+
+        sol_obj, init_ys = integrate(terminal_cond.reshape(1, nx))
+        init_states = init_ys[:, 0:nx]
+        gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
+        pred_gp = gp.condition(ys_gp, (init_states, gradflags)).gp
+        predictive_variance = pred_gp.variance.reshape()
+
+        # come to think of it: is sqrt(x.T Σ x) = x.T @ Σ^(1/2) @ x ??
+        # feels like it shouldn't be that way
+        # certainly || Σ^(-1/2) x ||_2^2 == x.T @ Σ^-1 @ x
+        Σ_inv = algo_params['x_sample_cov']
+        mahalanobis_dist = np.sqrt(init_states.T @ Σ_inv @ init_states)
+
+        # penalise large distances to stay within interesting state region
+        # square again so larger adjustments are made if very far outside
+        state_penalty = 100 * np.max(0, mahalanobis_dist - 2)**2
+
+        # we are maximising to get the most desirable terminal condition
+        # large predictive variance = good
+        # large state penalty = bad
+        desirability = predictive_variance - state_penalty
+
+        return desirability
+
+
+
     # new version: gradient based search for high uncertainty in terms
     # of terminal conditions. hopefully nicer to implement, and more
     # obvious scaling to larger state spaces & NNs.
@@ -119,6 +149,21 @@ def run_algo(problem_params, algo_params, key=None):
     # a) find terminal conditions that generate new data at x(0) which
     #    currently have an uncertain V estimate
     # b) use that data to update the GP
+
+    # We separate the sampling method into two components.
+
+    # 1. define a scalar function over x(0) that specifies how interested
+    # we are in obtaining information about V, λ, u* at this loation. Say
+    # desirability(x0).
+    #
+    # 2. find terminal conditions that lead to high desirability at x0.
+    # straightforwardly we can compose the desirability function with the
+    # PMP solver to obtain the desirability as a function of terminal
+    # condition. then we are free to choose any algorithm to maximise
+    # desirability w.r.t. terminal condition, e.g. gradient descent with
+    # many random initialisations, fancier batched local/approximate global
+    # optimisers, sampling from distributions ~ exp(desirability) with
+    # SGLD, HMC, or anything of that sort.
 
     # this here just as a small test.
     key, subkey = jax.random.split(key)
@@ -137,18 +182,10 @@ def run_algo(problem_params, algo_params, key=None):
 
         gradient = True
         if gradient:
-            # a) sample terminal conditions, push them in direction of
-            #    increasing uncertainty. but keep the points within the state
-            #    space region of interest.
 
-            # something to consider: uncertainty will always be higher for
-            # larger states outside the region we're interested in. for now,
-            # just ignore this and hope most of the points will stay within the
-            # interesting region and come close to some local optimum. sadly we
-            # can't exactly do simple projected gradient ascent because our
-            # input is the terminal condition not the initial state... maybe
-            # just resample the variables that stray too far outside? or reject
-            # all the updates that go outside the interesting state space?
+            # a) sample terminal conditions, push them in direction of
+            # increasing desirability. but keep the points within the state
+            # space region of interest.
 
             # also, maybe build in a check of some sort that exist when the
             # uncertainty appears to be below some threshold?
@@ -175,6 +212,8 @@ def run_algo(problem_params, algo_params, key=None):
             new_sol_obj, new_ys = integrate(new_tcs)
 
         else:
+            # this we can probably throw away wlog. Just set iterations=0
+            # for the gradient type algorithms and we have this already.
             # maybe easier to just generate very many many trajectories and
             # chooose the ones with highest uncertainty?
             # just an idea, not tested, this is pseudocode!
@@ -194,12 +233,10 @@ def run_algo(problem_params, algo_params, key=None):
         cmap = matplotlib.cm.get_cmap('viridis')
         pl.scatter(new_ys[:, 0], new_ys[:, 1], color=cmap(i/N))
 
-        # add the newly found data to the training set.
+        # b) add the newly found data to the training set.
         print('stacking data...')
         all_ys = np.concatenate([all_ys, new_ys], axis=0)
         xs_gp, ys_gp, grad_flags_gp = gradient_gp.reshape_for_gp(ys)
-
-        # TODO after lunch: condition the GP on the new data.
 
         # something like this apparently does not work because the gp can
         # not change its x points

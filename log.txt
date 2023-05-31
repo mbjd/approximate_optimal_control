@@ -1069,3 +1069,43 @@ which is exactly what will happen once we try to include state constraints,
 which will introduce additional costate-like lagrange multipliers which
 probably will need to be found at T to produce optimal controls at some
 state at t=0. but surely not in this semester project :o
+
+
+(update in the afternoon)
+
+changed the algorithm to include state constraints during sampling (not in
+the OCP just yet...). Basically, we define a 'desirability function', equal
+to uncertainty - constraint penalty, so the desirability becomes very
+negative shortly after leaving the interesting region. the desirability
+depends on x0, but desirability(integrate_PMP(terminal_condition)) can be
+composed trivially to get it as a function of x(T)/λ(T). If we successfully
+find all local minima of the desirability in terms of terminal condition,
+we have great data to further inform our function approximation. this can
+be done in principle using GD+random initialization or some fancier MCMC
+sampling technique.
+
+does this also address the (potential) sensitivity issue when using state
+constraints in the form of penalty functions? then there will be small
+regions in terminal condition space which correspond to large regions in
+x(0), at which we will need many samples to 'cover' said large x(0)
+regions... in principle this might work by just locally optimising
+desirability(λ(T)) many times, or by sampling from p(λ) ~
+exp(desirability(λ)).
+
+but to actually achieve a distribution over x(0) in the latter case
+we will need to be more proper - by incorporating the change of variables
+formula for density, with 1/det(jacobian(f)) where f maps from term. cond. to
+x(0). even then we are not guaranteed to get a probability distribution
+back, because f is not guaranteed to be a bijection, so the jacobian rule
+does not even really apply... but maybe we still get something we can treat
+as a (negative) logpdf for fancy sampling algorithms.
+
+todo next:
+- smooth out implementation kinks, see if it really works
+- build a half decent example, with performance metrics/closed loop control
+  plots/bells and whistles.
+- simultaneously:
+  - start writing, formalising the concepts
+  - try to apply it to a slightly more interesting example
+  - decide whether or not to also do the more practical, NN-ensemble type
+    approach.

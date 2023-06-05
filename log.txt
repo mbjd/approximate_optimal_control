@@ -1109,3 +1109,47 @@ todo next:
   - try to apply it to a slightly more interesting example
   - decide whether or not to also do the more practical, NN-ensemble type
     approach.
+
+
+
+2023-05-05
+
+been thinking about the main algo a couple of times. basically, I think
+both of these approaches should be similarly good:
+- search for terminal conditions that are 'good' directly
+- search for initial states that are interesting, then find corresponding
+  terminal conditions.
+If we already have a large 'library' of solutions, 2. should also be easy
+by applying gradient based search to some number of closest neighbours to
+get a new solution. maybe this is even the more practical approach? but
+probably for simple problems it won't really matter, and I think 1. is
+simpler in terms of implementation and theory, so lets stick with that.
+
+Is my intuition wrong about pre-normalising data to 'help' gradient
+descent? suppose for an abstract problem, we are trying to find
+argmin_x f(x), where f contains both the PMP solver and the desirability
+function. We have two options:
+
+a) directly use gradient descent in terms of x to minimise f(x)
+b) gradient descent in terms of z, x=Az, to minimise f(Az)
+
+What do the two gradients look like? For a, obviously we have some gradient
+grad_f(x) which AD will calculate. The gradient update then is:
+
+x+ = x - η grad_f(x)
+
+For b, we have: d/dz f(Az) = df/dx dx/dz = grad_f(Az) * A, and the
+gradient update in terms of z is:
+z+ = z - η grad_f(Az) * A
+
+converting the z to an x by left-multiplying with A:
+
+z+ = z - η grad_f(Az) * A
+x+ = x - A η grad_f(x) * A
+
+does this even make sense? why are there two A's? this smells wrong. should
+one be an A.T?
+
+so basically, the gradient dynamics do NOT stay the same and we may or may
+not get improvements by the pre-scaling.
+

@@ -38,6 +38,109 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
+def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNGKey(666)):
+    '''
+    simple unadjusted langevin algorithm.
+    https://www.jeremiecoullon.com/2020/11/10/mcmcjax3ways/
+
+    this is really not something that actually samples from the given pdf. this is
+    more just a heuristic noisy gradient, multiple initialisation based approximate
+    global optimiser. but ofc also its global optimisation capabilities are quite
+    questionable.
+
+    however for our purposes it might work \o/
+
+    logpdf: jax function that takes a variable x in R^n and calculates
+    its unnormalised log probability density
+    init_population: (N_chains, n) array with initial samples.
+    algo_params: dict containing whatever entries are needed here.
+    '''
+
+
+    dt = algo_params['mcmc_dt']
+    N_chains, n = init_population.shape
+
+    grad_logpdf = jax.grad(logpdf)
+
+    def update(x, key, noise_scale):
+        noise = jax.random.normal(key, shape=(n,)) * noise_scale
+        return x + dt * grad_logpdf(x) + np.sqrt(2 * dt) * noise
+
+    # same noise scale for all chains.
+    update_vmap = jax.vmap(update, in_axes=(0, 0, None))
+
+    def scan_fct(xs, inp):
+        key, noise_scale = inp
+        keys_vmap = jax.random.split(key, N_chains)
+
+        next_xs = update_vmap(xs, keys_vmap, noise_scale)
+        logpdf_value = jax.vmap(logpdf)(next_xs)
+        return next_xs, (next_xs, logpdf_value)
+
+    # here we have the glorious mcmc tuning variables...
+    # first, we 'burn in' for some number of steps.
+    # then, we want <samples> samples per chain, and we iterate
+    # the markov chain for <steps_per_sample> in between to make
+    # it approximately independent.
+    burn_in = algo_params['mcmc_burn_in']
+    samples = algo_params['mcmc_samples']
+    steps_per_sample = algo_params['mcmc_steps_per_sample']
+
+    N_steps = burn_in + samples * steps_per_sample
+
+    # maybe worth tweaking this?
+    # okay, I did. constant noise for burn in, then exponential decrease before every sample.
+    burn_in_noise_schedule = algo_params['mcmc_burn_in_noise'] * np.ones(burn_in)
+    init_noise = algo_params['mcmc_init_noise']
+    final_noise = algo_params['mcmc_final_noise']
+    sample_noise_schedule = np.logspace(np.log10(init_noise), np.log10(final_noise), steps_per_sample)
+    noise_scales = np.concatenate([burn_in_noise_schedule] + samples * [sample_noise_schedule])
+    # pl.plot(noise_scales); pl.show()
+
+    keys = jax.random.split(key, N_steps)
+    inputs = (keys, noise_scales)
+
+    # do the actual computation.
+    # _ == all_samples[-1] so we don't really need it again
+    _, (all_samples, logpdf_values) = jax.lax.scan(scan_fct, init_population, inputs)
+
+    output_idx = burn_in + np.arange(1, samples+1) * steps_per_sample - 1
+
+
+    if algo_params['mcmc_plot']:
+        print('making mcmc plot...')
+
+        pl.subplot(121)
+        # find out the logpdf for a reasonable range of norm_tcs & plot it
+        extent = 20
+        xs = ys = np.linspace(-extent, extent, 201)
+
+        xx, yy = np.meshgrid(xs, ys)
+
+        all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+        all_logpdfs = jax.vmap(logpdf)(all_inputs)
+
+        pl.pcolor(xx, yy, all_logpdfs.reshape(xx.shape), cmap='jet')
+
+        # above that, plot the evolution of the MCMC chains
+        pl.plot(all_samples[:, :, 0], all_samples[:, :, 1], color='grey', alpha=.25)
+        pl.scatter(all_samples[output_idx, :, 0].squeeze(), all_samples[output_idx, :, 1].squeeze(), color='red')
+        pl.scatter(all_samples[0, :, 0], all_samples[0, :, 1], color='green')
+
+        pl.subplot(122)
+        pl.plot(np.linalg.norm(all_samples, axis=2), color='blue', alpha=.1)
+        pl.plot(logpdf_values, color='green', alpha=.1)
+
+        pl.show()
+
+    ipdb.set_trace()
+
+
+
+
+
+
+
 def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)):
 
     '''
@@ -72,10 +175,10 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
     it will return different things based on algo_params configuration.
 
-    if algo_params['sampler_returns'] == 'distribution_params', it will return
+    if algo_params['pontryagin_sampler_returns'] == 'distribution_params', it will return
     a tuple containing mean and cov of the final sampling distribution.
 
-    if algo_params['sampler_returns'] == 'sampling_fct', it will return a tuple of
+    if algo_params['pontryagin_sampler_returns'] == 'sampling_fct', it will return a tuple of
     functions: (sample, integrate).
 
         sample takes a PRNGKey and an integer n specifying the number of
@@ -110,11 +213,11 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
 
         # negative if t1 < t0, backward integration just works
-        assert algo_params['sampler_dt'] > 0
-        dt = algo_params['sampler_dt'] * np.sign(t1 - t0)
+        assert algo_params['pontryagin_sampler_dt'] > 0
+        dt = algo_params['pontryagin_sampler_dt'] * np.sign(t1 - t0)
 
         # what if we accept that we could create NaNs?
-        max_steps = int(1 + problem_params['T'] / algo_params['sampler_dt'])
+        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_sampler_dt'])
 
         # maybe easier to control the timing intervals like this?
         saveat = diffrax.SaveAt(steps=True)
@@ -179,7 +282,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     # has proven to work well for the toy example. but if units are weird or something
     # we may have to find something smarter.
     key, subkey = jax.random.split(key)
-    x_T = sample_terminal_conditions(subkey, np.zeros(nx,), algo_params['x_sample_cov'], algo_params['sampler_n_trajectories'])
+    x_T = sample_terminal_conditions(subkey, np.zeros(nx,), algo_params['x_sample_cov'], algo_params['pontryagin_sampler_n_trajectories'])
 
 
     y_T = x_to_y_vmap(x_T)
@@ -215,12 +318,12 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
         # sampling step first.
         # if deterministic, we choose the same sample each time.
-        if algo_params['sampler_deterministic']:
+        if algo_params['pontryagin_sampler_deterministic']:
             subkey = key
         else:
             key, subkey = jax.random.split(key)
 
-        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['sampler_n_trajectories'])
+        x_T = sample_terminal_conditions(key, sampling_mean, sampling_cov, algo_params['pontryagin_sampler_n_trajectories'])
         y_T = x_to_y_vmap(x_T)
 
         t1 = inp
@@ -235,7 +338,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         # it does not matter too much.
         desired_likelihoods = desired_pdf(last_sol_vec[:, 0:nx])
         sampling_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, sampling_mean[None, :], sampling_cov)
-        sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['sampler_n_trajectories'], nx))
+        sampling_likelihoods = sampling_pdf(x_T.reshape(algo_params['pontryagin_sampler_n_trajectories'], nx))
 
         # importance sampling weight - some different choices.
         resampling_weights_importance = desired_likelihoods / (1e-9 + sampling_likelihoods)
@@ -252,16 +355,16 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         is_final = np.allclose(t1, 0)
         resampling_weights_switched = is_final * resampling_weights_importance + (1-is_final) * resampling_weights_between
 
-        if algo_params['sampler_strategy'] == 'importance':
+        if algo_params['pontryagin_sampler_strategy'] == 'importance':
             resampling_weights = resampling_weights_importance
-        elif algo_params['sampler_strategy'] == 'rejection':
+        elif algo_params['pontryagin_sampler_strategy'] == 'rejection':
             resampling_weights = resampling_weights_rejection
-        elif algo_params['sampler_strategy'] == 'between':
+        elif algo_params['pontryagin_sampler_strategy'] == 'between':
             resampling_weights = resampling_weights_between
-        elif algo_params['sampler_strategy'] == 'switched':
+        elif algo_params['pontryagin_sampler_strategy'] == 'switched':
             resampling_weights = resampling_weights_switched
         else:
-            st = algo_params['sampler_strategy']
+            st = algo_params['pontryagin_sampler_strategy']
             raise ValueError(f'Invalid sampling strategy "{st}"')
 
         resampling_weights = resampling_weights / np.sum(resampling_weights)
@@ -287,7 +390,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
         # just for output bookkeeping.
         last_sol_zm = last_sol_vec[:, 0:nx]
         last_sol_zm = last_sol_zm - last_sol_zm.mean(axis=0)[None, :]  # (N_traj, nx) - (1, nx) promotes correctly
-        last_sol_cov = last_sol_zm.T @ last_sol_zm / (algo_params['sampler_n_trajectories'] - 1)
+        last_sol_cov = last_sol_zm.T @ last_sol_zm / (algo_params['pontryagin_sampler_n_trajectories'] - 1)
 
 
         # output = (sol_object, sampling_cov, resampling_weights)
@@ -308,8 +411,8 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     # the sequence of times to integrate. always from T to t1s[i].
     # at the end we iterate a couple of times at t1=0, just to be sure.
     t1s = np.concatenate([
-        np.linspace(0, T, algo_params['sampler_n_iters'], endpoint=False)[::-1],
-        np.zeros(algo_params['sampler_n_extrarounds']),
+        np.linspace(0, T, algo_params['pontryagin_sampler_n_iters'], endpoint=False)[::-1],
+        np.zeros(algo_params['pontryagin_sampler_n_extrarounds']),
     ])
 
     N = t1s.shape[0]
@@ -335,7 +438,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     resampling_ws = outputs['resampling_ws']
 
 
-    if algo_params['sampler_plot']:
+    if algo_params['pontryagin_sampler_plot']:
         fig = pl.figure(figsize=(8, 3))
 
         dims = 2
@@ -368,7 +471,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
                 c = 'red'
                 a = onp.ones_like(a) * .25
 
-            # colors_with_alpha = onp.zeros((algo_params['sampler_n_trajectories'], 4))
+            # colors_with_alpha = onp.zeros((algo_params['pontryagin_sampler_n_trajectories'], 4))
             # colors_with_alpha[:, 3] = a
             # colors_with_alpha[:, 0:3] = onp.array(c)[None, 0:3]
 
@@ -409,12 +512,12 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
 
     integrate_fct = lambda xT: batch_pontryagin_backward_solver(x_to_y_vmap(xT), T, 0)
 
-    if algo_params['sampler_returns'] == 'distribution_params':
+    if algo_params['pontryagin_sampler_returns'] == 'distribution_params':
         # now, return the parameters of the terminal condition distribution
         return (last_sampling_mean, last_sampling_cov)
-    elif algo_params['sampler_returns'] == 'sampling_fct':
+    elif algo_params['pontryagin_sampler_returns'] == 'sampling_fct':
         return (sampling_fct, integrate_fct)
-    elif algo_params['sampler_returns'] == 'both':
+    elif algo_params['pontryagin_sampler_returns'] == 'both':
         # put it all in a dictionary
         return {
                 'mean': last_sampling_mean,
@@ -423,7 +526,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
                 'integrate_fct': integrate_fct,
         }
     else:
-        ret = algo_params['sampler_returns']
+        ret = algo_params['pontryagin_sampler_returns']
         raise ValueError(f'invalid sampler return value specification "{ret}"')
 
 

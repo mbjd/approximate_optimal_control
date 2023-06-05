@@ -17,13 +17,12 @@ flax==0.6.9
 fonttools==4.39.3
 frozendict==2.3.8
 gast==0.5.4
-gpjax==0.6.1
 importlib-resources==5.12.0
 ipdb==0.13.13
 ipython==8.12.0
-jax==0.4.8
+jax==0.4.11
 jax-tqdm==0.1.1
-jaxlib==0.4.7
+jaxlib==0.4.11
 jaxtyping==0.2.15
 jedi==0.18.2
 kiwisolver==1.4.4

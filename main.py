@@ -28,7 +28,7 @@ def run_algo(problem_params, algo_params, key=None):
     sampling_cov =  sampler_output['cov']
 
     key, subkey = jax.random.split(key)
-    sol_obj, ys = integrate(sample(subkey, algo_params['sampler_n_trajectories']))
+    sol_obj, ys = integrate(sample(subkey, algo_params['pontryagin_sampler_n_trajectories']))
 
     nx = problem_params['nx']
 
@@ -40,16 +40,23 @@ def run_algo(problem_params, algo_params, key=None):
 
     xs_gp, ys_gp, grad_flags_gp = gradient_gp.reshape_for_gp(ys)
 
-    print('optimising GP...')
-    gp, gp_params = gradient_gp.get_optimised_gp(
-            gradient_gp.build_gp,
-            gp_params,
-            xs_gp,
-            ys_gp,
-            grad_flags_gp,
-            steps=algo_params['gp_iters'],
-            plot=algo_params['gp_train_plot'],
-    )
+    params_known = True
+    if not params_known:
+        print('optimising GP...')
+        gp, gp_params = gradient_gp.get_optimised_gp(
+                gradient_gp.build_gp,
+                gp_params,
+                xs_gp,
+                ys_gp,
+                grad_flags_gp,
+                steps=algo_params['gp_iters'],
+                plot=algo_params['gp_train_plot'],
+        )
+        print(gp_params)
+    else:
+        gp_params = {'log_amp': 2.645, 'log_scale': np.array([0.727, 0.911])}
+        gp = gradient_gp.build_gp(gp_params, xs_gp, grad_flags_gp)
+
 
     all_ys = ys
 
@@ -137,7 +144,7 @@ def run_algo(problem_params, algo_params, key=None):
         mahalanobis_dist = np.sqrt(x0 @ Σ_inv @ x0.T)
 
         max_dist = algo_params['x_max_mahalanobis_dist']
-        state_penalty = 10 * np.maximum(0, mahalanobis_dist - max_dist)
+        state_penalty = 1000 * np.maximum(0, mahalanobis_dist - max_dist)
 
         # we are maximising to get the most desirable terminal condition
         # large predictive variance = good
@@ -173,7 +180,7 @@ def run_algo(problem_params, algo_params, key=None):
 
     # this here just as a small test.
     key, subkey = jax.random.split(key)
-    tcs = sample(key, algo_params['sampler_n_trajectories'])
+    tcs = sample(key, algo_params['pontryagin_sampler_n_trajectories'])
 
     # all based on normalised terminal conditions!!
     # so be sure to scale by cov^(1/2) with functions above
@@ -191,20 +198,29 @@ def run_algo(problem_params, algo_params, key=None):
 
     for i in range(N):
 
-        gradient = True
-        if gradient:
+        sampler = True
 
-            # a) sample terminal conditions, push them in direction of
-            # increasing desirability. but keep the points within the state
-            # space region of interest.
 
-            # also, maybe build in a check of some sort that exist when the
-            # uncertainty appears to be below some threshold?
+        if sampler:
+            # use sampling algorithm to find good terminal conditions
 
-            # also, maybe better to use adam instead of plain gradient descent?
+            logpdf = lambda tc_norm: desirability_fct(tc_norm, gp, ys_gp)
+
+            # normalised terminal conditions ~ N(0, I) :)
+            init_norm_tcs = jax.random.normal(subkey, shape=(algo_params['pontryagin_sampler_n_trajectories'], nx))
+
+            key, sampling_key = jax.random.split(key)
+            new_norm_tcs = sampling.sample_from_logpdf(logpdf, init_norm_tcs, algo_params, key=sampling_key)
+
+            ipdb.set_trace()
+            new_sol_obj, new_ys = integrate(new_tcs)
+
+
+        else:
+            # use simpler gradient descent.
 
             key, subkey = jax.random.split(key)
-            tcs_norm = jax.random.normal(subkey, shape=(algo_params['sampler_n_trajectories'], nx))
+            tcs_norm = jax.random.normal(subkey, shape=(algo_params['pontryagin_sampler_n_trajectories'], nx))
 
             def gradient_step(tcs_norm, lr):
 
@@ -229,22 +245,6 @@ def run_algo(problem_params, algo_params, key=None):
             print('integrating PMP again...')
             new_sol_obj, new_ys = integrate(new_tcs)
 
-        else:
-            # this we can probably throw away wlog. Just set iterations=0
-            # for the gradient type algorithms and we have this already.
-
-            # maybe easier to just generate very many many trajectories and
-            # chooose the ones with highest uncertainty?
-            # just an idea, not tested, this is pseudocode!
-            # but maybe if we fully embrace the sampling-type algorithms
-            # everything will be less shitty
-
-            tcs = sample_lots_of_terminal_conditions(n=4096)
-            sol_object, ys = integrate(tcs)
-            V_vars = V_var_vmap(tcs, gp, ys_gp)
-            highest_vars, idx = jax.lax.top_k(V_vars, k=n_trajectories)
-            new_ys = ys[idx]
-            # then continue the same way.
 
 
 
@@ -365,7 +365,7 @@ def run_algo(problem_params, algo_params, key=None):
 
             # find xs with largest value uncertainty. for simplicity again the same
             # number of trajectories as sampling -> less re-jitting.
-            k = algo_params['sampler_n_trajectories']
+            k = algo_params['pontryagin_sampler_n_trajectories']
             largest_vars, idx = jax.lax.top_k(pred_gp.variance, k)
 
             # these are the states we'd like to know more about.
@@ -430,14 +430,23 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'sampler_n_trajectories': 32,
-            'sampler_dt': 1/16,
-            'sampler_n_iters': 8,
-            'sampler_n_extrarounds': 2,
-            'sampler_strategy': 'importance',
-            'sampler_deterministic': False,
-            'sampler_plot': False,  # plotting takes like 1000x longer than the computation
-            'sampler_returns': 'both',
+            'pontryagin_sampler_n_trajectories': 32,
+            'pontryagin_sampler_dt': 1/16,
+            'pontryagin_sampler_n_iters': 8,
+            'pontryagin_sampler_n_extrarounds': 2,
+            'pontryagin_sampler_strategy': 'importance',
+            'pontryagin_sampler_deterministic': False,
+            'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
+            'pontryagin_sampler_returns': 'both',
+
+            'mcmc_dt': 0.0002,  # this dt is basically a gradient descent stepsize
+            'mcmc_burn_in': 32,
+            'mcmc_burn_in_noise': 1,
+            'mcmc_init_noise': 10,
+            'mcmc_final_noise': 0.01,
+            'mcmc_samples': 16,
+            'mcmc_steps_per_sample': 16,
+            'mcmc_plot': True,
 
             'x_sample_cov': x_sample_cov,
             'x_max_mahalanobis_dist': 2,

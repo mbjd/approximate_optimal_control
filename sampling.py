@@ -126,14 +126,17 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             # here: compute the metropolis-hastings correction.
             # this ensures detailed balance, so should already be enough to
             # make it ACTUALLY sample from the given log pdf...?
-            p_next = desirability_fct_x0(proposed_x0)
-            p_current = desirability_fct_x0(x0_current)
+            log_p_next = desirability_fct_x0(proposed_x0)
+            log_p_current = desirability_fct_x0(x0_current)
 
             def transition_density(xnow, xnext, grad_logpdf_x):
                 x = xnext
                 mean = xnow + dt * grad_logpdf_x
                 cov = np.diag(np.square(noise_sqrt_cov))
-                return jax.scipy.stats.multivariate_normal.pdf(x, mean, cov)
+                # especially if we take large jumps due to the gradient, the backward density
+                # can become very small, so we have to be careful not to get any NaNs.
+                # this small constant alleviates it. if both densities are large, it vanishes
+                return 0.00000001 + jax.scipy.stats.multivariate_normal.pdf(x, mean, cov)
 
 
             # the two transition densities needed for M-H correction.
@@ -141,8 +144,10 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             density_backward = transition_density(proposed_x0, x0_current, grad_logpdf_next)
 
             # alpha = min(1, H), with probability alpha: accept the jump
-            H = (p_next * density_forward) / (p_current * density_backward)
-            alpha = np.minimum(1, H)
+            # H = (p_next * density_forward) / (p_current * density_backward)
+            # we want in the front p_next/p_current = exp(log_p_next)/exp(log_p_current) = exp(log_p_next - log_p_current)
+            H = np.exp(log_p_next - log_p_current) * (density_forward / density_backward)
+            alpha = np.maximum(0.1, np.minimum(1, H))  # cheat by having a lower bound as well
             alpha_ref = jax.random.uniform(alpha_key)
 
             # say alpha = .9, then we accept with a probability of .9
@@ -152,6 +157,9 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             next_tc = np.where(do_accept, next_tc, tc)
 
             next_state = (next_tc, key)
+
+            # looooots of outputs for debugging
+            # had to fix grad_x sqrt(x) at x=0 in the desirability function
             output = {
                     'jac_value': jac_value,
                     'grad_logpdf_now': grad_logpdf_now,
@@ -159,8 +167,6 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
                     'proposed_x0': proposed_x0,
                     'tc': tc,
                     'next_tc': next_tc,
-                    'p_next': p_next,
-                    'p_current': p_current,
                     'H': H,
                     'do_accept': do_accept,
             }
@@ -172,9 +178,10 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
         ns, oup = scan_fct(init_state)
 
         final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=100)
+
         ipdb.set_trace()
 
-    run_single_chain(key, np.array([0., 0]), np.array([.1, .1]))
+    run_single_chain(key, np.array([0., 0]), np.array([1, 1]))
 
 
 

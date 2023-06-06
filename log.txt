@@ -1243,3 +1243,12 @@ am still on it, feels like it is almost working, but some weird bug is
 here. jax.grad(desirability_fct_x0)(np.array([0., 0.])) gives nan, but for
 values other than 0 it works. whyyyyyyyyyyy? same if using jacobian. feels
 like there is some pole-zero cancellation somewhere inside the funciton.
+
+fixed that. was a NaN due to differentiating a sqrt at 0, in
+desirability_fct_x0.
+
+spent some time running and tweaking the sampler. I cannot say that it
+really works. sometimes there are still unexplainable NaNs, sometimes we
+have an acceptance probability of 0 and get stuck, dunno too much. but I
+feel this should work quite decently, there is reason to develop this
+further regardless.

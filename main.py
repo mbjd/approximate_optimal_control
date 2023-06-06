@@ -144,7 +144,8 @@ def run_algo(problem_params, algo_params, key=None):
         mahalanobis_dist = np.sqrt(x0 @ Σ_inv @ x0.T)
 
         max_dist = algo_params['x_max_mahalanobis_dist']
-        state_penalty = 1000 * np.maximum(0, mahalanobis_dist - max_dist)
+        state_penalty = 100 * np.maximum(0, mahalanobis_dist - max_dist)
+        # state_penalty = 10 * np.log(1 + np.exp(mahalanobis_dist - max_dist))
 
         # we are maximising to get the most desirable terminal condition
         # large predictive variance = good
@@ -440,13 +441,13 @@ if __name__ == '__main__':
             'pontryagin_sampler_returns': 'both',
 
             'mcmc_dt': 0.0002,  # this dt is basically a gradient descent stepsize
-            'mcmc_burn_in': 32,
+            'mcmc_burn_in': 512,
             'mcmc_burn_in_noise': 1,
             'mcmc_init_noise': 10,
             'mcmc_final_noise': 0.01,
             'mcmc_samples': 16,
-            'mcmc_steps_per_sample': 16,
-            'mcmc_plot': True,
+            'mcmc_steps_per_sample': 32,
+            'mcmc_plot': False,
 
             'x_sample_cov': x_sample_cov,
             'x_max_mahalanobis_dist': 2,

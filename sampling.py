@@ -48,7 +48,7 @@ def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNG
     global optimiser. but ofc also its global optimisation capabilities are quite
     questionable.
 
-    however for our purposes it might work \o/
+    however for our purposes it might work \o/ completely depending on tuning.
 
     logpdf: jax function that takes a variable x in R^n and calculates
     its unnormalised log probability density
@@ -112,15 +112,16 @@ def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNG
 
         pl.subplot(121)
         # find out the logpdf for a reasonable range of norm_tcs & plot it
-        extent = 20
-        xs = ys = np.linspace(-extent, extent, 201)
+        extent = 5
+        xs = ys = np.linspace(-extent, extent, 501)
 
         xx, yy = np.meshgrid(xs, ys)
 
         all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
         all_logpdfs = jax.vmap(logpdf)(all_inputs)
 
-        pl.pcolor(xx, yy, all_logpdfs.reshape(xx.shape), cmap='jet')
+        # pl.pcolor(xx, yy, all_logpdfs.reshape(xx.shape), cmap='jet')
+        pl.pcolor(xx, yy, np.exp(all_logpdfs/10).reshape(xx.shape), cmap='jet')
 
         # above that, plot the evolution of the MCMC chains
         pl.plot(all_samples[:, :, 0], all_samples[:, :, 1], color='grey', alpha=.25)

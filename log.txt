@@ -1153,3 +1153,39 @@ one be an A.T?
 so basically, the gradient dynamics do NOT stay the same and we may or may
 not get improvements by the pre-scaling.
 
+
+
+anyways, made some practical progress. implemented an unadjusted langevin
+sampler (basically, gradient ascent on the logpdf with some noise,
+practically the noise size ends up being the tuning parameter alongside dt
+which is the step size). Really nothing special, but seems to work alright
+on the simple 2d toy problem.
+
+HOWEVER: made a plot of desirability function in terms of (normalised)
+terminal condition, and it is appears that the geometry is quite warped
+even for this simple system. specifically, large regions in x(0) space are
+mapped to small regions in terminal condition space, basically with the
+large swathes of x(0) which cause higher control cost mapped to small
+pointy tips in terminal condition space. this is generally said to be
+challenging for MCMC sampling algorithms... what do we do :o  maybe the
+'first generate lots of data then find out how to generate more suitable
+data with batched local optimisation' approach is smarter after all? dunno
+
+maybe this could be alleviated by incorporating a 'resampling' step in the
+sampler? this would definitely depart from the MCMC sampling realm into the
+heuristic global optimisation/evolutionary algo realm, but it might work.
+idea: every n steps, resample the particles according to their current log
+pdf or similar.
+
+other idea: actually do the jacobian correction, bc. it seems that the
+factor by which areas are squished (= det of jacobian) is not at all
+constant over the state/terminal condition space. maybe that would
+encourage sampling algorithms to give more weight to the small regions at T
+that affect large regions at 0. well, not maybe, definitely. depends on
+whether it is practical but honestly this should not be too hard.
+
+or, other idea, maybe there is some smart homotopy thing? like the initial
+importance sampling sampler, or the 'time marching' method from
+nakamura-zimmerer et al., that kind of makes the nonlinearity easier.
+
+somehow the code makes a segfault when mcmc_plot = True.

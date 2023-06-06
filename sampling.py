@@ -38,6 +38,117 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
+def adam_uncertainty_sampler(logpdf, init_population, algo_params, key=jax.random.PRNGKey(666)):
+    '''
+    another heuristic global optimiser. maybe this one is better?
+    built a bit differently than the ULA version. here we write a single
+    chain first and then do one vmap to do it N times.
+    '''
+
+    dt = algo_params['sampler_dt']
+    N_chains, n = init_population.shape
+
+    grad_logpdf = jax.grad(logpdf)
+
+    def run_single_chain(key, x0, noise_schedule):
+
+        lr = 0.01
+
+        opti = optax.adam(learning_rate=0.01)
+
+        '''
+        def update(x, opt_state, key, noise_scale):
+            noise = jax.random.normal(key, shape=(n,)) * noise_scale
+            return x + dt * grad_logpdf(x) + np.sqrt(2 * dt) * noise
+        '''
+
+        def scan_fct(state, inp):
+
+            # unpack state
+            x, opt_state, key = state
+            noise_scale = inp
+
+            # optax update - we take the negative gradient for maximisation
+            logpdf_value, logpdf_grad = jax.value_and_grad(logpdf)(x)
+            updates, opt_state = opti.update(-logpdf_grad, opt_state, x)
+            next_x = optax.apply_updates(x, updates)
+
+            # plus noise
+            key, noise_key = jax.random.split(key)
+            next_x_noisy = next_x + noise_scale * np.sqrt(2*lr) * jax.random.normal(noise_key, shape=x.shape)
+
+            # re-pack state
+            next_state = (next_x, opt_state, key)
+            return next_state, (next_x_noisy, logpdf_value)
+
+        opt_state = opti.init(x0)
+        init_state = (x0, opt_state, key)
+
+        _, (xs, logpdfs) = jax.lax.scan(scan_fct, init_state, noise_schedule)
+
+        return xs, logpdfs
+
+    # build noise schedule and output indices.
+    burn_in = algo_params['sampler_burn_in']
+    samples = algo_params['sampler_samples']
+    steps_per_sample = algo_params['sampler_steps_per_sample']
+
+    N_steps = burn_in + samples * steps_per_sample
+
+    burn_in_noise_schedule = algo_params['sampler_burn_in_noise'] * np.ones(burn_in)
+    init_noise = algo_params['sampler_init_noise']
+    final_noise = algo_params['sampler_final_noise']
+    sample_noise_schedule = np.logspace(np.log10(init_noise), np.log10(final_noise), steps_per_sample)
+
+    noise_schedule = np.concatenate([burn_in_noise_schedule] + samples * [sample_noise_schedule])
+    output_idx = burn_in + np.arange(1, samples+1) * steps_per_sample - 1
+
+    # to actually just run a single chain, do this
+    # and get xs (N_steps, nx) and logpdfs (N_steps,)
+    # xs, logpdfs = run_single_chain(key, init_population[0], noise_schedule)
+
+    run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None))
+    keys = jax.random.split(key, init_population.shape[0])
+    all_xs, all_logpdfs = run_multiple_chains(keys, init_population, noise_schedule)
+
+    # we copied the plotting code but the other algo spits out data in
+    # different format, so we transpose accordingly here
+    # _, (all_samples, logpdf_values) = jax.lax.scan(scan_fct, init_population, inputs)
+    # #  (2560, 32, 2) (2560, 32)  <- shapes for one particular run
+    all_samples = all_xs.swapaxes(0, 1)
+    logpdf_values = all_logpdfs.swapaxes(0, 1)  # equivalent to .T
+
+    if algo_params['sampler_plot']:
+        print('making mcmc plot...')
+
+        pl.subplot(121)
+        # find out the logpdf for a reasonable range of norm_tcs & plot it
+        extent = 5
+        xs = ys = np.linspace(-extent, extent, 512)
+
+        xx, yy = np.meshgrid(xs, ys)
+
+        all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+        all_logpdfs = jax.vmap(logpdf)(all_inputs)
+
+        # pl.pcolor(xx, yy, all_logpdfs.reshape(xx.shape), cmap='jet')
+        pl.pcolor(xx, yy, np.exp(all_logpdfs/10).reshape(xx.shape), cmap='jet')
+
+        # above that, plot the evolution of the MCMC chains
+        pl.plot(all_samples[:, :, 0], all_samples[:, :, 1], color='grey', alpha=.25)
+        pl.scatter(all_samples[output_idx, :, 0].squeeze(), all_samples[output_idx, :, 1].squeeze(), color='red')
+        pl.scatter(all_samples[0, :, 0], all_samples[0, :, 1], color='green')
+
+        pl.subplot(122)
+        pl.plot(np.linalg.norm(all_samples, axis=2), color='blue', alpha=.1)
+        pl.plot(logpdf_values, color='green', alpha=.1)
+
+        pl.show()
+
+    ipdb.set_trace()
+
+
+
 def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNGKey(666)):
     '''
     simple unadjusted langevin algorithm.

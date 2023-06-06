@@ -57,7 +57,7 @@ def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNG
     '''
 
 
-    dt = algo_params['mcmc_dt']
+    dt = algo_params['sampler_dt']
     N_chains, n = init_population.shape
 
     grad_logpdf = jax.grad(logpdf)
@@ -82,17 +82,17 @@ def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNG
     # then, we want <samples> samples per chain, and we iterate
     # the markov chain for <steps_per_sample> in between to make
     # it approximately independent.
-    burn_in = algo_params['mcmc_burn_in']
-    samples = algo_params['mcmc_samples']
-    steps_per_sample = algo_params['mcmc_steps_per_sample']
+    burn_in = algo_params['sampler_burn_in']
+    samples = algo_params['sampler_samples']
+    steps_per_sample = algo_params['sampler_steps_per_sample']
 
     N_steps = burn_in + samples * steps_per_sample
 
     # maybe worth tweaking this?
     # okay, I did. constant noise for burn in, then exponential decrease before every sample.
-    burn_in_noise_schedule = algo_params['mcmc_burn_in_noise'] * np.ones(burn_in)
-    init_noise = algo_params['mcmc_init_noise']
-    final_noise = algo_params['mcmc_final_noise']
+    burn_in_noise_schedule = algo_params['sampler_burn_in_noise'] * np.ones(burn_in)
+    init_noise = algo_params['sampler_init_noise']
+    final_noise = algo_params['sampler_final_noise']
     sample_noise_schedule = np.logspace(np.log10(init_noise), np.log10(final_noise), steps_per_sample)
     noise_scales = np.concatenate([burn_in_noise_schedule] + samples * [sample_noise_schedule])
     # pl.plot(noise_scales); pl.show()
@@ -103,11 +103,12 @@ def sample_from_logpdf(logpdf, init_population, algo_params, key=jax.random.PRNG
     # do the actual computation.
     # _ == all_samples[-1] so we don't really need it again
     _, (all_samples, logpdf_values) = jax.lax.scan(scan_fct, init_population, inputs)
+    #  (2560, 32, 2) (2560, 32)  <- shapes for one particular run
 
     output_idx = burn_in + np.arange(1, samples+1) * steps_per_sample - 1
 
 
-    if algo_params['mcmc_plot']:
+    if algo_params['sampler_plot']:
         print('making mcmc plot...')
 
         pl.subplot(121)

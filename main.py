@@ -13,7 +13,7 @@ import tqdm
 from functools import partial
 
 from jax.config import config
-config.update("jax_debug_nans", True)
+# config.update("jax_debug_nans", True)
 
 def run_algo(problem_params, algo_params, key=None):
 
@@ -210,7 +210,7 @@ def run_algo(problem_params, algo_params, key=None):
         mahalanobis_dist = np.sqrt(1e-8 + x0 @ Σ_inv @ x0.T)
 
         max_dist = algo_params['x_max_mahalanobis_dist']
-        state_penalty = 100 * np.maximum(0, mahalanobis_dist - max_dist)
+        state_penalty = 10 * np.maximum(0, mahalanobis_dist - max_dist)
         # state_penalty = 10 * np.log(1 + np.exp(mahalanobis_dist - max_dist))
 
         # we are maximising to get the most desirable terminal condition
@@ -510,13 +510,13 @@ if __name__ == '__main__':
             'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             'pontryagin_sampler_returns': 'both',
 
-            'sampler_dt': 0.02,  # this dt is basically a gradient descent stepsize
-            'sampler_burn_in': 512,
+            'sampler_dt': 0.1,  # this dt is basically a gradient descent stepsize
+            'sampler_burn_in': 128,
             'sampler_burn_in_noise': 1,
             'sampler_init_noise': 1,
             'sampler_final_noise': 0.0001,
             'sampler_samples': 16,
-            'sampler_steps_per_sample': 128,
+            'sampler_steps_per_sample': 16,
             'sampler_plot': True,
 
             'x_sample_cov': x_sample_cov,
@@ -531,4 +531,4 @@ if __name__ == '__main__':
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    run_algo(problem_params, algo_params)
+    run_algo(problem_params, algo_params, key=jax.random.PRNGKey(121))

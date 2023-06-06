@@ -92,6 +92,10 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
           good idea maybe to do like 0.1 * state space extent
         '''
 
+
+        # TODO: does MALA have problems with non-normalised logpdfs?
+        logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
+
         def scan_fct(state, inp=None):
 
             tc, key = state
@@ -102,9 +106,6 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             x0_current = integrate_fct_reshaped(tc)
             jac_value = jax.jacobian(integrate_fct_reshaped)(tc)
 
-            # TODO: does MALA have problems with non-normalised logpdfs?
-            logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
-
             # propose a jump in x0
             # probably we could calculate this gradient more easily by re-using the
             # jacobian from above and the chain rule....
@@ -112,8 +113,9 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             grad_logpdf_now = jax.grad(logpdf)(tc)
             noise_sqrt_cov = np.sqrt(2*dt) * jump_sizes
             noise = noise_sqrt_cov * jax.random.normal(noise_key, shape=(nx,))
-            x0_jump_desired = dt * grad_logpdf_now + noise
-            proposed_x0_desired = x0_current + x0_jump_desired
+            x0_jump_desired = dt * grad_logpdf_now
+            # x0_jump_desired = # project back to 'trust region' ellipse thing?
+            proposed_x0_desired = x0_current + x0_jump_desired + noise
 
             # find tc that approximately results in that jump
             next_tc = tc + np.linalg.inv(jac_value) @ x0_jump_desired
@@ -124,6 +126,8 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             proposed_x0 = integrate_fct_reshaped(next_tc)
 
             # here: compute the metropolis-hastings correction.
+            # it is probably not entirely correct, specifically the
+            # part where we calculate transition densities in the x(0) domain
             # this ensures detailed balance, so should already be enough to
             # make it ACTUALLY sample from the given log pdf...?
             log_p_next = desirability_fct_x0(proposed_x0)
@@ -136,7 +140,7 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
                 # especially if we take large jumps due to the gradient, the backward density
                 # can become very small, so we have to be careful not to get any NaNs.
                 # this small constant alleviates it. if both densities are large, it vanishes
-                return 0.00000001 + jax.scipy.stats.multivariate_normal.pdf(x, mean, cov)
+                return 0.00001 + jax.scipy.stats.multivariate_normal.pdf(x, mean, cov)
 
 
             # the two transition densities needed for M-H correction.
@@ -155,6 +159,19 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             do_accept = alpha_ref < alpha
 
             next_tc = np.where(do_accept, next_tc, tc)
+
+            # scale the terminal condition in the (rare) case it is very large?
+            # reject every step that goes into regions with too low density?
+            # somehow sometimes the terminal condition becomes very large, leading
+            # to problems in the next iteration.
+            # probably the problem is that the gradient is too large so we diverge.
+            # possible solutions:
+            # - make desirability function nicer, esp. the state penalty term
+            # - clip the gradient above
+            # - clip the 'desired x0 jump' above -> probably most intuitive
+
+            # generally stuff is behaving weird right now. it seems to evolve just
+            # deterministically..? did we forget the prng keys?
 
             next_state = (next_tc, key)
 
@@ -177,7 +194,7 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
 
         ns, oup = scan_fct(init_state)
 
-        final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=100)
+        final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=1000)
 
         ipdb.set_trace()
 

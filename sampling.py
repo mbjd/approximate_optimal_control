@@ -38,6 +38,148 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
+
+def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
+    '''
+    genius idea from 2023-05-06.
+
+    basically, we want to approximate MCMC sampling of some distribution
+    over x(0), but by setting up a corresponding MCMC-ish thing in the
+    terminal condition space.
+
+    the two sides of the coin are (should be...) equally valid:
+    - MCMC algo for some distribution over λ(T)/x(T) with adaptive proposal
+      distribution
+    - MCMC algo for some distribution over x(0), but only obtaining samples
+      through the pontryagin solver.
+
+    the key algorithm step is the following:
+    - we want to perform an update x <- x + Δx as part of a simple MCMC
+      sampler in x(0)
+    - instead of performing the exact update, we write x(0) = f(λ(T)), and
+      use the taylor expansion of f to approximate the update in λ(T) space:
+      λ+ = λ + (df(λ)/dλ)^-1 Δx.
+
+    by the implicit function theorem, the inverse of the jacobian is the
+    jacobian of the local inverse, so there are refreshingly few leaps of
+    faith to convince ourself of the correctness of this method.
+    (citation needed)
+
+    in fact, can we give hard guarantees about the stationary distribution
+    over x(0)? (with some assumptions, such as PMP forms a bijection etc)
+    because maybe the M-H correction can correct for the slightly
+    mis-shaped proposal distribution resulting from the detour through
+    terminal condition....
+
+    this hopefully alleviates the difficulties of sampling from a
+    distribution with weird geometry in terminal condition space.
+
+    here we work with unnormalised terminal conditions again.
+    '''
+
+    nx = problem_params['nx']
+    dt = algo_params['sampler_dt']
+
+    # this shit so ugly
+    integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
+
+    def run_single_chain(key, tc0, jump_sizes):
+        '''
+        key: jax PRNG key
+        tc0: (nx,) shape array of initial terminal condition (what an experssion)
+        jump_sizes: (nx,) shape array containing the diagonal of the
+          covariance matrix of the desired proposal distribution (in x(0))
+          good idea maybe to do like 0.1 * state space extent
+        '''
+
+        def scan_fct(state, inp=None):
+
+            tc, key = state
+
+            key, noise_key, alpha_key = jax.random.split(key, 3)
+
+            # find x0 for current terminal condition
+            x0_current = integrate_fct_reshaped(tc)
+            jac_value = jax.jacobian(integrate_fct_reshaped)(tc)
+
+            # TODO: does MALA have problems with non-normalised logpdfs?
+            logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
+
+            # propose a jump in x0
+            # probably we could calculate this gradient more easily by re-using the
+            # jacobian from above and the chain rule....
+
+            grad_logpdf_now = jax.grad(logpdf)(tc)
+            noise_sqrt_cov = np.sqrt(2*dt) * jump_sizes
+            noise = noise_sqrt_cov * jax.random.normal(noise_key, shape=(nx,))
+            x0_jump_desired = dt * grad_logpdf_now + noise
+            proposed_x0_desired = x0_current + x0_jump_desired
+
+            # find tc that approximately results in that jump
+            next_tc = tc + np.linalg.inv(jac_value) @ x0_jump_desired
+
+            grad_logpdf_next = jax.grad(logpdf)(next_tc)
+
+            # actual jump
+            proposed_x0 = integrate_fct_reshaped(next_tc)
+
+            # here: compute the metropolis-hastings correction.
+            # this ensures detailed balance, so should already be enough to
+            # make it ACTUALLY sample from the given log pdf...?
+            p_next = desirability_fct_x0(proposed_x0)
+            p_current = desirability_fct_x0(x0_current)
+
+            def transition_density(xnow, xnext, grad_logpdf_x):
+                x = xnext
+                mean = xnow + dt * grad_logpdf_x
+                cov = np.diag(np.square(noise_sqrt_cov))
+                return jax.scipy.stats.multivariate_normal.pdf(x, mean, cov)
+
+
+            # the two transition densities needed for M-H correction.
+            density_forward = transition_density(x0_current, proposed_x0, grad_logpdf_now)
+            density_backward = transition_density(proposed_x0, x0_current, grad_logpdf_next)
+
+            # alpha = min(1, H), with probability alpha: accept the jump
+            H = (p_next * density_forward) / (p_current * density_backward)
+            alpha = np.minimum(1, H)
+            alpha_ref = jax.random.uniform(alpha_key)
+
+            # say alpha = .9, then we accept with a probability of .9
+            # = probability that alpha_ref ~ U([0, 1]) < 0.9
+            do_accept = alpha_ref < alpha
+
+            next_tc = np.where(do_accept, next_tc, tc)
+
+            next_state = (next_tc, key)
+            output = {
+                    'jac_value': jac_value,
+                    'grad_logpdf_now': grad_logpdf_now,
+                    'proposed_x0_desired': proposed_x0_desired,
+                    'proposed_x0': proposed_x0,
+                    'tc': tc,
+                    'next_tc': next_tc,
+                    'p_next': p_next,
+                    'p_current': p_current,
+                    'H': H,
+                    'do_accept': do_accept,
+            }
+
+            return next_state, output
+
+        init_state = (tc0, key)
+
+        ns, oup = scan_fct(init_state)
+
+        final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=100)
+        ipdb.set_trace()
+
+    run_single_chain(key, np.array([0., 0]), np.array([.1, .1]))
+
+
+
+
+
 def adam_uncertainty_sampler(logpdf, init_population, algo_params, key=jax.random.PRNGKey(666)):
     '''
     another heuristic global optimiser. maybe this one is better?

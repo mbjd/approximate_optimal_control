@@ -12,6 +12,8 @@ import matplotlib.pyplot as pl
 import tqdm
 from functools import partial
 
+from jax.config import config
+config.update("jax_debug_nans", True)
 
 def run_algo(problem_params, algo_params, key=None):
 
@@ -194,6 +196,7 @@ def run_algo(problem_params, algo_params, key=None):
 
     def desirability_fct_x0(x0, gp, ys_gp):
         # because of weirdness x0 needs to be (1, nx) shaped
+        x0 = x0.reshape(1, nx)
         # find GP variance at initial state
         gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
         pred_gp = gp.condition(ys_gp, (x0, gradflags)).gp
@@ -203,7 +206,8 @@ def run_algo(problem_params, algo_params, key=None):
         # outer penalty function - we allow being slightly outside, we
         # would rather have no interference within the interesting region
         Σ_inv = np.linalg.inv(algo_params['x_sample_cov'])
-        mahalanobis_dist = np.sqrt(x0 @ Σ_inv @ x0.T)
+        # add small number so the gradient at 0 is not NaN
+        mahalanobis_dist = np.sqrt(1e-8 + x0 @ Σ_inv @ x0.T)
 
         max_dist = algo_params['x_max_mahalanobis_dist']
         state_penalty = 100 * np.maximum(0, mahalanobis_dist - max_dist)
@@ -274,7 +278,10 @@ def run_algo(problem_params, algo_params, key=None):
             init_norm_tcs = jax.random.normal(subkey, shape=(algo_params['pontryagin_sampler_n_trajectories'], nx))
 
             key, sampling_key = jax.random.split(key)
-            new_norm_tcs = sampling.sample_from_logpdf(logpdf, init_norm_tcs, algo_params, key=sampling_key)
+            # new_norm_tcs = sampling.sample_from_logpdf(logpdf, init_norm_tcs, algo_params, key=sampling_key)
+            # new_norm_tcs = sampling.adam_uncertainty_sampler(logpdf, init_norm_tcs, algo_params, key=sampling_key)
+            desirability = lambda x0: desirability_fct_x0(x0, gp, ys_gp)
+            sampling.geometric_mcmc(integrate, desirability, problem_params, algo_params, key)
 
             ipdb.set_trace()
             new_sol_obj, new_ys = integrate(new_tcs)

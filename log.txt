@@ -1189,3 +1189,57 @@ importance sampling sampler, or the 'time marching' method from
 nakamura-zimmerer et al., that kind of makes the nonlinearity easier.
 
 somehow the code makes a segfault when mcmc_plot = True.
+
+
+2023-05-06
+
+maybe it gets better when we replace the ULA sampling with adam, helped by
+some 'exploration noise'? lets do it.
+
+am doing it. basically, single adam optimisation with scan wrapped in a
+function, then vmap. maybe it works better? -> a bit, but geometry still
+challenging.
+
+
+
+
+yet another idea: we still follow the paradigm of sampling in the terminal
+condition domain to get optimal trajectories from interesting initial
+states, but we somehow inform the sampling procedure with the jacobian of
+the map from tc to x0? that might alleviate the large squishing in state
+space. like, an evolutionary strategy or noisy gradient thing or whatever,
+but in a space linearly transformed to look like the x0 space, instead of
+the tc space which can have weird geometry.
+
+actually I think this idea has great potential. it would address the
+problem of weird geometry, using information we basically have at small
+cost (the jacobian of the λ(T) -> x(0) map), might help with exploration
+and maybe also bridge a theory gap between distributions in the two spaces?
+maybe the last one is a stretch. but practically we might get away with
+just acting like we're doing ULA/SGLD/whatever in x(0), nice and easy,
+
+this is also reeeally close to the idea I had before the project (do SGLD
+on x(0), keep some local optimal control prediction, update it easily with
+a couple newton steps or similar). the only difference is basically we do
+SGLD in the T space but adjust it to approximate the 0 space, not the other
+way around. okay maybe that is somewhere between handwavy and plain wrong.
+i really should eat something right now...
+
+okay, ate something, have energy again.
+
+maybe if we do this (proposal distribution scaled by jacobian something) we
+can also completely get rid of the initial pontryagin sampler??? instead we
+might be able to just start at 0 (if 0 is an equilibrium) and then explore
+the state space efficiently because the method would be an approximate MCMC
+on an easy distribution over x(0).
+
+could the same idea also be applied to the deterministic analogue (multiple
+initialisation, adaptive gradient descent to find local maxima of the
+desirability function?) this would basically amount to pre-conditioning the
+gradient somehow with the jacobian...
+
+
+am still on it, feels like it is almost working, but some weird bug is
+here. jax.grad(desirability_fct_x0)(np.array([0., 0.])) gives nan, but for
+values other than 0 it works. whyyyyyyyyyyy? same if using jacobian. feels
+like there is some pole-zero cancellation somewhere inside the funciton.

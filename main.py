@@ -210,7 +210,7 @@ def run_algo(problem_params, algo_params, key=None):
         mahalanobis_dist = np.sqrt(1e-8 + x0 @ Σ_inv @ x0.T)
 
         max_dist = algo_params['x_max_mahalanobis_dist']
-        state_penalty = 10 * np.maximum(0, mahalanobis_dist - max_dist)
+        state_penalty = 100 * np.maximum(0, mahalanobis_dist - max_dist)
         # state_penalty = 10 * np.log(1 + np.exp(mahalanobis_dist - max_dist))
 
         # we are maximising to get the most desirable terminal condition
@@ -281,7 +281,7 @@ def run_algo(problem_params, algo_params, key=None):
             # new_norm_tcs = sampling.sample_from_logpdf(logpdf, init_norm_tcs, algo_params, key=sampling_key)
             # new_norm_tcs = sampling.adam_uncertainty_sampler(logpdf, init_norm_tcs, algo_params, key=sampling_key)
             desirability = lambda x0: desirability_fct_x0(x0, gp, ys_gp)
-            sampling.geometric_mcmc(integrate, desirability, problem_params, algo_params, key)
+            sampling.geometric_mala(integrate, desirability, problem_params, algo_params, key)
 
             ipdb.set_trace()
             new_sol_obj, new_ys = integrate(new_tcs)
@@ -510,12 +510,13 @@ if __name__ == '__main__':
             'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             'pontryagin_sampler_returns': 'both',
 
-            'sampler_dt': 0.1,  # this dt is basically a gradient descent stepsize
+            'sampler_dt': 0.05,  # this dt is basically a gradient descent stepsize
             'sampler_burn_in': 128,
             'sampler_burn_in_noise': 1,
             'sampler_init_noise': 1,
             'sampler_final_noise': 0.0001,
-            'sampler_samples': 16,
+            'sampler_N_chains': 32,
+            'sampler_samples': 16,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 16,
             'sampler_plot': True,
 

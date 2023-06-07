@@ -39,7 +39,7 @@ warnings.filterwarnings('error', message='.*Following NumPy automatic rank promo
 
 
 
-def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
+def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
     '''
     genius idea from 2023-05-06.
 
@@ -83,7 +83,9 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
     # this shit so ugly
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
 
-    def run_single_chain(key, tc0, jump_sizes):
+    logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
+
+    def run_single_chain(key, tc0, jump_sizes, chain_length):
         '''
         key: jax PRNG key
         tc0: (nx,) shape array of initial terminal condition (what an experssion)
@@ -94,7 +96,8 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
 
 
         # TODO: does MALA have problems with non-normalised logpdfs?
-        logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
+        # -> no, that's the whole point, we can add a constant to the logpdf
+        #    and everything stays the same
 
         def scan_fct(state, inp=None):
 
@@ -113,9 +116,20 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             grad_logpdf_now = jax.grad(logpdf)(tc)
             noise_sqrt_cov = np.sqrt(2*dt) * jump_sizes
             noise = noise_sqrt_cov * jax.random.normal(noise_key, shape=(nx,))
-            x0_jump_desired = dt * grad_logpdf_now
-            # x0_jump_desired = # project back to 'trust region' ellipse thing?
-            proposed_x0_desired = x0_current + x0_jump_desired + noise
+            x0_jump_deterministic = dt * grad_logpdf_now
+
+            # if x0_jump_deterministic is too large, we shrink it
+            # with this it seems to work nicely, only very few times it diverges wildly
+            # if norm/max_norm < 1, we divide by 1, leaving the jump
+            # if norm/max_norm > 1, we divide by norm/max_norm, so multiply by
+            # max_norm / norm, so we normalise and scale to max norm.
+            max_x0_jump = 0.1
+            correction = np.maximum(1, np.linalg.norm(x0_jump_deterministic)/max_x0_jump)
+            x0_jump_deterministic = x0_jump_deterministic / correction
+
+
+            x0_jump_desired = x0_jump_deterministic + noise
+            proposed_x0_desired = x0_current + x0_jump_desired
 
             # find tc that approximately results in that jump
             next_tc = tc + np.linalg.inv(jac_value) @ x0_jump_desired
@@ -151,12 +165,12 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             # H = (p_next * density_forward) / (p_current * density_backward)
             # we want in the front p_next/p_current = exp(log_p_next)/exp(log_p_current) = exp(log_p_next - log_p_current)
             H = np.exp(log_p_next - log_p_current) * (density_forward / density_backward)
-            alpha = np.maximum(0.1, np.minimum(1, H))  # cheat by having a lower bound as well
-            alpha_ref = jax.random.uniform(alpha_key)
+            alpha = np.minimum(1, H)
+            u = jax.random.uniform(alpha_key)
 
             # say alpha = .9, then we accept with a probability of .9
-            # = probability that alpha_ref ~ U([0, 1]) < 0.9
-            do_accept = alpha_ref < alpha
+            # = probability that u ~ U([0, 1]) < 0.9
+            do_accept = u < alpha
 
             next_tc = np.where(do_accept, next_tc, tc)
 
@@ -170,35 +184,82 @@ def geometric_mcmc(integrate_fct, desirability_fct_x0, problem_params, algo_para
             # - clip the gradient above
             # - clip the 'desired x0 jump' above -> probably most intuitive
 
-            # generally stuff is behaving weird right now. it seems to evolve just
-            # deterministically..? did we forget the prng keys?
+            # more found out during debugging. the NaN arises from the line where we
+            # invert the jacobian. sometimes the terminal condition goes somewhere weird,
+            # and then the jacobian becomes zero (seemingly without reason - discrete
+            # differences with step=0.01 give much more sensible numbers)
+
+            # next_tc = tc + np.linalg.inv(jac_value) @ x0_jump_desired
 
             next_state = (next_tc, key)
 
             # looooots of outputs for debugging
-            # had to fix grad_x sqrt(x) at x=0 in the desirability function
             output = {
-                    'jac_value': jac_value,
-                    'grad_logpdf_now': grad_logpdf_now,
-                    'proposed_x0_desired': proposed_x0_desired,
-                    'proposed_x0': proposed_x0,
+                    # 'key': key,
+                    # 'noise': noise,
+                    # 'jac_value': jac_value,
+                    # 'grad_logpdf_now': grad_logpdf_now,
+                    # 'x0_jump_desired': x0_jump_desired,
+                    # 'proposed_x0_desired': proposed_x0_desired,
+                    # 'proposed_x0': proposed_x0,
                     'tc': tc,
-                    'next_tc': next_tc,
-                    'H': H,
-                    'do_accept': do_accept,
+                    'x0': x0_current,
+                    # 'next_tc': next_tc,
+                    # 'H': H,
+                    # 'u': u,
+                    # 'do_accept': do_accept,
             }
 
             return next_state, output
 
         init_state = (tc0, key)
 
-        ns, oup = scan_fct(init_state)
+        final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=chain_length)
+        return outputs['tc'], outputs['x0']
 
-        final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=1000)
+    # vectorise & speed up :)
+    run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
+    run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
 
-        ipdb.set_trace()
+    N_chains = algo_params['sampler_N_chains']
+    keys = jax.random.split(key, N_chains)
+    inits = 0.01 * jax.random.normal(key, shape=(N_chains, nx))
 
-    run_single_chain(key, np.array([0., 0]), np.array([1, 1]))
+    burn_in = algo_params['sampler_burn_in']
+    steps_per_sample = algo_params['sampler_steps_per_sample']
+    samples = algo_params['sampler_samples']
+    N_steps = burn_in + samples * steps_per_sample
+    all_tcs, all_x0s = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+
+    # discard some burn-in and subsample for approximate independence.
+    all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
+    all_x0s_flat = all_x0s[:, burn_in::steps_per_sample, :].reshape(-1, nx)
+
+    # ipdb.set_trace()
+
+    if algo_params['sampler_plot']:
+        # here we plot the samples and desirability function over x(0)
+        pl.subplot(121)
+        extent = 3
+        plotting_utils.plot_fct(lambda x: np.exp(desirability_fct_x0(x)/20), (-extent, extent), (-extent, extent))
+
+        for x0 in all_x0s:
+            pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=.2)
+
+        pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='red', alpha=.1)
+
+        # and here as a function of λ(T)
+        pl.subplot(122)
+
+        extent = .15
+        plotting_utils.plot_fct(lambda x: np.exp(logpdf(x)/20), (-extent, extent), (-extent, extent))
+
+        for tc in all_tcs:
+            pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=.2)
+
+        pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=.1)
+
+        pl.show()
 
 
 

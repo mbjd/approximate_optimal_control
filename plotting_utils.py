@@ -14,6 +14,26 @@ import ipdb
 
 from functools import partial
 
+
+def plot_fct(f, xbounds, ybounds, N_disc = 201):
+
+    # just the business logic: construct grid, reshape, evaluate, plot
+    # create the plot before and show it after this function
+
+    xmin, xmax = xbounds
+    ymin, ymax = ybounds
+
+    xgrid = np.linspace(xmin, xmax, N_disc)
+    ygrid = np.linspace(ymin, ymax, N_disc)
+
+    xx, yy = np.meshgrid(xgrid, ygrid)
+
+    all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+
+    all_outputs = jax.vmap(f)(all_inputs).reshape(xx.shape)  # need a lot of memory!
+    pl.pcolor(xx, yy, all_outputs)
+
+
 def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):
 
     tmin, tmax = tbounds

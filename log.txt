@@ -1252,3 +1252,23 @@ really works. sometimes there are still unexplainable NaNs, sometimes we
 have an acceptance probability of 0 and get stuck, dunno too much. but I
 feel this should work quite decently, there is reason to develop this
 further regardless.
+
+
+2023-06-07
+
+the sampler works now! key was to clip the desired jump size in x0 space.
+this pervents situations where we go to really large numbers for seemingly
+no reason.
+
+thought: several options to accelerate mixing at the start during burn-in:
+
+- have a higher dt
+- have a larger noise value
+- increase the 'temperature', i.e. sample not from logpdf but from a *
+  logpdf with a<1.
+
+are these all the same? what are the differences?
+
+the central update is:
+x+ = x + dt grad_x(log p(x)) + sqrt(2 dt) noise
+

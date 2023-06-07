@@ -510,7 +510,7 @@ if __name__ == '__main__':
             'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             'pontryagin_sampler_returns': 'both',
 
-            'sampler_dt': 0.05,  # this dt is basically a gradient descent stepsize
+            'sampler_dt': 0.02,  # this dt is basically a gradient descent stepsize
             'sampler_burn_in': 128,
             'sampler_burn_in_noise': 1,
             'sampler_init_noise': 1,

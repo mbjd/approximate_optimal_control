@@ -78,7 +78,7 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
     '''
 
     nx = problem_params['nx']
-    dt = algo_params['sampler_dt']
+    # dt = algo_params['sampler_dt']
 
     # this shit so ugly
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
@@ -99,7 +99,7 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
         # -> no, that's the whole point, we can add a constant to the logpdf
         #    and everything stays the same
 
-        def scan_fct(state, inp=None):
+        def scan_fct(state, dt):
 
             tc, key = state
 
@@ -207,15 +207,17 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
                     # 'next_tc': next_tc,
                     # 'H': H,
                     # 'u': u,
-                    # 'do_accept': do_accept,
+                    'do_accept': do_accept,
             }
 
             return next_state, output
 
         init_state = (tc0, key)
 
-        final_state, outputs = jax.lax.scan(scan_fct, init_state, None, length=chain_length)
-        return outputs['tc'], outputs['x0']
+        # TODO maybe: longer dt for burn in, shorter after?
+        dts = algo_params['sampler_dt'] * np.ones(chain_length)
+        final_state, outputs = jax.lax.scan(scan_fct, init_state, dts)
+        return outputs['tc'], outputs['x0'], outputs['do_accept']
 
     # vectorise & speed up :)
     run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
@@ -229,7 +231,7 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
     steps_per_sample = algo_params['sampler_steps_per_sample']
     samples = algo_params['sampler_samples']
     N_steps = burn_in + samples * steps_per_sample
-    all_tcs, all_x0s = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
 
     # discard some burn-in and subsample for approximate independence.
     all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
@@ -258,6 +260,9 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
             pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=.2)
 
         pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=.1)
+
+        pl.figure('acceptance probabilities (for each chain)')
+        pl.hist(accept.mean(axis=1))
 
         pl.show()
 

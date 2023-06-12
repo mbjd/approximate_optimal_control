@@ -164,7 +164,7 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
             # alpha = min(1, H), with probability alpha: accept the jump
             # H = (p_next * density_forward) / (p_current * density_backward)
             # we want in the front p_next/p_current = exp(log_p_next)/exp(log_p_current) = exp(log_p_next - log_p_current)
-            H = np.exp(log_p_next - log_p_current) * (density_forward / density_backward)
+            H = np.exp(log_p_next - log_p_current) * (density_backward / density_forward)
             alpha = np.minimum(1, H)
             u = jax.random.uniform(alpha_key)
 

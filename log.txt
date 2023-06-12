@@ -1272,3 +1272,83 @@ are these all the same? what are the differences?
 the central update is:
 x+ = x + dt grad_x(log p(x)) + sqrt(2 dt) noise
 
+
+2023-06-12
+
+let my sampler run for a LOT of iterations with basically just a 'truncated
+gaussian' target distribution over state space (x0). am quite sad because
+it seems like it reaches quite a different stationary distribution...
+
+ways to try to fix this:
+
+a) try to achieve the exact proposed step in x(0), by finding the (for
+practical pruposes) exact λ(T) that gives info there, probably with a
+couple of newton steps this is doable.
+
+-> would be doable but kind of inelegant, and it involves generating even
+more trajectories which we throw away again, so maybe not the most
+efficient.
+
+b) reason about the proposal distribution, come up with a correct M-H
+accept/reject step that actually achieves our goals.
+
+-> would be the cleanest, but maybe not easy theoretically, and also maybe
+the resulting proposal and M-H step (especially evaluating the forward and
+backward transition densities) would involve extra computations all the
+same.
+
+c) don't try to fix it, rely on iterative uncertainty sampling with
+x0 ~ log(GP posterior variance - state penalty)
+to find data in 'all' state space regions.
+
+-> probably most practical, I've seen the sampler work quite well for this
+type of distribution, but then we again lack guarantees bc. we have a
+biased stationary distribution, all we can do is say "look it kind of
+works".
+
+
+In the spirit of a) I ran the sampler with 1, 2, and 3 newton steps to try
+to achieve the correct sample. but somehow it didnt work, the distribution
+is still really skewed w.r.t. the desired one. probably this is a shit
+idea.
+
+BUT i have a new idea.
+
+can we adjust the proposal distribution across state space? probably yes,
+because we are ensuring the detailed balance condition if the M-H
+acceptance step is done properly, with any transition density.
+
+is this usually called 'adaptive' or 'nonstationary' mcmc? research more
+
+so, probably we can do it more elegantly by directly operating over λT, but
+still incorporating the geometry information (jacobian of PMP function) to
+propose steps that result in somewhat sensible steps *in state space*. Then
+by doing the M-H accept/reject step all in the λ(T) domain we ensure that
+despite the weirdly chosen proposal, the stationary distribution is as we
+want. only thing to watch out for is to apply the correct
+change-of-variable formula to evaluate the desired density in terms of λT.
+
+
+just to summarise and improve understanding again, this is what it would
+look like. We want x ~ 1/Z exp(desirability(PMP(λT))).
+
+define a proposal density that results in 'sensible' state space jumps.
+this is basically the same that we are already doing, but instead of just
+calculating the realization of the random variable we also need the
+density. that should not be too hard. so lets do it.
+
+alright, I did this. jit worked, am waiting for results. more details in
+report.
+
+
+
+
+
+
+
+
+
+
+also, noticed that previously I had an error in the calculation of H (the
+acceptance probability), basically I inverted the fraction between the
+forward and backward transition densities!!! Now it looks much better.

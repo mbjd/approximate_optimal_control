@@ -202,6 +202,10 @@ def run_algo(problem_params, algo_params, key=None):
         pred_gp = gp.condition(ys_gp, (x0, gradflags)).gp
         predictive_variance = pred_gp.variance
 
+        # do not use the gp.
+        # instead, small state cost.
+        # predictive_variance = 0.1 * (x0 @ np.eye(nx) @ x0.T)
+
         # calculate penalty for leaving interesting state region
         # outer penalty function - we allow being slightly outside, we
         # would rather have no interference within the interesting region
@@ -281,7 +285,7 @@ def run_algo(problem_params, algo_params, key=None):
             # new_norm_tcs = sampling.sample_from_logpdf(logpdf, init_norm_tcs, algo_params, key=sampling_key)
             # new_norm_tcs = sampling.adam_uncertainty_sampler(logpdf, init_norm_tcs, algo_params, key=sampling_key)
             desirability = lambda x0: desirability_fct_x0(x0, gp, ys_gp)
-            sampling.geometric_mala(integrate, desirability, problem_params, algo_params, key)
+            sampling.geometric_mala_2(integrate, desirability, problem_params, algo_params, key)
 
             ipdb.set_trace()
             new_sol_obj, new_ys = integrate(new_tcs)
@@ -391,79 +395,6 @@ def run_algo(problem_params, algo_params, key=None):
 
 
 
-
-
-
-
-
-    if False:
-        for i in range(4):
-
-
-            # older version. idea:
-            # - find points where the approximation is inaccurate
-            # - guess which terminal conditions we might use to get useful new data
-            #   at these points (hoping for help from the GP here)
-            # - get the new data with the pontryagin solver
-            # - re-fit the GP.
-
-            # as a first attempt, we just generate loads of random states
-            # and choose the ones with hightest GP uncertainty to take the
-            # next samples.
-
-            # not sure if this is guaranteed to do anything smart, probably to get
-            # decent convergence guarantees we have to sample over a bounded domain,
-            # this way it will just choose the outermost, most unlikely draws for
-            # new samples because there we have no data yet.
-
-
-            n_eval = 256
-            key, subkey = jax.random.split(key)
-            xs_eval = jax.random.multivariate_normal(
-                    subkey,
-                    mean=np.zeros(nx),
-                    cov=algo_params['x_sample_cov'],
-                    shape=(n_eval,)
-            )
-
-            # no gradients! only the function.
-            # although, should we not mainly care about accurate representation
-            # of the gradient.....?
-            gradflags_eval = np.zeros((n_eval,), dtype=np.int8)
-
-            # condition the GP on available data & evaluate uncertainty at xs_eval.
-            pred_gp = gp.condition(ys_gp, (xs_eval, gradflags_eval)).gp
-
-            # find xs with largest value uncertainty. for simplicity again the same
-            # number of trajectories as sampling -> less re-jitting.
-            k = algo_params['pontryagin_sampler_n_trajectories']
-            largest_vars, idx = jax.lax.top_k(pred_gp.variance, k)
-
-            # these are the states we'd like to know more about.
-            uncertain_xs = xs_eval[idx]
-            uncertain_xs_gradflag = np.ones(k, dtype=np.int8)
-
-            # find the weights the gp used to predict y = w.T @ ys_train
-            # TODO next week: continue with this.
-            X_pred = (uncertain_xs, uncertain_xs_gradflag)
-
-            ws_pred = gradient_gp.get_gp_prediction_weights(gp, pred_gp, X_pred)
-
-            print(ws_pred @ ys_gp)
-
-            ipdb.set_trace()
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == '__main__':
 
     # simple control system. double integrator with friction term.
@@ -510,14 +441,14 @@ if __name__ == '__main__':
             'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             'pontryagin_sampler_returns': 'both',
 
-            'sampler_dt': 0.02,  # this dt is basically a gradient descent stepsize
-            'sampler_burn_in': 128,
+            'sampler_dt': 0.02,
+            'sampler_burn_in': 64,
             'sampler_burn_in_noise': 1,
             'sampler_init_noise': 1,
             'sampler_final_noise': 0.0001,
-            'sampler_N_chains': 32,
-            'sampler_samples': 16,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 16,
+            'sampler_N_chains': 8,
+            'sampler_samples': 8,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 8,
             'sampler_plot': True,
 
             'x_sample_cov': x_sample_cov,

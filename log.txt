@@ -1366,3 +1366,25 @@ some really basic error. now it works very nicely actually, both sampling
 from a uniform distribution over the relevant state space subset, and
 uncertainty sampling look flawless, and it works also without the hacky
 clipping of the step.
+
+also, I need to decide on terminology. in the paper I used some new terms
+which I feel are nicer:
+
+'desirability function' -> reward function r(x)
+'integrate, PMP integrator, etc' -> PMP: λT -> x0
+dPMP(λ)/dλ -> J  (just for shortness)
+
+so should i adapt the code as well? would be nice right
+
+
+
+
+
+
+
+
+
+more ideas:
+- try to sample from a sublevel set of the value function V(PMP(λT)), so we
+  know that in closed loop we won't push the state outside of the region
+  where we know the controls.

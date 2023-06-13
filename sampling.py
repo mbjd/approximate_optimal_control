@@ -484,7 +484,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
     all_x0s_flat = all_x0s[:, burn_in::steps_per_sample, :].reshape(-1, nx)
 
-    ipdb.set_trace()
+    # ipdb.set_trace()
 
     if algo_params['sampler_plot']:
 

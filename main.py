@@ -137,13 +137,13 @@ def run_algo(problem_params, algo_params, key=None):
         # because of weirdness x0 needs to be (1, nx) shaped
         x0 = x0.reshape(1, nx)
         # find GP variance at initial state
-        # gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
-        # pred_gp = gp.condition(ys_gp, (x0, gradflags)).gp
-        # predictive_variance = pred_gp.variance
+        gradflags = np.zeros(1, dtype=np.int8) # only 1 data point here
+        pred_gp = gp.condition(ys_gp, (x0, gradflags)).gp
+        predictive_variance = pred_gp.variance
 
         # do not use the gp.
         # instead, small state cost.
-        predictive_variance = 0. * (x0 @ np.eye(nx) @ x0.T)
+        # predictive_variance = 0. * (x0 @ np.eye(nx) @ x0.T)
 
         # calculate penalty for leaving interesting state region
         # outer penalty function - we allow being slightly outside, we
@@ -387,7 +387,7 @@ if __name__ == '__main__':
             'sampler_final_noise': 0.0001,
             'sampler_N_chains': 16,
             'sampler_samples': 2**8,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 8,
+            'sampler_steps_per_sample': 4,
             'sampler_plot': True,
 
             'x_sample_cov': x_sample_cov,

@@ -253,8 +253,6 @@ def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_para
     all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
     all_x0s_flat = all_x0s[:, burn_in::steps_per_sample, :].reshape(-1, nx)
 
-    # ipdb.set_trace()
-
     if algo_params['sampler_plot']:
 
         trajectory_alpha = .1
@@ -313,11 +311,6 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
           covariance matrix of the desired proposal distribution (in x(0))
         '''
 
-
-        # TODO: does MALA have problems with non-normalised logpdfs?
-        # -> no, that's the whole point, we can add a constant to the logpdf
-        #    and everything stays the same
-
         def scan_fct(state, dt):
 
             tc, key = state
@@ -354,13 +347,12 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
                 dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
 
                 # propose a jump in x0, then transform it to λT.
-                assert dlogpdf_dx0.shape == jump_sizes.shape == (2,)
                 x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
 
                 # as before, scale down the jump if very large.
-                max_x0_jump_norm = 0.5
-                correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
-                x0_jump_mean = x0_jump_mean / correction
+                # max_x0_jump_norm = 0.5
+                # correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
+                # x0_jump_mean = x0_jump_mean / correction
 
                 tc_jump_mean = dtc_dx0 @ x0_jump_mean
 
@@ -392,7 +384,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             f_transition_mean, f_transition_cov, tc_logpdf, x0_current = transition_mean_cov_logpdf(tc)
 
             # sample from that distribution
-            tc_proposed = jax.random.multivariate_normal(noise_key, mean=f_transition_mean, cov = f_transition_cov)
+            tc_proposed = jax.random.multivariate_normal(noise_key, mean=f_transition_mean, cov=f_transition_cov)
 
             # and get the info for the backward transition for ensuring detailed balance.
             b_transition_mean, b_transition_cov, tc_next_logpdf, _ = transition_mean_cov_logpdf(tc_proposed)
@@ -412,12 +404,12 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             #       - log(current_density) - log(f_transition_density)
 
             H = np.exp(tc_next_logpdf - tc_logpdf + b_transition_logdensity - f_transition_logdensity)
+
             # but how does this make sense? the backwards transition is
             # always going to be much less likely than the forward
             # transition as long as the gradient is not very small...
 
             u = jax.random.uniform(alpha_key)
-            ipdb.set_trace()
 
             # say H = .9, then we accept with a probability of .9
             # = probability that u ~ U([0, 1]) < 0.9
@@ -453,18 +445,18 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
         dts = algo_params['sampler_dt'] * np.ones(chain_length)
 
         # test run:
-        ns1, oup1 = scan_fct(init_state, dts[0])
-
-        ipdb.set_trace()
+        # ns1, oup1 = scan_fct(init_state, dts[0])
+        # ipdb.set_trace()
 
         final_state, outputs = jax.lax.scan(scan_fct, init_state, dts)
-        return outputs['tc'], outputs['x0'], outputs['do_accept']
+        # return outputs['tc'], outputs['x0'], outputs['do_accept']
+        return outputs
 
 
     # test run:
-    test_tc, test_x0, test_accept = run_single_chain(key, np.array([0.001, 0.001]), np.ones(2), 100)
+    # test_tc, test_x0, test_accept = run_single_chain(key, np.array([0.001, 0.001]), np.ones(2), 100)
 
-    import sys; sys.exit()
+    # import sys; sys.exit()
 
 
     # vectorise & speed up :)
@@ -478,46 +470,71 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     burn_in = algo_params['sampler_burn_in']
     steps_per_sample = algo_params['sampler_steps_per_sample']
     samples = algo_params['sampler_samples']
-    N_steps = burn_in + samples * steps_per_sample
-    all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
 
-    ipdb.set_trace()
+    N_steps = burn_in + samples * steps_per_sample
+
+    # all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    outputs = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+
+    all_tcs = outputs['tc']
+    all_x0s = outputs['x0']
+    accept = outputs['do_accept']
 
     # discard some burn-in and subsample for approximate independence.
     all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
     all_x0s_flat = all_x0s[:, burn_in::steps_per_sample, :].reshape(-1, nx)
 
-    # ipdb.set_trace()
+    ipdb.set_trace()
 
     if algo_params['sampler_plot']:
 
-        trajectory_alpha = .1
-        scatter_alpha = .2
-        # here we plot the samples and desirability function over x(0)
         pl.subplot(121)
         extent = 3
         plotting_utils.plot_fct(lambda x: np.exp(desirability_fct_x0(x)/20), (-extent, extent), (-extent, extent))
 
-        for x0 in all_x0s:
-            pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
-
-        pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='green', alpha=scatter_alpha)
-
-        # and here as a function of λ(T)
         pl.subplot(122)
-
         extent = .15
         plotting_utils.plot_fct(lambda x: np.exp(logpdf(x)/20), (-extent, extent), (-extent, extent))
 
-        for tc in all_tcs:
-            pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
 
-        pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='green', alpha=scatter_alpha)
+        interactive = False
+        if not interactive:
+            # make the normal plot
 
-        pl.figure('acceptance probabilities (for each chain)')
-        pl.hist(accept.mean(axis=1))
+            trajectory_alpha = .1
+            scatter_alpha = .2
 
-        pl.show()
+            # here we plot the samples and desirability function over x(0)
+            pl.subplot(121)
+            for x0 in all_x0s:
+                pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
+
+            pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='green', alpha=scatter_alpha)
+
+            # and here as a function of λ(T)
+            pl.subplot(122)
+
+            for tc in all_tcs:
+                pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
+
+            pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='green', alpha=scatter_alpha)
+
+            pl.figure('acceptance probabilities (for each chain)')
+            pl.hist(accept.mean(axis=1))
+
+            pl.show()
+
+        else:
+
+            pass
+
+            # make a fancy pants plot that visualises the proposal distributions.
+
+            # make 2 sliders
+            # def on_update(val):
+            #  get tc
+            #  get proposal distr.
+            #  plot it.
 
 
 

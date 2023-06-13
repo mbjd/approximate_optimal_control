@@ -1352,3 +1352,17 @@ report.
 also, noticed that previously I had an error in the calculation of H (the
 acceptance probability), basically I inverted the fraction between the
 forward and backward transition densities!!! Now it looks much better.
+
+
+2023-06-13
+
+debugging the new stuff. I think it should work but it doesnt really. it
+oscillates between two clusters of points forever. tried changing it to
+random walk M-H (without langevin/gradient stuff) and still it looks sus.
+but at least it does something.
+
+now it works nicely. important bugfixes in commit: 27c91202. ofc it was
+some really basic error. now it works very nicely actually, both sampling
+from a uniform distribution over the relevant state space subset, and
+uncertainty sampling look flawless, and it works also without the hacky
+clipping of the step.

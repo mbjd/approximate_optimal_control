@@ -301,6 +301,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
 
+    # DO NOT confuse these two or it will cause days of bug hunting
     logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
     logpdf_x0 = desirability_fct_x0
 
@@ -350,12 +351,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
                 dx0_dtc = jax.jacobian(integrate_fct_reshaped)(tc)
                 dtc_dx0 = np.linalg.inv(dx0_dtc)  # by implicit function thm :)
 
-                dlogpdf_dx0 = jax.jacobian(logpdf)(x0)
-
-                # do we even need this? if yes this is just a chain rule
-                # application with already available data, so faster than
-                # extra jax.grad call. BUT if using check # correctness!
-                # dlogpdf_dtc = dlogpdf_dx0 @ dx0_dtc
+                dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
 
                 # propose a jump in x0, then transform it to λT.
                 assert dlogpdf_dx0.shape == jump_sizes.shape == (2,)
@@ -368,10 +364,13 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
                 tc_jump_mean = dtc_dx0 @ x0_jump_mean
 
+                new_tc_mean = tc + tc_jump_mean
+
                 # covariances change under linear maps like this;
                 # https://stats.stackexchange.com/questions/113700/
                 x0_jump_cov = np.diag(2 * dt * jump_sizes**2) # = (sqrt(2dt) jump_sizes)**2
                 tc_jump_cov = dtc_dx0 @ x0_jump_cov @ dtc_dx0.T
+                new_tc_cov = tc_jump_cov  # bc. cov(tc) = 0
 
                 # as for the logpdf: we know (from pdf change of variable, see report):
                 #   g(λT) = p(PMP(λT)) * abs(det(dPMP(λT)/dλT))
@@ -385,7 +384,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
                 # + small number to avoid gradients of log(0) anywhere
                 logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
 
-                return tc_jump_mean, tc_jump_cov, logpdf_value, x0
+                return new_tc_mean, new_tc_cov, logpdf_value, x0
 
 
             # calculate all the transition properties at once.
@@ -400,11 +399,11 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
             # now, evaluate the transition probability densities
             f_transition_logdensity = jax.scipy.stats.multivariate_normal.logpdf(
-                    tc_proposed-tc, mean=f_transition_mean, cov=f_transition_cov
+                    tc_proposed, mean=f_transition_mean, cov=f_transition_cov
             )
 
             b_transition_logdensity = jax.scipy.stats.multivariate_normal.logpdf(
-                    tc-tc_proposed, mean=b_transition_mean, cov=b_transition_cov
+                    tc, mean=b_transition_mean, cov=b_transition_cov
             )
 
             # hastings acceptance probability

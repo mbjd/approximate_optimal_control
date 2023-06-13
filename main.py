@@ -132,67 +132,6 @@ def run_algo(problem_params, algo_params, key=None):
         init_states = init_ys[:, 0:nx]  # will give (1, nx) 'row vector'
         return desirability_fct_x0(init_states, gp, ys_gp)
 
-    # here we actually take into account the 'change of variables' from terminal
-    # condition to x0 to correct for volume change.
-    def desirability_fct_jac_corrected(term_cond_normalised, gp, ys_gp):
-        '''
-        https://en.wikipedia.org/wiki/Probability_density_function#Vector_to_vector
-
-        for an invertible change of variable y=H(x), and x ~ f, we have
-
-        y ~ g(y) = f(H^-1(y)) | det d/dz H^-1 (z) |
-
-        but we want it the other way around: we know the density at the output and
-        would like to know a density for the input from which we can sample.
-        so, can we just multiply by the inverse of that factor? i.e.:
-        for an invertible change of variable y=H(x), and y ~ g, do we have:
-
-        x ~ f(x) = g(H(x)) | det d/dx H(x) |
-
-        also, is the det of the inverse mapping the inverse det of the mapping?
-        -> probably yes, by implicit function theorem the jacobian of the inverse
-           the inverse of the jacobian, and det(A^-1) = det(A)^-1.
-
-        let's try it and worry about the proof later. the mapping is not necessarily
-        invertible anyways so theory goes out of the window...
-
-        here we basically replace:
-         H -> tc_norm_to_x0
-         g -> desirability_fct_x0
-         f -> (what we are trying to find out)
-
-        ooops, forgot an important thing, the desirability fct corresponds to a log pdf,
-        not a pdf!!! so, instead we need:
-
-        exp(desirability(xT)) = exp(desirability(x0(xT))) * | det d/dxT x0(xT) |
-
-        putting a log on both sides:
-
-        log(exp(desirability(xT))) = log(exp(desirability(x0(xT))) *     | det d/dxT x0(xT) |)
-                desirability(xT)   =         desirability(x0(xT))  + log | det d/dxT x0(xT) |
-
-        somehow it doesn't really work yet? seems to produce exactly the same function as
-        the uncorrected version but shifted by a constant amount. but log(abs(det(jac)))
-        should not be constant over the state space....?
-        '''
-
-        def tc_norm_to_x0(tc_norm):
-            tc = unnormalise_term_cond(term_cond_normalised)
-            sol_obj, init_ys = integrate(tc.reshape(1, nx))
-            x0 = init_ys[:, 0:nx]  # will give (1, nx) 'row vector'
-            # we reshape to (nx,) to make jacobian nice, but later reshape to (1, nx) again
-            return x0.reshape((nx,))
-
-
-        term_cond = unnormalise_term_cond(term_cond_normalised)
-
-        x0 = tc_norm_to_x0(term_cond_normalised)
-        jac = jax.jacobian(tc_norm_to_x0)(term_cond_normalised)
-
-        jac_correction_factor = np.abs(np.linalg.det(jac))
-
-        return desirability_fct_x0(x0.reshape(1, nx), gp, ys_gp) + np.log(1e-5 + jac_correction_factor)
-
 
     def desirability_fct_x0(x0, gp, ys_gp):
         # because of weirdness x0 needs to be (1, nx) shaped

@@ -16,14 +16,12 @@ executing==1.2.0
 flax==0.6.9
 fonttools==4.39.3
 frozendict==2.3.8
-gast==0.5.4
-gpjax==0.6.1
 importlib-resources==5.12.0
 ipdb==0.13.13
 ipython==8.12.0
-jax==0.4.8
+jax==0.4.12
 jax-tqdm==0.1.1
-jaxlib==0.4.7
+jaxlib==0.4.12
 jaxtyping==0.2.15
 jedi==0.18.2
 kiwisolver==1.4.4
@@ -58,7 +56,6 @@ scipy==1.10.1
 simple-pytree==0.1.7
 six==1.16.0
 stack-data==0.6.2
-tensorflow-probability==0.19.0
 tensorstore==0.1.36
 tinygp==0.2.3
 tk==0.1.0

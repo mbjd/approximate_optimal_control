@@ -509,7 +509,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             for x0 in all_x0s:
                 pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
 
-            pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='green', alpha=scatter_alpha)
+            pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='red', alpha=scatter_alpha)
 
             # and here as a function of λ(T)
             pl.subplot(122)
@@ -517,7 +517,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             for tc in all_tcs:
                 pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
 
-            pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='green', alpha=scatter_alpha)
+            pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
 
             pl.figure('acceptance probabilities (for each chain)')
             pl.hist(accept.mean(axis=1))

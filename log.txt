@@ -1388,3 +1388,27 @@ more ideas:
 - try to sample from a sublevel set of the value function V(PMP(λT)), so we
   know that in closed loop we won't push the state outside of the region
   where we know the controls.
+- simulated annealing type thing in the sampler, to (maybe) improve
+  mixing/global optimisation capabilities, where we sample ~ exp(-T f(x)),
+  and sweep T from 0 to 1. Or only the T associated with the actual
+  desirability/reward, not the state penalty.
+
+
+2023-06-14
+
+meeting w/ lenart & bhavya.
+
+sampling algorithm works nicely, i present, they ask a couple of questions.
+bhavya asks why we don't just do uncertainty sampling in x0 and then find
+the relevant λT. good question - the whole project was built on the premise
+of avoiding the NLPs associated with this. maybe write the motivation for
+this kind of approach more clearly in the project.
+
+other than that, they say whats needed currently is a more thorough
+writeup, specifically with clearer assumptions and problem setting, and
+with a concise overview of the whole algorithm. then we can think about
+experiments and theoretical underpinnings.
+
+they mention that publication would be a real possibility and would
+encourage me to do it so long as i want. discussion on where to try and
+with what time postponed.

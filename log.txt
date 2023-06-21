@@ -1392,6 +1392,12 @@ more ideas:
   mixing/global optimisation capabilities, where we sample ~ exp(-T f(x)),
   and sweep T from 0 to 1. Or only the T associated with the actual
   desirability/reward, not the state penalty.
+- if we get as far as relaxing the "PMP bijective" assumption and manage to
+  fit a BNN or something that approximates the *globally* optimal control
+  input, then to make the model more exact we can adjust the target
+  distribution to place less and less density on λT/x0 combinations that
+  result in (value obtained from PMP) < (value from approximation), to
+  avoid taking too many uninformative samples.
 
 
 2023-06-14
@@ -1412,3 +1418,27 @@ experiments and theoretical underpinnings.
 they mention that publication would be a real possibility and would
 encourage me to do it so long as i want. discussion on where to try and
 with what time postponed.
+
+
+
+2023-06-14
+
+again meeting. (this week was entirely report writing.)
+
+current most important thing: get examples running, make some plots, put in
+results section.
+
+also discussed: the active learning part. should get an example running
+also there. i suspect the conclusion will be that with a good enough
+sampling algorithm it is practically not worth the tradeoff, at least not
+for NNs, maybe for GPs. in that context they mention some ways to select
+good new points to sample. something to do with kernel distance metrics.
+probably to ensure that we catch several 'modes' of the 'acquisition
+function' (= posterior variance - penalty term) and not just the highest
+one.
+
+also discussed about what happens when PMP function is not bijective.
+applying the formula still gives *some* density over λT from which we can
+sample with MCMC. theoretically we can also do something with generalised
+inverses and the like. TODO also - come up with some examples that satisfy
+our assumption, even if just LTI, and with (simple) ones that violate it.

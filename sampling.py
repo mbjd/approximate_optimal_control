@@ -15,8 +15,10 @@ import matplotlib.pyplot as pl
 
 import ipdb
 import time
-from tqdm import tqdm
 from functools import partial
+
+from tqdm import tqdm
+import jax_tqdm
 
 import pontryagin_utils
 import plotting_utils
@@ -38,256 +40,12 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
-def geometric_mala(integrate_fct, desirability_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
-    '''
-    genius idea from 2023-05-06.
-
-    basically, we want to approximate MCMC sampling of some distribution
-    over x(0), but by setting up a corresponding MCMC-ish thing in the
-    terminal condition space.
-
-    the two sides of the coin are (should be...) equally valid:
-    - MCMC algo for some distribution over λ(T)/x(T) with adaptive proposal
-      distribution
-    - MCMC algo for some distribution over x(0), but only obtaining samples
-      through the pontryagin solver (therefore slightly 'warping' the proposal
-      distribution)
-
-    the key algorithm step is the following:
-    - we want to perform an update x <- x + Δx as part of a simple MCMC
-      sampler in x(0)
-    - instead of performing the exact update, we write x(0) = f(λ(T)), and
-      use the taylor expansion of f to approximate the update in λ(T) space:
-      λ+ = λ + (df(λ)/dλ)^-1 Δx.
-
-    by the implicit function theorem, the inverse of the jacobian is the
-    jacobian of the local inverse, so there are refreshingly few leaps of
-    faith to convince ourself of the correctness of this method.
-    (citation needed)
-
-    in fact, can we give hard guarantees about the stationary distribution
-    over x(0)? (with some assumptions, such as PMP forms a bijection etc)
-    because maybe the M-H correction can correct for the slightly
-    mis-shaped proposal distribution resulting from the detour through
-    terminal condition....
-
-    this hopefully alleviates the difficulties of sampling from a
-    distribution with weird geometry in terminal condition space.
-
-    here we work with unnormalised terminal conditions again.
-    '''
-
-    nx = problem_params['nx']
-    # dt = algo_params['sampler_dt']
-
-    # this shit so ugly
-    integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
-
-    logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
-
-    def run_single_chain(key, tc0, jump_sizes, chain_length):
-        '''
-        key: jax PRNG key
-        tc0: (nx,) shape array of initial terminal condition (what an experssion)
-        jump_sizes: (nx,) shape array containing the diagonal of the
-          covariance matrix of the desired proposal distribution (in x(0))
-          good idea maybe to do like 0.1 * state space extent
-        '''
-
-
-        # TODO: does MALA have problems with non-normalised logpdfs?
-        # -> no, that's the whole point, we can add a constant to the logpdf
-        #    and everything stays the same
-
-        def scan_fct(state, dt):
-
-            tc, key = state
-
-            key, noise_key, alpha_key = jax.random.split(key, 3)
-
-            # find x0 for current terminal condition
-            x0_current = integrate_fct_reshaped(tc)
-            jac_value = jax.jacobian(integrate_fct_reshaped)(tc)
-
-            # propose a jump in x0
-            # probably we could calculate this gradient more easily by re-using the
-            # jacobian from above and the chain rule....
-
-            grad_logpdf_now = jax.grad(logpdf)(tc)
-            noise_sqrt_cov = np.sqrt(2*dt) * jump_sizes
-            noise = noise_sqrt_cov * jax.random.normal(noise_key, shape=(nx,))
-            x0_jump_deterministic = dt * grad_logpdf_now
-
-            # if x0_jump_deterministic is too large, we shrink it
-            # with this it seems to work nicely, only very few times it diverges wildly
-            # if norm/max_norm < 1, we divide by 1, leaving the jump
-            # if norm/max_norm > 1, we divide by norm/max_norm, so multiply by
-            # max_norm / norm, so we normalise and scale to max norm.
-            max_x0_jump = 0.1
-            correction = np.maximum(1, np.linalg.norm(x0_jump_deterministic)/max_x0_jump)
-            x0_jump_deterministic = x0_jump_deterministic / correction
-
-
-            x0_jump_desired = x0_jump_deterministic + noise
-            proposed_x0_desired = x0_current + x0_jump_desired
-
-            # find tc that approximately results in that jump
-            next_tc = tc + np.linalg.inv(jac_value) @ x0_jump_desired
-
-            # # one newton iteration
-            # jac_value = jax.jacobian(integrate_fct_reshaped)(next_tc)
-            # x0_jump_desired = proposed_x0_desired - integrate_fct_reshaped(next_tc)
-            # next_tc = next_tc + np.linalg.inv(jac_value) @ x0_jump_desired
-
-            # # two newton iterations
-            # jac_value = jax.jacobian(integrate_fct_reshaped)(next_tc)
-            # x0_jump_desired = proposed_x0_desired - integrate_fct_reshaped(next_tc)
-            # next_tc = next_tc + np.linalg.inv(jac_value) @ x0_jump_desired
-
-            # # three newton iterations
-            # jac_value = jax.jacobian(integrate_fct_reshaped)(next_tc)
-            # x0_jump_desired = proposed_x0_desired - integrate_fct_reshaped(next_tc)
-            # next_tc = next_tc + np.linalg.inv(jac_value) @ x0_jump_desired
-
-
-            grad_logpdf_next = jax.grad(logpdf)(next_tc)
-
-            # actual jump
-            proposed_x0 = integrate_fct_reshaped(next_tc)
-
-            # here: compute the metropolis-hastings correction.
-            # it is probably not entirely correct, specifically the
-            # part where we calculate transition densities in the x(0) domain
-            # this ensures detailed balance, so should already be enough to
-            # make it ACTUALLY sample from the given log pdf...?
-            log_p_next = desirability_fct_x0(proposed_x0)
-            log_p_current = desirability_fct_x0(x0_current)
-
-            def transition_density(xnow, xnext, grad_logpdf_x):
-                x = xnext
-                mean = xnow + dt * grad_logpdf_x
-                cov = np.diag(np.square(noise_sqrt_cov))
-                # especially if we take large jumps due to the gradient, the backward density
-                # can become very small, so we have to be careful not to get any NaNs.
-                # this small constant alleviates it. if both densities are large, it vanishes
-                return 0.00001 + jax.scipy.stats.multivariate_normal.pdf(x, mean, cov)
-
-
-            # the two transition densities needed for M-H correction.
-            density_forward = transition_density(x0_current, proposed_x0, grad_logpdf_now)
-            density_backward = transition_density(proposed_x0, x0_current, grad_logpdf_next)
-
-            # alpha = min(1, H), with probability alpha: accept the jump
-            # H = (p_next * density_forward) / (p_current * density_backward)
-            # we want in the front p_next/p_current = exp(log_p_next)/exp(log_p_current) = exp(log_p_next - log_p_current)
-            H = np.exp(log_p_next - log_p_current) * (density_backward / density_forward)
-            alpha = np.minimum(1, H)
-            u = jax.random.uniform(alpha_key)
-
-            # say alpha = .9, then we accept with a probability of .9
-            # = probability that u ~ U([0, 1]) < 0.9
-            do_accept = u < alpha
-
-            next_tc = np.where(do_accept, next_tc, tc)
-
-            # scale the terminal condition in the (rare) case it is very large?
-            # reject every step that goes into regions with too low density?
-            # somehow sometimes the terminal condition becomes very large, leading
-            # to problems in the next iteration.
-            # probably the problem is that the gradient is too large so we diverge.
-            # possible solutions:
-            # - make desirability function nicer, esp. the state penalty term
-            # - clip the gradient above
-            # - clip the 'desired x0 jump' above -> probably most intuitive
-
-            # more found out during debugging. the NaN arises from the line where we
-            # invert the jacobian. sometimes the terminal condition goes somewhere weird,
-            # and then the jacobian becomes zero (seemingly without reason - discrete
-            # differences with step=0.01 give much more sensible numbers)
-
-            # next_tc = tc + np.linalg.inv(jac_value) @ x0_jump_desired
-
-            next_state = (next_tc, key)
-
-            # looooots of outputs for debugging
-            output = {
-                    # 'key': key,
-                    # 'noise': noise,
-                    # 'jac_value': jac_value,
-                    # 'grad_logpdf_now': grad_logpdf_now,
-                    # 'x0_jump_desired': x0_jump_desired,
-                    # 'proposed_x0_desired': proposed_x0_desired,
-                    # 'proposed_x0': proposed_x0,
-                    'tc': tc,
-                    'x0': x0_current,
-                    # 'next_tc': next_tc,
-                    # 'H': H,
-                    # 'u': u,
-                    'do_accept': do_accept,
-            }
-
-            return next_state, output
-
-        init_state = (tc0, key)
-
-        # TODO maybe: longer dt for burn in, shorter after?
-        dts = algo_params['sampler_dt'] * np.ones(chain_length)
-        final_state, outputs = jax.lax.scan(scan_fct, init_state, dts)
-        return outputs['tc'], outputs['x0'], outputs['do_accept']
-
-    # vectorise & speed up :)
-    run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
-    run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
-
-    N_chains = algo_params['sampler_N_chains']
-    keys = jax.random.split(key, N_chains)
-    inits = 0.01 * jax.random.normal(key, shape=(N_chains, nx))
-
-    burn_in = algo_params['sampler_burn_in']
-    steps_per_sample = algo_params['sampler_steps_per_sample']
-    samples = algo_params['sampler_samples']
-    N_steps = burn_in + samples * steps_per_sample
-    all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
-
-    # discard some burn-in and subsample for approximate independence.
-    all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
-    all_x0s_flat = all_x0s[:, burn_in::steps_per_sample, :].reshape(-1, nx)
-
-    if algo_params['sampler_plot']:
-
-        trajectory_alpha = .1
-        scatter_alpha = .2
-        # here we plot the samples and desirability function over x(0)
-        pl.subplot(121)
-        extent = 3
-        plotting_utils.plot_fct(lambda x: np.exp(desirability_fct_x0(x)/20), (-extent, extent), (-extent, extent))
-
-        for x0 in all_x0s:
-            pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
-
-        pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='green', alpha=scatter_alpha)
-
-        # and here as a function of λ(T)
-        pl.subplot(122)
-
-        extent = .15
-        plotting_utils.plot_fct(lambda x: np.exp(logpdf(x)/20), (-extent, extent), (-extent, extent))
-
-        for tc in all_tcs:
-            pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
-
-        pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='green', alpha=scatter_alpha)
-
-        pl.figure('acceptance probabilities (for each chain)')
-        pl.hist(accept.mean(axis=1))
-
-        pl.show()
-
 def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
     '''
     version 2 of the 'geometric MALA' sampler. difference is the following:
     - previously we basically set up a MCMC sampler at x(0) and tried to 'follow along' approximately with λ(T)
-    - now, we do the whole MCMC in λ(T) but with the proposal distribution adjusted to fit the warped geometry
+    - now, we do the whole MCMC in λ(T) but with the proposal distribution adjusted to fit the warped geometry,
+      i.e. adjust λ(T) such that x0 = PMP(λ(T)) makes a sensible jump.
 
     it can be argued the difference is only cosmetic, if not it is certainly only minor. but it enables us to do
     the complete MCMC algo in terms of λ(T) including a correct M-H accept/reject step, which will give it the
@@ -307,87 +65,92 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
         '''
         key: jax PRNG key
         tc0: (nx,) shape array of initial terminal condition (what an experssion)
-        jump_sizes: (nx,) shape array containing the diagonal of the
-          covariance matrix of the desired proposal distribution (in x(0))
+        jump_sizes: (nx,) shape array containing the relevant lengh scales
+         in state space. this will influence the proposal dist, but that will be
+         scaled down by algo_params['sampler_dt'].
         '''
+
+        def mala_transition_info(tc, dt):
+            # this function does most of the heavy lifting here, we
+            # hope that aside from calling this twice* we don't have to
+            # do much of anything
+            # *could be optimised to once per iteration by passing the previous result..?
+
+            # returns:
+            # mean, cov:    parameterisation of the transition density
+            #               p(tc' | tc) =  N(mean, cov)
+            # logpdf_value: the unnormalised log probability density of tc
+            #               this is calculated *with* the jacobian
+            #               correction, i.e. the actual logpdf we want
+            #               to sample λ (aka tc) from.
+
+            # we later need to both sample the transition and evaluate
+            # their density. therefore we return (mean, cov) here and
+            # not just the sample or something.
+
+            # similarly to the v1 sampler we find a good proposal distribution
+            # by relating everything to the state space at x(0). the difference
+            # is that now, more stuff is in this transition density function.
+
+            # first we calculate all the derivatives :)
+            x0 = integrate_fct_reshaped(tc)
+            dx0_dtc = jax.jacobian(integrate_fct_reshaped)(tc)
+            dtc_dx0 = np.linalg.inv(dx0_dtc)  # by implicit function thm :)
+
+            dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
+
+            # propose a jump in x0, then transform it to λT.
+            x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
+
+            # as before, scale down the jump if very large.
+            # max_x0_jump_norm = 0.5
+            # correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
+            # x0_jump_mean = x0_jump_mean / correction
+
+            tc_jump_mean = dtc_dx0 @ x0_jump_mean
+
+            new_tc_mean = tc + tc_jump_mean
+
+            # covariances change under linear maps like this;
+            # https://stats.stackexchange.com/questions/113700/
+            x0_jump_cov = np.diag(2 * dt * jump_sizes**2) # = (sqrt(2dt) jump_sizes)**2
+            tc_jump_cov = dtc_dx0 @ x0_jump_cov @ dtc_dx0.T
+            new_tc_cov = tc_jump_cov  # bc. cov(tc) = 0
+
+            # as for the logpdf: we know (from pdf change of variable, see report):
+            #   g(λT) = p(PMP(λT)) * abs(det(dPMP(λT)/dλT))
+            # thus:
+            #   log g(λT) = log ( p(PMP(λT)) * abs(det(dPMP(λT)/dλT)) )
+            #             = log p(PMP(λT)) + log abs(det(dPMP(λT)/dλT))
+
+            logpdf_value_x0 = logpdf_x0(x0)
+            detjac = np.linalg.det(dx0_dtc)
+
+            # + small number to avoid gradients of log(0)
+            # but if PMP is invertible as assumed then abs(detjac) > 0 anyways
+            logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
+
+            return new_tc_mean, new_tc_cov, logpdf_value, x0
 
         def scan_fct(state, dt):
 
-            tc, key = state
+            tc, current_transition_info, key = state
 
             key, noise_key, alpha_key = jax.random.split(key, 3)
-
-            @jax.jit
-            def transition_mean_cov_logpdf(tc):
-                # this function does most of the heavy lifting here, we
-                # hope that aside from calling this twice we don't have to
-                # do much of anything
-
-                # returns:
-                # mean, cov:    parameterisation of the transition density
-                #               p(tc' | tc) =  N(mean, cov)
-                # logpdf_value: the unnormalised log probability density of tc
-                #               this is calculated *with* the jacobian
-                #               correction, i.e. the actual logpdf we want
-                #               to sample λ (aka tc) from.
-
-                # we later need to both sample the transition and evaluate
-                # their density. therefore we return (mean, cov) here and
-                # not just the sample or something.
-
-                # similarly to the v1 sampler we find a good proposal distribution
-                # by relating everything to the state space at x(0). the difference
-                # is that now, more stuff is in this transition density function.
-
-                # first we calculate all the derivatives :)
-                x0 = integrate_fct_reshaped(tc)
-                dx0_dtc = jax.jacobian(integrate_fct_reshaped)(tc)
-                dtc_dx0 = np.linalg.inv(dx0_dtc)  # by implicit function thm :)
-
-                dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
-
-                # propose a jump in x0, then transform it to λT.
-                x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
-
-                # as before, scale down the jump if very large.
-                # max_x0_jump_norm = 0.5
-                # correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
-                # x0_jump_mean = x0_jump_mean / correction
-
-                tc_jump_mean = dtc_dx0 @ x0_jump_mean
-
-                new_tc_mean = tc + tc_jump_mean
-
-                # covariances change under linear maps like this;
-                # https://stats.stackexchange.com/questions/113700/
-                x0_jump_cov = np.diag(2 * dt * jump_sizes**2) # = (sqrt(2dt) jump_sizes)**2
-                tc_jump_cov = dtc_dx0 @ x0_jump_cov @ dtc_dx0.T
-                new_tc_cov = tc_jump_cov  # bc. cov(tc) = 0
-
-                # as for the logpdf: we know (from pdf change of variable, see report):
-                #   g(λT) = p(PMP(λT)) * abs(det(dPMP(λT)/dλT))
-                # thus:
-                #   log g(λT) = log ( p(PMP(λT)) * abs(det(dPMP(λT)/dλT)) )
-                #             = log p(PMP(λT)) + log abs(det(dPMP(λT)/dλT))
-
-                logpdf_value_x0 = logpdf_x0(x0)
-                detjac = np.linalg.det(dx0_dtc)
-
-                # + small number to avoid gradients of log(0) anywhere
-                logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
-
-                return new_tc_mean, new_tc_cov, logpdf_value, x0
 
 
             # calculate all the transition properties at once.
             # f for forward transition.
-            f_transition_mean, f_transition_cov, tc_logpdf, x0_current = transition_mean_cov_logpdf(tc)
+            f_transition_mean, f_transition_cov, tc_logpdf, x0_current = current_transition_info
+            # f_transition_mean, f_transition_cov, tc_logpdf, x0_current = mala_transition_info(tc, dt)
 
             # sample from that distribution
             tc_proposed = jax.random.multivariate_normal(noise_key, mean=f_transition_mean, cov=f_transition_cov)
 
             # and get the info for the backward transition for ensuring detailed balance.
-            b_transition_mean, b_transition_cov, tc_next_logpdf, _ = transition_mean_cov_logpdf(tc_proposed)
+            b_transition_info = mala_transition_info(tc_proposed, dt)
+            b_transition_mean, b_transition_cov, tc_next_logpdf, _ = b_transition_info
+
 
             # now, evaluate the transition probability densities
             f_transition_logdensity = jax.scipy.stats.multivariate_normal.logpdf(
@@ -418,7 +181,14 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
             next_tc = np.where(do_accept, tc_proposed, tc)
 
-            next_state = (next_tc, key)
+            # if do_accept, we go to proposed tc, therefore b_transition applies
+            # otherwise we keep the current transition info
+            # but in this hacky way because jax.lax.select is only for arrays not pytrees
+            combine = lambda a, b: do_accept * a + (1-do_accept) * b
+            next_transition_info = jax.tree_util.tree_map(combine, b_transition_info, current_transition_info)
+            # next_transition_info = jax.lax.select(do_accept, b_transition_info, current_transition_info)
+
+            next_state = (next_tc, next_transition_info, key)
 
             # looooots of outputs for debugging
             output = {
@@ -429,25 +199,27 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
                     # 'x0_jump_desired': x0_jump_desired,
                     # 'proposed_x0_desired': proposed_x0_desired,
                     # 'proposed_x0': proposed_x0,
-                    'tc': tc,
-                    'x0': x0_current,
                     # 'next_tc': next_tc,
                     # 'H': H,
                     # 'u': u,
+                    'tc': tc,
+                    'x0': x0_current,
                     'do_accept': do_accept,
             }
 
             return next_state, output
 
-        init_state = (tc0, key)
+        init_transition_info = mala_transition_info(tc0, algo_params['sampler_dt'])
+        init_state = (tc0, init_transition_info, key)
 
         # TODO maybe: longer dt for burn in, shorter after?
         dts = algo_params['sampler_dt'] * np.ones(chain_length)
 
-        # test run:
-        # ns1, oup1 = scan_fct(init_state, dts[0])
-        # ipdb.set_trace()
+        if algo_params['sampler_tqdm']:
+            # why does this still not result in a progress bar?
+            scan_fct = jax_tqdm.scan_tqdm(n=chain_length)(scan_fct)
 
+        # ipdb.set_trace()
         final_state, outputs = jax.lax.scan(scan_fct, init_state, dts)
         # return outputs['tc'], outputs['x0'], outputs['do_accept']
         return outputs
@@ -455,6 +227,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
     # test run:
     # test_tc, test_x0, test_accept = run_single_chain(key, np.array([0.001, 0.001]), np.ones(2), 100)
+    # ipdb.set_trace()
 
     # import sys; sys.exit()
 
@@ -462,6 +235,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     # vectorise & speed up :)
     run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
     run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
+    run_multiple_chains_nojit = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
 
     N_chains = algo_params['sampler_N_chains']
     keys = jax.random.split(key, N_chains)
@@ -474,7 +248,20 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     N_steps = burn_in + samples * steps_per_sample
 
     # all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    # t0 = time.perf_counter()
+    # outputs = run_multiple_chains_nojit(keys, inits, np.ones(2), N_steps)
+    # t1 = time.perf_counter()
+    # print(f'time no-jit run: {t1-t0:.4f}')
+
+    t0 = time.perf_counter()
     outputs = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    t1 = time.perf_counter()
+    print(f'time for 1st jit run: {t1-t0:.4f}')
+
+    t0 = time.perf_counter()
+    outputs = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    t1 = time.perf_counter()
+    print(f'time for 2nd jit run: {t1-t0:.4f}')
 
     all_tcs = outputs['tc']
     all_x0s = outputs['x0']
@@ -522,7 +309,6 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             pl.figure('acceptance probabilities (for each chain)')
             pl.hist(accept.mean(axis=1))
 
-            pl.show()
 
         else:
 
@@ -536,6 +322,26 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             #  get proposal distr.
             #  plot it.
 
+        # make mcmc diagnostics plot.
+
+        # time series
+        pl.figure()
+        pl.subplot(211)
+        pl.plot(all_x0s[0, :, 0])
+        pl.plot(all_x0s[0, :, 1])
+
+        # autocorrelation function
+        pl.subplot(212)
+
+
+        for x0 in all_x0s:
+            N_pts = x0.shape[0]
+            corrmat = x0 @ x0.T
+            autocorrs = [np.diagonal(corrmat, offset).mean() for offset in range(N_pts)]
+            pl.plot(autocorrs, color='black', alpha=0.2)
+
+        pl.show()
+        ipdb.set_trace()
 
 
 

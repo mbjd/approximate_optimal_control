@@ -380,8 +380,8 @@ if __name__ == '__main__':
             'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             'pontryagin_sampler_returns': 'both',
 
-            'sampler_dt': 0.005,
-            'sampler_burn_in': 512,
+            'sampler_dt': 0.1,
+            'sampler_burn_in': 128,
             'sampler_burn_in_noise': 1,
             'sampler_init_noise': 1,
             'sampler_final_noise': 0.0001,
@@ -389,6 +389,7 @@ if __name__ == '__main__':
             'sampler_samples': 2**8,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 4,
             'sampler_plot': True,
+            'sampler_tqdm': True,
 
             'x_sample_cov': x_sample_cov,
             'x_max_mahalanobis_dist': 2,

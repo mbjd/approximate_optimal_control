@@ -337,8 +337,8 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
         for x0 in all_x0s:
             N_pts = x0.shape[0]
             corrmat = x0 @ x0.T
-            autocorrs = [np.diagonal(corrmat, offset).mean() for offset in range(N_pts)]
-            pl.plot(autocorrs, color='black', alpha=0.2)
+            autocorrs = np.array([np.diagonal(corrmat, offset).mean() for offset in range(N_pts)])
+            pl.plot(autocorrs/autocorrs[0], color='black', alpha=0.2)
 
         pl.show()
         ipdb.set_trace()

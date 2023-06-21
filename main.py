@@ -382,12 +382,9 @@ if __name__ == '__main__':
 
             'sampler_dt': 0.1,
             'sampler_burn_in': 128,
-            'sampler_burn_in_noise': 1,
-            'sampler_init_noise': 1,
-            'sampler_final_noise': 0.0001,
-            'sampler_N_chains': 16,
+            'sampler_N_chains': 4,
             'sampler_samples': 2**8,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 4,
+            'sampler_steps_per_sample': 8,
             'sampler_plot': True,
             'sampler_tqdm': True,
 

@@ -40,7 +40,7 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
-def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
+def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
     '''
     version 2 of the 'geometric MALA' sampler. difference is the following:
     - previously we basically set up a MCMC sampler at x(0) and tried to 'follow along' approximately with λ(T)
@@ -59,8 +59,8 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
 
     # DO NOT confuse these two or it will cause days of bug hunting
-    logpdf = lambda tc: desirability_fct_x0(integrate_fct_reshaped(tc))
-    logpdf_x0 = desirability_fct_x0
+    logpdf = lambda tc: reward_fct_x0(integrate_fct_reshaped(tc))
+    logpdf_x0 = reward_fct_x0
 
     def run_single_chain(key, tc0, jump_sizes, chain_length):
         '''
@@ -283,11 +283,11 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
         pl.subplot(121)
         extent = 1.2 * np.max(np.abs(all_x0s_flat))
-        plotting_utils.plot_fct(lambda x: np.exp(desirability_fct_x0(x)/20), (-extent, extent), (-extent, extent))
+        plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)/20), (-extent, extent), (-extent, extent))
 
         pl.subplot(122)
         extent = 1.2 * np.max(np.abs(all_tcs_flat))
-        plotting_utils.plot_fct(lambda x: np.exp(logpdf(x)/20), (-extent, extent), (-extent, extent))
+        plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)/20), (-extent, extent), (-extent, extent))
 
 
         # make the normal plot

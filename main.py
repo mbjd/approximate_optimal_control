@@ -15,6 +15,7 @@ from functools import partial
 
 from jax.config import config
 # config.update("jax_debug_nans", True)
+jax.config.update("jax_enable_x64", True)
 
 def run_algo(problem_params, algo_params, key=None):
 
@@ -343,7 +344,7 @@ def sample_uniform(problem_params, algo_params, key):
 
     # reward_fct = lambda x: -50 * np.maximum(0, x.T @ Q_S @ x - 1) + 5 * np.sqrt(0.01 + x.T @ np.array([[1,0],[0,0]]) @ x)
     # reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_S @ x - 1) + 10 * np.sqrt(0.01 + np.square(np.array([3, 1]) @ x))
-    reward_fct = lambda x: -5 * np.maximum(0, x.T @ Q_S @ x - 1)
+    reward_fct = lambda x: -10 * np.maximum(0, x.T @ Q_S @ x - 1)
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
 
@@ -376,7 +377,7 @@ if __name__ == '__main__':
             'f': f,
             'l': l,
             'h': h,
-            'T': 5,
+            'T': 8,
             'nx': 2,
             'nu': 1,
             'terminal_constraint': True,  # not tested with False for a long time
@@ -397,16 +398,16 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 0.001,
-            'sampler_burn_in': 256,
+            'sampler_dt': 1/32,
+            'sampler_burn_in': 1024,
             'sampler_N_chains': 8,
-            'sampler_samples': 2**6,  # actual samples = N_chains * samples
+            'sampler_samples': 2**8,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 32,
             'sampler_plot': True,
             'sampler_tqdm': True,
 
             'x_sample_cov': x_sample_cov,
-            'x_max_mahalanobis_dist': 3,
+            'x_max_mahalanobis_dist': 2,
 
             'gp_iters': 100,
             'gp_train_plot': False,

@@ -283,11 +283,11 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
         pl.subplot(121)
         extent = 1.2 * np.max(np.abs(all_x0s_flat))
-        plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)/20), (-extent, extent), (-extent, extent))
+        plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
 
         pl.subplot(122)
         extent = 1.2 * np.max(np.abs(all_tcs_flat))
-        plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)/20), (-extent, extent), (-extent, extent))
+        plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)), (-extent, extent), (-extent, extent))
 
 
         # make the normal plot
@@ -298,7 +298,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
         # here we plot the samples and desirability function over x(0)
         pl.subplot(121)
         for x0 in all_x0s:
-            pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
+            pl.plot(x0[burn_in:, 0], x0[burn_in:, 1], color='grey', alpha=trajectory_alpha)
 
         # plot ellipse.
         plotting_utils.plot_ellipse(algo_params['x_Q_S'])
@@ -309,7 +309,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
         pl.subplot(122)
 
         for tc in all_tcs:
-            pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
+            pl.plot(tc[burn_in:, 0], tc[burn_in:, 1], color='grey', alpha=trajectory_alpha)
 
         # pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
 

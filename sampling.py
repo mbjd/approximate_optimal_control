@@ -55,6 +55,7 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     nx = problem_params['nx']
     # dt = algo_params['sampler_dt']
 
+
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
 
     # DO NOT confuse these two or it will cause days of bug hunting
@@ -247,6 +248,8 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
     N_steps = burn_in + samples * steps_per_sample
 
+    jumpsizes = np.diag(algo_params['x_sample_cov'] * algo_params['x_max_mahalanobis_dist'])
+
     # all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
     # t0 = time.perf_counter()
     # outputs = run_multiple_chains_nojit(keys, inits, np.ones(2), N_steps)
@@ -254,12 +257,12 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     # print(f'time no-jit run: {t1-t0:.4f}')
 
     t0 = time.perf_counter()
-    outputs = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
     t1 = time.perf_counter()
     print(f'time for 1st jit run: {t1-t0:.4f}')
 
     t0 = time.perf_counter()
-    outputs = run_multiple_chains(keys, inits, np.ones(2), N_steps)
+    outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
     t1 = time.perf_counter()
     print(f'time for 2nd jit run: {t1-t0:.4f}')
 
@@ -714,6 +717,8 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     desired_pdf = lambda x: jax.scipy.stats.multivariate_normal.pdf(x, desired_mean[None, :], desired_cov)
 
 
+    '''
+    # bit of a hack - comment this all out because we only need the (sample, integrate) functions anyway.
     # main loop iteration, for jax.lax.scan.
 
     # basically, this does the following:
@@ -857,6 +862,7 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     sampling_covs = outputs['sampling_covs']
     t1_covs = outputs['t1_covs']
     resampling_ws = outputs['resampling_ws']
+    '''
 
 
     if algo_params['pontryagin_sampler_plot']:
@@ -926,17 +932,16 @@ def pontryagin_sampler(problem_params, algo_params, key=jax.random.PRNGKey(1337)
     # previously for benchmarking
     # return end-start
 
-    last_sampling_mean = outputs['sampling_means'][-1]
-    last_sampling_cov = outputs['sampling_covs'][-1]
+    # last_sampling_mean = outputs['sampling_means'][-1]
+    # last_sampling_cov = outputs['sampling_covs'][-1]
 
     sampling_fct = lambda key, n: sample_terminal_conditions(key, last_sampling_mean, last_sampling_cov, n)
-
     integrate_fct = lambda xT: batch_pontryagin_backward_solver(x_to_y_vmap(xT), T, 0)
 
     if algo_params['pontryagin_sampler_returns'] == 'distribution_params':
         # now, return the parameters of the terminal condition distribution
         return (last_sampling_mean, last_sampling_cov)
-    elif algo_params['pontryagin_sampler_returns'] == 'sampling_fct':
+    elif algo_params['pontryagin_sampler_returns'] == 'functions':
         return (sampling_fct, integrate_fct)
     elif algo_params['pontryagin_sampler_returns'] == 'both':
         # put it all in a dictionary

@@ -5,6 +5,7 @@ import jax.numpy as np
 
 import gradient_gp
 import sampling
+import pontryagin_utils
 
 import ipdb
 import matplotlib
@@ -24,10 +25,13 @@ def run_algo(problem_params, algo_params, key=None):
     key, subkey = jax.random.split(key)
     sampler_output = sampling.pontryagin_sampler(problem_params, algo_params, key=subkey)
 
-    sample =        sampler_output['sampling_fct']
-    integrate =     sampler_output['integrate_fct']
-    sampling_mean = sampler_output['mean']
-    sampling_cov =  sampler_output['cov']
+    sample, integrate = sampler_output
+
+    # for the other output format...
+    # sample =        sampler_output['sampling_fct']
+    # integrate =     sampler_output['integrate_fct']
+    # sampling_mean = sampler_output['mean']
+    # sampling_cov =  sampler_output['cov']
 
     key, subkey = jax.random.split(key)
     sol_obj, ys = integrate(sample(subkey, algo_params['pontryagin_sampler_n_trajectories']))
@@ -332,6 +336,20 @@ def run_algo(problem_params, algo_params, key=None):
 
 
 
+def sample_uniform(problem_params, algo_params, key):
+
+    #   sqrt(x.T @ Σ_inv @ x) - max_dist
+    # = max_dist * sqrt((x.T @ Σ_inv/max_dist**2 @ x) - 1)
+    # so we can set Q_s = Σ_inv/max_dist and just get a different scaling factor
+    Q_s = np.linalg.inv(algo_params['x_sample_cov']) / algo_params['x_max_mahalanobis_dist']**2
+
+    # so nice, exactly from paper
+    reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_s @ x - 1)
+
+    integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
+
+    sampling.geometric_mala_2(integrate, reward_fct, problem_params, algo_params, key)
+
 
 
 if __name__ == '__main__':
@@ -359,10 +377,10 @@ if __name__ == '__main__':
             'f': f,
             'l': l,
             'h': h,
-            'T': 8,
+            'T': 4,
             'nx': 2,
             'nu': 1,
-            'terminal_constraint': True,
+            'terminal_constraint': True,  # not tested with False for a long time
     }
 
     x_sample_scale = 1 * np.eye(2)
@@ -371,25 +389,25 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_sampler_n_trajectories': 32,
-            'pontryagin_sampler_dt': 1/16,
-            'pontryagin_sampler_n_iters': 8,
-            'pontryagin_sampler_n_extrarounds': 2,
-            'pontryagin_sampler_strategy': 'importance',
-            'pontryagin_sampler_deterministic': False,
-            'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
-            'pontryagin_sampler_returns': 'both',
+            # 'pontryagin_sampler_n_trajectories': 32,
+            'pontryagin_sampler_dt': 1/8,
+            # 'pontryagin_sampler_n_iters': 8,
+            # 'pontryagin_sampler_n_extrarounds': 2,
+            # 'pontryagin_sampler_strategy': 'importance',
+            # 'pontryagin_sampler_deterministic': False,
+            # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
+            # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 0.1,
+            'sampler_dt': 0.05,
             'sampler_burn_in': 128,
-            'sampler_N_chains': 4,
-            'sampler_samples': 2**8,  # actual samples = N_chains * samples
+            'sampler_N_chains': 1,
+            'sampler_samples': 2**10,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 8,
             'sampler_plot': True,
             'sampler_tqdm': True,
 
             'x_sample_cov': x_sample_cov,
-            'x_max_mahalanobis_dist': 2,
+            'x_max_mahalanobis_dist': 3,
 
             'gp_iters': 100,
             'gp_train_plot': False,
@@ -400,4 +418,4 @@ if __name__ == '__main__':
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    run_algo(problem_params, algo_params, key=jax.random.PRNGKey(121))
+    sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(121))

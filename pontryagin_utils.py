@@ -2,6 +2,8 @@ import jax
 import jax.numpy as np
 import ipdb
 
+import diffrax
+
 # we want to find the value function V.
 # for that we want to approximately satisfy the hjb equation:
 #
@@ -98,3 +100,88 @@ def define_extended_dynamics(problem_params):
         return y_dot
 
     return f_forward
+
+
+
+def make_pontryagin_solver(problem_params, algo_params):
+
+    f_forward = define_extended_dynamics(problem_params)
+
+    # solve pontryagin backwards, for vampping later.
+    # slightly differently parameterised than in other version.
+    def pontryagin_backward_solver(y0, t0, t1):
+
+        # setup ODE solver
+        term = diffrax.ODETerm(f_forward)
+        solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
+
+        # negative if t1 < t0, backward integration just works
+        assert algo_params['pontryagin_sampler_dt'] > 0
+        dt = algo_params['pontryagin_sampler_dt'] * np.sign(t1 - t0)
+
+        # what if we accept that we could create NaNs?
+        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_sampler_dt'])
+
+        # maybe easier to control the timing intervals like this?
+        saveat = diffrax.SaveAt(steps=True)
+
+        # and solve :)
+        solution = diffrax.diffeqsolve(
+                term, solver, t0=t0, t1=t1, dt0=dt, y0=y0,
+                saveat=saveat, max_steps=max_steps,
+        )
+
+        # this should return the last calculated (= non-inf) solution.
+        return solution, solution.ys[solution.stats['num_accepted_steps']-1]
+
+    # vmap = gangster!
+    # vmap only across first argument.
+    batch_pontryagin_backward_solver = jax.jit(jax.vmap(
+        pontryagin_backward_solver, in_axes=(0, None, None)
+    ))
+
+    return batch_pontryagin_backward_solver
+
+
+def make_pontryagin_solver_wrapped(problem_params, algo_params):
+
+    # construct the terminal extended state
+
+    # helper function, expands the state vector x to the extended state vector y = [x, λ, v]
+    # λ is the costate in the pontryagin minimum principle
+    # h is the terminal value function
+    def x_to_y_terminalcost(x, h):
+        costate = jax.grad(h)(x)
+        v = h(x)
+        ipdb.set_trace()
+        y = np.concatenate([x, costate, v])
+
+        return y
+
+    # slight abuse here: the same argument is used for λ as for x, be aware
+    # that x_to_y in that case is a misnomer, it should be λ_to_y.
+    # but as with a terminal constraint we are really just searching a
+    # distribution over λ instead of x, but the rest stays the same.
+    def x_to_y_terminalconstraint(λ, h=None):
+        x = np.zeros(problem_params['nx'])
+        costate = λ
+        v = np.zeros(1)
+        y = np.concatenate([x, costate, v])
+        return y
+
+    if problem_params['terminal_constraint']:
+        # we instead assume a zero terminal constraint.
+        x_to_y = x_to_y_terminalconstraint
+    else:
+        raise NotImplementedError('free terminal state has not been tested for a *long* time')
+        x_to_y = x_to_y_terminalcost
+
+    x_to_y_vmap = jax.vmap(lambda x: x_to_y(x))
+
+    batch_pontryagin_backward_solver = make_pontryagin_solver(problem_params, algo_params)
+
+    T = problem_params['T']
+
+    wrapped_solver = lambda λT: batch_pontryagin_backward_solver(x_to_y_vmap(λT), T, 0)
+
+    return wrapped_solver

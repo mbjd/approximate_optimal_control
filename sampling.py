@@ -104,9 +104,9 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
             x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
 
             # as before, scale down the jump if very large.
-            # max_x0_jump_norm = 0.5
-            # correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
-            # x0_jump_mean = x0_jump_mean / correction
+            max_x0_jump_norm = 0.5
+            correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
+            x0_jump_mean = x0_jump_mean / correction
 
             tc_jump_mean = dtc_dx0 @ x0_jump_mean
 
@@ -240,7 +240,10 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
 
     N_chains = algo_params['sampler_N_chains']
     keys = jax.random.split(key, N_chains)
-    inits = 0.01 * jax.random.normal(key, shape=(N_chains, nx))
+    inits = 0.0 * jax.random.normal(key, shape=(N_chains, nx))
+
+    # try to initialise at some weird point
+    # inits = np.kron(np.array([-14.8, 15.8]), np.ones((N_chains, 1)))
 
     burn_in = algo_params['sampler_burn_in']
     steps_per_sample = algo_params['sampler_steps_per_sample']
@@ -261,10 +264,10 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     t1 = time.perf_counter()
     print(f'time for 1st jit run: {t1-t0:.4f}')
 
-    t0 = time.perf_counter()
-    outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
-    t1 = time.perf_counter()
-    print(f'time for 2nd jit run: {t1-t0:.4f}')
+    # t0 = time.perf_counter()
+    # outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
+    # t1 = time.perf_counter()
+    # print(f'time for 2nd jit run: {t1-t0:.4f}')
 
     all_tcs = outputs['tc']
     all_x0s = outputs['x0']
@@ -279,69 +282,65 @@ def geometric_mala_2(integrate_fct, desirability_fct_x0, problem_params, algo_pa
     if algo_params['sampler_plot']:
 
         pl.subplot(121)
-        extent = 3
+        extent = 1.2 * np.max(np.abs(all_x0s_flat))
         plotting_utils.plot_fct(lambda x: np.exp(desirability_fct_x0(x)/20), (-extent, extent), (-extent, extent))
 
         pl.subplot(122)
-        extent = .15
+        extent = 1.2 * np.max(np.abs(all_tcs_flat))
         plotting_utils.plot_fct(lambda x: np.exp(logpdf(x)/20), (-extent, extent), (-extent, extent))
 
 
-        interactive = False
-        if not interactive:
-            # make the normal plot
+        # make the normal plot
 
-            trajectory_alpha = .1
-            scatter_alpha = .2
+        trajectory_alpha = .2
+        scatter_alpha = .2
 
-            # here we plot the samples and desirability function over x(0)
-            pl.subplot(121)
-            for x0 in all_x0s:
-                pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
+        # here we plot the samples and desirability function over x(0)
+        pl.subplot(121)
+        for x0 in all_x0s:
+            pl.plot(x0[:, 0], x0[:, 1], color='grey', alpha=trajectory_alpha)
 
-            pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='red', alpha=scatter_alpha)
+        # plot ellipse.
+        plotting_utils.plot_ellipse(algo_params['x_Q_S'])
 
-            # and here as a function of λ(T)
-            pl.subplot(122)
+        # pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='red', alpha=scatter_alpha)
 
-            for tc in all_tcs:
-                pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
+        # and here as a function of λ(T)
+        pl.subplot(122)
 
-            pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
+        for tc in all_tcs:
+            pl.plot(tc[:, 0], tc[:, 1], color='grey', alpha=trajectory_alpha)
 
-            pl.figure('acceptance probabilities (for each chain)')
-            pl.hist(accept.mean(axis=1))
+        # pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
 
+        pl.figure('acceptance probabilities (for each chain)')
+        pl.hist(accept.mean(axis=1))
 
-        else:
-
-            pass
-
-            # make a fancy pants plot that visualises the proposal distributions.
-
-            # make 2 sliders
-            # def on_update(val):
-            #  get tc
-            #  get proposal distr.
-            #  plot it.
 
         # make mcmc diagnostics plot.
 
         # time series
         pl.figure()
         pl.subplot(211)
-        pl.plot(all_x0s[0, :, 0])
-        pl.plot(all_x0s[0, :, 1])
+
+        # all_x0s.shape == (N_chains, N_samples, nx)
+        for x0 in all_x0s:
+            pl.plot(x0, alpha=.3)
+        # pl.plot(all_x0s[0, :, 0])
+        # pl.plot(all_x0s[0, :, 1])
 
         # autocorrelation function
         pl.subplot(212)
 
 
+        '''
+        this takes AGES
         for x0 in all_x0s:
             N_pts = x0.shape[0]
             corrmat = x0 @ x0.T
             autocorrs = np.array([np.diagonal(corrmat, offset).mean() for offset in range(N_pts)])
             pl.plot(autocorrs/autocorrs[0], color='black', alpha=0.2)
+        '''
 
         pl.show()
         ipdb.set_trace()

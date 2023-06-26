@@ -36,6 +36,7 @@ import diffrax
 def u_star_matrices(R, A):
     # A is a row vector here...
     u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
+    # return u_star_unconstrained
     return np.clip(u_star_unconstrained, -1, 1)
 
 def u_star_functions(f, l, V, t, x, nx, nu):

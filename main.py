@@ -338,13 +338,12 @@ def run_algo(problem_params, algo_params, key=None):
 
 def sample_uniform(problem_params, algo_params, key):
 
-    #   sqrt(x.T @ Σ_inv @ x) - max_dist
-    # = max_dist * sqrt((x.T @ Σ_inv/max_dist**2 @ x) - 1)
-    # so we can set Q_s = Σ_inv/max_dist and just get a different scaling factor
-    Q_s = np.linalg.inv(algo_params['x_sample_cov']) / algo_params['x_max_mahalanobis_dist']**2
-
     # so nice, exactly from paper
-    reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_s @ x - 1)
+    Q_S = algo_params['x_Q_S']
+
+    # reward_fct = lambda x: -50 * np.maximum(0, x.T @ Q_S @ x - 1) + 5 * np.sqrt(0.01 + x.T @ np.array([[1,0],[0,0]]) @ x)
+    # reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_S @ x - 1) + 10 * np.sqrt(0.01 + np.square(np.array([3, 1]) @ x))
+    reward_fct = lambda x: -5 * np.maximum(0, x.T @ Q_S @ x - 1)
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
 
@@ -377,7 +376,7 @@ if __name__ == '__main__':
             'f': f,
             'l': l,
             'h': h,
-            'T': 4,
+            'T': 5,
             'nx': 2,
             'nu': 1,
             'terminal_constraint': True,  # not tested with False for a long time
@@ -390,7 +389,7 @@ if __name__ == '__main__':
     # -> so some of them might not be relevant
     algo_params = {
             # 'pontryagin_sampler_n_trajectories': 32,
-            'pontryagin_sampler_dt': 1/8,
+            'pontryagin_sampler_dt': 1/4,
             # 'pontryagin_sampler_n_iters': 8,
             # 'pontryagin_sampler_n_extrarounds': 2,
             # 'pontryagin_sampler_strategy': 'importance',
@@ -398,11 +397,11 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 0.05,
-            'sampler_burn_in': 128,
-            'sampler_N_chains': 1,
-            'sampler_samples': 2**10,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 8,
+            'sampler_dt': 0.001,
+            'sampler_burn_in': 256,
+            'sampler_N_chains': 8,
+            'sampler_samples': 2**6,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 32,
             'sampler_plot': True,
             'sampler_tqdm': True,
 
@@ -412,8 +411,13 @@ if __name__ == '__main__':
             'gp_iters': 100,
             'gp_train_plot': False,
             'active_learning_iters': 4,
-
     }
+
+    # the matrix used to define the relevant state space subset in the paper
+    #   sqrt(x.T @ Σ_inv @ x) - max_dist
+    # = max_dist * sqrt((x.T @ Σ_inv/max_dist**2 @ x) - 1)
+    # so we can set Q_S = Σ_inv/max_dist and just get a different scaling factor
+    algo_params['x_Q_S'] = np.linalg.inv(x_sample_cov) / algo_params['x_max_mahalanobis_dist']**2
 
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'

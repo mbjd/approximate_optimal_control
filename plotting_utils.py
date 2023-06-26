@@ -15,7 +15,26 @@ import ipdb
 from functools import partial
 
 
-def plot_fct(f, xbounds, ybounds, N_disc = 201):
+def plot_ellipse(Q, N_pts=101):
+
+    # plot ellipse S = {x | x.T Q x = 1}
+    # x.T Q x = x.T Q^.5.T Q^.5 x = || Q^.5 x || == 1
+    # so basically, Q^.5 x is the unit circle, for x in S.
+    # Therefore, Q^(-1/2) (unit circle) = S
+
+    thetas = np.linspace(0, 2*np.pi, N_pts)
+
+    circle = jax.vmap(lambda t: np.array([np.cos(t), np.sin(t)]))(thetas).T
+
+    # it should be positive definite for a unique solution
+    # hopefully the user is smart enough
+    Q_half_inv = jax.scipy.linalg.sqrtm(np.linalg.inv(Q)).real
+
+    ellipse = Q_half_inv @ circle
+    pl.plot(ellipse[0, :], ellipse[1, :], color='red', alpha=.5)
+
+
+def plot_fct(f, xbounds, ybounds, N_disc = 401):
 
     # just the business logic: construct grid, reshape, evaluate, plot
     # create the plot before and show it after this function

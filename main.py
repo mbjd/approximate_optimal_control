@@ -340,14 +340,20 @@ def sample_uniform(problem_params, algo_params, key):
 
     # so nice, exactly from paper
     Q_S = algo_params['x_Q_S']
+    nx = problem_params['nx']
 
     # reward_fct = lambda x: -50 * np.maximum(0, x.T @ Q_S @ x - 1) + 5 * np.sqrt(0.01 + x.T @ np.array([[1,0],[0,0]]) @ x)
     # reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_S @ x - 1) + 10 * np.sqrt(0.01 + np.square(np.array([3, 1]) @ x))
     reward_fct = lambda x: -5 * np.maximum(0, x.T @ Q_S @ x - 1)
+    reward_fct_y0 = lambda y0: -5 * np.maximum(0, y0[0:nx].T @ Q_S @ y0[0:nx] - 1)
+    Vmax = 50
+    reward_fct_y0 = lambda y0: -0.1 * np.maximum(0, y0[-1] - Vmax)  # value reward fct.
+
+
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
 
-    sampling.geometric_mala_2(integrate, reward_fct, problem_params, algo_params, key)
+    sampling.geometric_mala_2(integrate, reward_fct_y0, problem_params, algo_params, key)
 
 
 
@@ -376,7 +382,7 @@ if __name__ == '__main__':
             'f': f,
             'l': l,
             'h': h,
-            'T': 5,
+            'T': 4,
             'nx': 2,
             'nu': 1,
             'terminal_constraint': True,  # not tested with False for a long time
@@ -397,7 +403,7 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 0.001,
+            'sampler_dt': 0.05,
             'sampler_burn_in': 256,
             'sampler_N_chains': 8,
             'sampler_samples': 2**6,  # actual samples = N_chains * samples

@@ -40,7 +40,7 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
-def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
+def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
     '''
     version 2 of the 'geometric MALA' sampler. difference is the following:
     - previously we basically set up a MCMC sampler at x(0) and tried to 'follow along' approximately with λ(T)
@@ -56,11 +56,20 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
     # dt = algo_params['sampler_dt']
 
 
+    # maps tc (nx,) to x0 (nx,)
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
+    # maps tc (nx,) to y0 = (x0, λ0, v0), shape (2*nx+1,)
+    full_integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1].reshape(2*nx + 1)
+
+    # breaking change: reward function is now in terms of y0, not x0.
+    reward_fct_x0 = lambda x0: reward_fct_y0(np.concatenate([x0, np.zeros(nx+1)]))
 
     # DO NOT confuse these two or it will cause days of bug hunting
-    logpdf = lambda tc: reward_fct_x0(integrate_fct_reshaped(tc))
-    logpdf_x0 = reward_fct_x0
+    # logpdf = lambda tc: reward_fct_x0(integrate_fct_reshaped(tc))
+    # logpdf_x0 = reward_fct_x0
+
+    logpdf = lambda tc: reward_fct_y0(full_integrate_fct_reshaped(tc))
+    logpdf_y0 = reward_fct_y0
 
     def run_single_chain(key, tc0, jump_sizes, chain_length):
         '''
@@ -94,11 +103,55 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
             # is that now, more stuff is in this transition density function.
 
             # first we calculate all the derivatives :)
-            x0 = integrate_fct_reshaped(tc)
-            dx0_dtc = jax.jacobian(integrate_fct_reshaped)(tc)
-            dtc_dx0 = np.linalg.inv(dx0_dtc)  # by implicit function thm :)
+            y0 = full_integrate_fct_reshaped(tc)
+            x0 = y0[0:nx]
+            v0 = y0[-1]
 
-            dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
+            test=True
+            if test:
+                # shape (2*nx+1, nx)
+                dy0_dtc = jax.jacobian(full_integrate_fct_reshaped)(tc)
+
+                dx0_dtc = dy0_dtc[ 0:nx  , :]
+                # dλ0_dtc = dy0_dtc[nx:2*nx, :]
+                dv0_dtc = dy0_dtc[  -1:   , :]
+
+                dlogpdf_dy0 = jax.jacobian(logpdf_y0)(y0).reshape(1, 2*nx+1)  # proper row vector
+                dlogpdf_dx0_partial = dlogpdf_dy0[:, 0:nx]
+                # dlogpdf_dλ0_partial = dlogpdf_dy0[:, nx:2*nx]
+                dlogpdf_dv0_partial = dlogpdf_dy0[:, -1:]  # range to keep consistent shapes (ndim=2 always)
+
+                # now, say logpdf depends on y0, not just x0
+
+                # to do the same as before, view the computational graph.
+                # the forward computational graph is like this, starting at λT.
+
+                #        <--- x0 <---
+                # logpdf              λT
+                #        <--- v0 <---
+
+                # however, we want to know it in terms of x0. due to the bijection assumption, we can change it to this:
+
+                #        <--- x0 --->
+                # logpdf              λT
+                #        <--- v0 <---
+
+                # giving us: dlogpdf/dx0 = partial logpdf/partial x0 + (partial logpdf/partial v0) @ dv0/dλT @ dλT / dx0
+                #                          -------------------------   ---------------------------   -------   ---------
+                #                          get with jax.jacobian       this too                      same          ^
+                #                                                                                                  |
+                # for that last one, we can get the jacobian dx0/dλT and invert it to get the gradient of the inverse.
+
+                dtc_dx0 = np.linalg.inv(dx0_dtc)
+                dlogpdf_dx0_total = dlogpdf_dx0_partial + dlogpdf_dv0_partial @ dv0_dtc @ dtc_dx0
+                dlogpdf_dx0 = dlogpdf_dx0_total.reshape(-1)  # flatten again for compatibility with later code
+
+            else:
+                x0 = integrate_fct_reshaped(tc)
+                dx0_dtc = jax.jacobian(integrate_fct_reshaped)(tc)
+                dtc_dx0 = np.linalg.inv(dx0_dtc)  # by inverse function thm :)
+
+                dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
 
             # propose a jump in x0, then transform it to λT.
             x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
@@ -124,14 +177,20 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
             #   log g(λT) = log ( p(PMP(λT)) * abs(det(dPMP(λT)/dλT)) )
             #             = log p(PMP(λT)) + log abs(det(dPMP(λT)/dλT))
 
-            logpdf_value_x0 = logpdf_x0(x0)
-            detjac = np.linalg.det(dx0_dtc)
+            if test:
+                # probably this is not entirely correct...
+                logpdf_value_y0 = logpdf_y0(y0)
+                detjac = np.linalg.det(dx0_dtc)
+                logpdf_value = logpdf_value_y0 + np.log(1e-9 + np.abs(detjac))
+            else:
+                logpdf_value_x0 = logpdf_x0(x0)
+                detjac = np.linalg.det(dx0_dtc)
 
-            # + small number to avoid gradients of log(0)
-            # but if PMP is invertible as assumed then abs(detjac) > 0 anyways
-            logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
+                # + small number to avoid gradients of log(0)
+                # but if PMP is invertible as assumed then abs(detjac) > 0 anyways
+                logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
 
-            return new_tc_mean, new_tc_cov, logpdf_value, x0
+            return new_tc_mean, new_tc_cov, logpdf_value, x0, v0
 
         def scan_fct(state, dt):
 
@@ -142,7 +201,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
             # calculate all the transition properties at once.
             # f for forward transition.
-            f_transition_mean, f_transition_cov, tc_logpdf, x0_current = current_transition_info
+            f_transition_mean, f_transition_cov, tc_logpdf, x0_current, v0_current = current_transition_info
             # f_transition_mean, f_transition_cov, tc_logpdf, x0_current = mala_transition_info(tc, dt)
 
             # sample from that distribution
@@ -150,7 +209,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
             # and get the info for the backward transition for ensuring detailed balance.
             b_transition_info = mala_transition_info(tc_proposed, dt)
-            b_transition_mean, b_transition_cov, tc_next_logpdf, _ = b_transition_info
+            b_transition_mean, b_transition_cov, tc_next_logpdf, _, _ = b_transition_info
 
 
             # now, evaluate the transition probability densities
@@ -205,6 +264,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
                     # 'u': u,
                     'tc': tc,
                     'x0': x0_current,
+                    'v0': v0_current,
                     'do_accept': do_accept,
             }
 
@@ -283,11 +343,12 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
         pl.subplot(121)
         extent = 1.2 * np.max(np.abs(all_x0s_flat))
-        plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)/20), (-extent, extent), (-extent, extent))
+        # plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)/20), (-extent, extent), (-extent, extent))
 
         pl.subplot(122)
         extent = 1.2 * np.max(np.abs(all_tcs_flat))
-        plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)/20), (-extent, extent), (-extent, extent))
+        # plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)/20), (-extent, extent), (-extent, extent))
+        plotting_utils.plot_fct(logpdf, (-extent, extent), (-extent, extent))
 
 
         # make the normal plot

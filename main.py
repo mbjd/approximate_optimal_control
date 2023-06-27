@@ -351,7 +351,7 @@ def sample_uniform(problem_params, algo_params, key):
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
 
-    sampling.geometric_mala_2(integrate, reward_fct, problem_params, algo_params, key)
+    y0s, λTs = sampling.geometric_mala_2(integrate, reward_fct, problem_params, algo_params, key)
 
 
 
@@ -402,11 +402,11 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 1/32,
+            'sampler_dt': 1/16,
             'sampler_burn_in': 0,
-            'sampler_N_chains': 4,
+            'sampler_N_chains': 4,  # with pmap this has to be 4
             'sampler_samples': 2**10,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 1,
+            'sampler_steps_per_sample': 4,
             'sampler_plot': True,
             'sampler_tqdm': True,
 

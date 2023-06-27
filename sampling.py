@@ -341,6 +341,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
     if algo_params['sampler_plot']:
 
+        pl.figure('V(x) and V(x(λ))')
         pl.subplot(121)
         extent = 1.2 * np.max(np.abs(subsampled_x0s))
         # plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
@@ -373,16 +374,16 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
         # pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
 
-        pl.figure('acceptance probabilities (for each chain)')
-        pl.hist(accept.mean(axis=1))
-
-
         # again basically the same plot but as a coloured scatterplot.
+        pl.figure('V(x) and V(x(λ)) but as scatterplot')
         pl.subplot(121)
         pl.scatter(*np.split(subsampled_x0s, [1], axis=1), cmap='jet', c=subsampled_v0s)
 
         pl.subplot(122)
         pl.scatter(*np.split(subsampled_λTs, [1], axis=1), cmap='jet', c=subsampled_v0s)
+
+        pl.figure('acceptance probabilities (for each chain)')
+        pl.hist(accept.mean(axis=1))
 
 
         # make mcmc diagnostics plot.

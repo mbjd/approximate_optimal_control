@@ -1442,3 +1442,16 @@ applying the formula still gives *some* density over λT from which we can
 sample with MCMC. theoretically we can also do something with generalised
 inverses and the like. TODO also - come up with some examples that satisfy
 our assumption, even if just LTI, and with (simple) ones that violate it.
+
+
+2023-06-27
+
+mucked around 1.5 days getting S = {x | V(x) <= V_max} to work. it does
+seem to improve geometry of the relevant set of λs. but really need to move
+on now :(
+
+todo after lunch:
+
+- write gp value function fitting code again, self-contained & reusable
+- write a closed loop simulation thing.
+- try another system?

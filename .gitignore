@@ -1,5 +1,6 @@
 literature/
 plots/
+figs/
 env/
 __pycache__/
 V_grad_penalty_plots/

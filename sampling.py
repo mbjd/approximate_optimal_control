@@ -53,7 +53,6 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     '''
 
     nx = problem_params['nx']
-    # dt = algo_params['sampler_dt']
 
 
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
@@ -375,12 +374,10 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
         # pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
 
         # again basically the same plot but as a coloured scatterplot.
-        pl.figure('V(x) and V(x(λ)) but as scatterplot')
-        pl.subplot(121)
-        pl.scatter(*np.split(subsampled_x0s, [1], axis=1), cmap='jet', c=subsampled_v0s)
 
-        pl.subplot(122)
-        pl.scatter(*np.split(subsampled_λTs, [1], axis=1), cmap='jet', c=subsampled_v0s)
+
+        plotting_utils.value_lambda_scatterplot(subsampled_x0s, subsampled_v0s, subsampled_λTs)
+
 
         pl.figure('acceptance probabilities (for each chain)')
         pl.hist(accept.mean(axis=1))
@@ -412,7 +409,10 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
         '''
 
         pl.show()
-        ipdb.set_trace()
+
+    # also write the dataset into a csv so we have it ready the next time.
+    np.save('datasets/last_y0s.npy', subsampled_y0s)
+    np.save('datasets/last_lamTs.npy', subsampled_λTs)
 
     return subsampled_y0s, subsampled_λTs
 

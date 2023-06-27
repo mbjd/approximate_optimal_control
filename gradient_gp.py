@@ -255,6 +255,7 @@ if __name__ == '__main__':
     grad_fs = jax.vmap(jax.grad(f))(xs_f) + noise_size * jax.random.normal(subkey, (N_pts, nx))
 
 
+    # this has since been changed - pass the ys array directly
     xs, ys, grad_flags = gradient_gp.reshape_for_gp(xs_f, fs, grad_fs)
 
     initparams = {

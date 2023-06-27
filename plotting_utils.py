@@ -11,8 +11,32 @@ matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
 
 import ipdb
+import time
 
 from functools import partial
+cmap = 'viridis'
+
+def value_lambda_scatterplot(x0s, v0s, lamTs, save=True):
+
+    pl.figure()
+    fig, ax = pl.subplots(ncols=2, layout='compressed', figsize=(6, 3))
+    pl.subplot(121)
+    pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=v0s)
+    pl.gca().set_title(r'Sampled $x_0$')
+
+    pl.subplot(122)
+    sc = pl.scatter(*np.split(lamTs, [1], axis=1), cmap=cmap, c=v0s)
+    pl.gca().set_title(r'Sampled $\lambda_T$')
+
+    pl.colorbar(sc, label='Value $V(x_0)$')
+
+    if save:
+        t = int(time.time())
+        pl.savefig(f'figs/value_lambda_scatter_{t}.png', dpi=400)
+
+
+
+
 
 
 def plot_ellipse(Q, N_pts=101):

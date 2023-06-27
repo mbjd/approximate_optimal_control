@@ -117,11 +117,11 @@ def make_pontryagin_solver(problem_params, algo_params):
         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
 
         # negative if t1 < t0, backward integration just works
-        assert algo_params['pontryagin_sampler_dt'] > 0
-        dt = algo_params['pontryagin_sampler_dt'] * np.sign(t1 - t0)
+        assert algo_params['pontryagin_solver_dt'] > 0
+        dt = algo_params['pontryagin_solver_dt'] * np.sign(t1 - t0)
 
         # what if we accept that we could create NaNs?
-        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_sampler_dt'])
+        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
 
         # maybe easier to control the timing intervals like this?
         saveat = diffrax.SaveAt(steps=True)

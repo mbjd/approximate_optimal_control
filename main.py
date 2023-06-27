@@ -341,10 +341,13 @@ def sample_uniform(problem_params, algo_params, key):
 
     # so nice, exactly from paper
     Q_S = algo_params['x_Q_S']
+    nx = problem_params['nx']
 
     # reward_fct = lambda x: -50 * np.maximum(0, x.T @ Q_S @ x - 1) + 5 * np.sqrt(0.01 + x.T @ np.array([[1,0],[0,0]]) @ x)
     # reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_S @ x - 1) + 10 * np.sqrt(0.01 + np.square(np.array([3, 1]) @ x))
     reward_fct = lambda x: -10 * np.maximum(0, x.T @ Q_S @ x - 1)
+    reward_fct = lambda y: -10 * np.maximum(0, y[0:nx].T @ Q_S @ y[0:nx] - 1)  # S = some ellipse
+    reward_fct = lambda y: -10 * np.maximum(0, y[-1] - 10)  # S = value sublevel set
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
 
@@ -389,8 +392,9 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
+            'pontryagin_solver_dt': 1/16,
+
             # 'pontryagin_sampler_n_trajectories': 32,
-            'pontryagin_sampler_dt': 1/4,
             # 'pontryagin_sampler_n_iters': 8,
             # 'pontryagin_sampler_n_extrarounds': 2,
             # 'pontryagin_sampler_strategy': 'importance',
@@ -399,10 +403,10 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_returns': 'functions',
 
             'sampler_dt': 1/32,
-            'sampler_burn_in': 64,
-            'sampler_N_chains': 8,
-            'sampler_samples': 2**8,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 4,
+            'sampler_burn_in': 0,
+            'sampler_N_chains': 4,
+            'sampler_samples': 2**10,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 1,
             'sampler_plot': True,
             'sampler_tqdm': True,
 

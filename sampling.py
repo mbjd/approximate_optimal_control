@@ -40,7 +40,7 @@ config.update("jax_numpy_rank_promotion", "warn")
 warnings.filterwarnings('error', message='.*Following NumPy automatic rank promotion.*')
 
 
-def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
+def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, key=jax.random.PRNGKey(0)):
     '''
     version 2 of the 'geometric MALA' sampler. difference is the following:
     - previously we basically set up a MCMC sampler at x(0) and tried to 'follow along' approximately with λ(T)
@@ -60,8 +60,9 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
     full_integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1].reshape(-1)
 
     # DO NOT confuse these two or it will cause days of bug hunting
-    logpdf = lambda tc: reward_fct_x0(integrate_fct_reshaped(tc))
-    logpdf_x0 = reward_fct_x0
+    logpdf = lambda tc: reward_fct_y0(full_integrate_fct_reshaped(tc))
+    logpdf_y0 = reward_fct_y0
+    # logpdf_x0 = reward_fct_x0
 
     def run_single_chain(key, tc0, jump_sizes, chain_length):
         '''
@@ -102,9 +103,32 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
             dy0_dtc = jax.jacobian(full_integrate_fct_reshaped)(tc)
             dx0_dtc = dy0_dtc[0:nx, :]
+            dv0_dtc = dy0_dtc[-1:, :]
             dtc_dx0 = np.linalg.inv(dx0_dtc)  # by implicit function thm :)
 
-            dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
+            # if reward_fct depends both on x0 and v0 we cannot do it this simply.
+            # dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
+            jacobian_logpdf_y0 = jax.jacobian(logpdf_y0)(y0).reshape(1, 2*nx+1)
+
+            dlogpdf_dx0_partial = jacobian_logpdf_y0[:, 0:nx]
+            dlogpdf_dv0_partial = jacobian_logpdf_y0[:, -1:]
+
+            # instead, reverse the computation graph between x0 and λT:
+            # (which is possible because we assumed that PMP: λT -> x0 is bijective)
+
+            #        <--- x0 <---
+            # logpdf              λT
+            #        <--- v0 <---
+
+            # to look like this:
+
+            #        <--- x0 --->
+            # logpdf              λT
+            #        <--- v0 <---
+
+            # then, simply use the sum rule to get:
+
+            dlogpdf_dx0 = (dlogpdf_dx0_partial + dlogpdf_dv0_partial @ dv0_dtc @ dtc_dx0).reshape(nx)
 
             # propose a jump in x0, then transform it to λT.
             x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
@@ -130,12 +154,35 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
             #   log g(λT) = log ( p(PMP(λT)) * abs(det(dPMP(λT)/dλT)) )
             #             = log p(PMP(λT)) + log abs(det(dPMP(λT)/dλT))
 
-            logpdf_value_x0 = logpdf_x0(x0)
+            # We want to adjust the jacobian formula to account for the fact that logpdf depends on v too.
+            # we may need another 'compuational graph juggling' trick.
+            # because *actually* V is a function of x, the graph looks like this:
+
+            #        <--- x0 <---
+            # logpdf      v       λT
+            #        <--- v0
+
+            # can we not just consider the whole logpdf to be still in terms of x, like this:
+
+            # (        <--- x0 ) <---
+            # ( logpdf      v  )      λT
+            # (        <--- v0 )
+
+            # then we can still find the jacobian: dlogpdf_dx total = dlogpdf_dx partial + dlogpdf_dv0_partial @ dv0_dx
+            # conveniently, we have dv0_dx = λ(0).
+            # but do we even need this?
+            # if still logpdf is a function of x0 and x0 a function of λT, can we not just keep it the same?
+            # at least, in the old formula we only need the jacobian dx0/dtc, not dlogpdf/dx0.
+            # why is this? well because the fomula says so...
+            # and we do calculate the full total dlogpdf/dx0 just above...
+            # lets roll with this for the moment, not 100% sure about it though.
+
+            logpdf_value_y0 = logpdf_y0(y0)
             detjac = np.linalg.det(dx0_dtc)
 
             # + small number to avoid gradients of log(0)
             # but if PMP is invertible as assumed then abs(detjac) > 0 anyways
-            logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
+            logpdf_value = logpdf_value_y0 + np.log(1e-9 + np.abs(detjac))
 
             return new_tc_mean, new_tc_cov, logpdf_value, y0
 
@@ -296,7 +343,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
         pl.subplot(121)
         extent = 1.2 * np.max(np.abs(subsampled_x0s))
-        plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
+        # plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
 
         pl.subplot(122)
         extent = 1.2 * np.max(np.abs(subsampled_λTs))

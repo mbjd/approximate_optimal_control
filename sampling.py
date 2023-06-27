@@ -57,6 +57,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
 
     integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1][:, 0:nx].reshape(nx)
+    full_integrate_fct_reshaped = lambda tc: integrate_fct(tc.reshape(1, nx))[1].reshape(-1)
 
     # DO NOT confuse these two or it will cause days of bug hunting
     logpdf = lambda tc: reward_fct_x0(integrate_fct_reshaped(tc))
@@ -94,8 +95,13 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
             # is that now, more stuff is in this transition density function.
 
             # first we calculate all the derivatives :)
-            x0 = integrate_fct_reshaped(tc)
-            dx0_dtc = jax.jacobian(integrate_fct_reshaped)(tc)
+            # x0 = integrate_fct_reshaped(tc)
+
+            y0 = full_integrate_fct_reshaped(tc)
+            x0 = y0[0:nx]
+
+            dy0_dtc = jax.jacobian(full_integrate_fct_reshaped)(tc)
+            dx0_dtc = dy0_dtc[0:nx, :]
             dtc_dx0 = np.linalg.inv(dx0_dtc)  # by implicit function thm :)
 
             dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
@@ -131,7 +137,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
             # but if PMP is invertible as assumed then abs(detjac) > 0 anyways
             logpdf_value = logpdf_value_x0 + np.log(1e-9 + np.abs(detjac))
 
-            return new_tc_mean, new_tc_cov, logpdf_value, x0
+            return new_tc_mean, new_tc_cov, logpdf_value, y0
 
         def scan_fct(state, dt):
 
@@ -142,8 +148,8 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
             # calculate all the transition properties at once.
             # f for forward transition.
-            f_transition_mean, f_transition_cov, tc_logpdf, x0_current = current_transition_info
-            # f_transition_mean, f_transition_cov, tc_logpdf, x0_current = mala_transition_info(tc, dt)
+            f_transition_mean, f_transition_cov, tc_logpdf, y0_current = current_transition_info
+            # f_transition_mean, f_transition_cov, tc_logpdf, y0_current = mala_transition_info(tc, dt)
 
             # sample from that distribution
             tc_proposed = jax.random.multivariate_normal(noise_key, mean=f_transition_mean, cov=f_transition_cov)
@@ -204,7 +210,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
                     # 'H': H,
                     # 'u': u,
                     'tc': tc,
-                    'x0': x0_current,
+                    'y0': y0_current,
                     'do_accept': do_accept,
             }
 
@@ -270,23 +276,30 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
     # print(f'time for 2nd jit run: {t1-t0:.4f}')
 
     all_tcs = outputs['tc']
-    all_x0s = outputs['x0']
+
+    # outputs['y0'].shape == (N_chains, N_steps, nx)
+    all_x0s = outputs['y0'][:, :, 0:nx]
+    all_y0s = outputs['y0'][:, :, nx:2*nx]
+    all_v0s = outputs['y0'][:, :, -1]
     accept = outputs['do_accept']
 
     # discard some burn-in and subsample for approximate independence.
-    all_tcs_flat = all_tcs[:, burn_in::steps_per_sample, :].reshape(-1, nx)
-    all_x0s_flat = all_x0s[:, burn_in::steps_per_sample, :].reshape(-1, nx)
 
-    # ipdb.set_trace()
+    subsampled_y0s = outputs['y0'][:, burn_in::steps_per_sample, :].reshape(-1, 2*nx+1)
+    subsampled_x0s = subsampled_y0s[:, 0:nx]
+    subsampled_λ0s = subsampled_y0s[:, nx:2*nx]
+    subsampled_v0s = subsampled_y0s[:, -1]
+
+    subsampled_λTs = outputs['tc'][:, burn_in::steps_per_sample, :].reshape(-1, nx)
 
     if algo_params['sampler_plot']:
 
         pl.subplot(121)
-        extent = 1.2 * np.max(np.abs(all_x0s_flat))
+        extent = 1.2 * np.max(np.abs(subsampled_x0s))
         plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
 
         pl.subplot(122)
-        extent = 1.2 * np.max(np.abs(all_tcs_flat))
+        extent = 1.2 * np.max(np.abs(subsampled_λTs))
         plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)), (-extent, extent), (-extent, extent))
 
 
@@ -303,7 +316,7 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
         # plot ellipse.
         plotting_utils.plot_ellipse(algo_params['x_Q_S'])
 
-        # pl.scatter(all_x0s_flat[:, 0], all_x0s_flat[:, 1], color='red', alpha=scatter_alpha)
+        # pl.scatter(subsampled_x0s[:, 0], subsampled_x0s[:, 1], color='red', alpha=scatter_alpha)
 
         # and here as a function of λ(T)
         pl.subplot(122)
@@ -315,6 +328,14 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
         pl.figure('acceptance probabilities (for each chain)')
         pl.hist(accept.mean(axis=1))
+
+
+        # again basically the same plot but as a coloured scatterplot.
+        pl.subplot(121)
+        pl.scatter(*np.split(subsampled_x0s, [1], axis=1), cmap='jet', c=subsampled_v0s)
+
+        pl.subplot(122)
+        pl.scatter(*np.split(subsampled_λTs, [1], axis=1), cmap='jet', c=subsampled_v0s)
 
 
         # make mcmc diagnostics plot.
@@ -344,6 +365,8 @@ def geometric_mala_2(integrate_fct, reward_fct_x0, problem_params, algo_params, 
 
         pl.show()
         ipdb.set_trace()
+
+    return subsampled_y0s, subsampled_λTs
 
 
 

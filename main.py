@@ -399,10 +399,10 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_returns': 'functions',
 
             'sampler_dt': 1/32,
-            'sampler_burn_in': 1024,
+            'sampler_burn_in': 64,
             'sampler_N_chains': 8,
             'sampler_samples': 2**8,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 32,
+            'sampler_steps_per_sample': 4,
             'sampler_plot': True,
             'sampler_tqdm': True,
 

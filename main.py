@@ -119,6 +119,12 @@ def uniform_sampling_learning(problem_params, algo_params, key):
         )
 
         plotting_utils.plot_nn_train_outputs(outputs)
+
+        pl.figure()
+        extent=5
+        plotting_utils.plot_fct(partial(V_nn.nn.apply, nn_params),
+                (-extent, extent), (-extent, extent), N_disc=256)
+
         pl.show()
         ipdb.set_trace()
 
@@ -242,15 +248,15 @@ if __name__ == '__main__':
             'load_last': True,
 
             'nn_layersizes': [128, 128, 128],
-            'nn_V_gradient_penalty': 10,
+            'nn_V_gradient_penalty': 2,
             'nn_batchsize': 128,
-            'nn_N_epochs': 5,
+            'nn_N_epochs': 2,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'lr_staircase': False,
             'lr_staircase_steps': 10,
             'lr_init': 0.05,
-            'lr_final': 0.0005,
+            'lr_final': 0.01,
     }
 
     # the matrix used to define the relevant state space subset in the paper

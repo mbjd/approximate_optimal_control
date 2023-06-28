@@ -151,54 +151,6 @@ def get_optimised_gp(build_gp_fct, init_params, xs, ys, gradient_flags, steps=10
 
 
 
-def get_gp_prediction_weights(gp, cond_gp, X_pred):
-
-    # the GP basically approximates
-    #   V(x) = Σ_i w_i V(x_i)
-    # how do we get these weights?
-
-    # more fundamentally, the GP models everything as a huge normal distribution.
-    # Here we stack in a vector the training and prediction observations y_t and y_p.
-
-    # [y_t] ~ N( [0]  [ K_tt  K_tp ] )
-    # [y_p]    ( [0], [ K_pt  K_pp ] )
-
-    # with the covariance matrix given by the kernel and the (prior) mean usually 0.
-
-    # to predict we condition on the observed training values.
-    # from https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions
-
-    # y_p ~ N( K_pt inv(K_tt) (y_t - 0) , K_pp - K_pt inv(K_tt) K_tp )
-
-    # for the prediction itself we just want the mean, and we have the
-    # linear predictor
-
-    # y_p = K_pt inv(K_tt) y_t.
-
-    # which is basically what we wrote at the beginning, with K_pt inv(K_tt) = [w1 ... wN] in the
-    # case of just a single prediction.
-
-    # code mostly adapted from here
-    # https://github.com/dfm/tinygp/issues/163#issuecomment-1507461693
-
-    # see if they are really the same except for the conditioning
-    assert gp.X is cond_gp.mean_function.X
-    assert gp.kernel is cond_gp.mean_function.kernel
-
-    # reuse previous alpha. in the docs it says alpha = L^-1 y.
-    # to do the prediction, we would:
-    # mean = k_star.T @ cond_gp.mean_function.alpha
-    # instead we want the weights, so that mean = prediction_weights @ y.
-
-    # brute force solution: recalculate it...
-    K_tt = gp.kernel(gp.X, gp.X)
-    K_pt = gp.kernel(X_pred, gp.X)
-    ipdb.set_trace()
-
-    ws = K_pt @ np.linalg.inv(K_tt)
-    return ws
-
-
 def reshape_for_gp(ys):
 
     # needs as input an (N_pts, 2*nx+1) array with the extended state

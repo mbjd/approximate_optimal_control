@@ -123,7 +123,7 @@ class nn_wrapper():
 
 
 
-    @filter_jit
+    # @filter_jit
     def train(self, xs, ys, nn_params, algo_params, key):
 
         batchsize = algo_params['nn_batchsize']
@@ -288,7 +288,9 @@ class nn_wrapper():
 
         if algo_params['nn_progressbar']:
             # somehow this gives an error from within the library :(
-            # f_scan = jax_tqdm.scan_tqdm(n=total_iters)(f_scan)
+            # NOT ANYMORE thanks patrick!!
+            # https://github.com/mbjd/approximate_optimal_control/issues/1
+            f_scan = jax_tqdm.scan_tqdm(n=total_iters)(f_scan)
             pass
 
 
@@ -298,7 +300,7 @@ class nn_wrapper():
         # the f_scan function. probably the nicer way would be to have the data as input.
         # but it works as it is \o/
         init_carry = (nn_params, opt_state, 0)
-        final_carry, outputs = jax.lax.scan(f_scan, init_carry, None, length=total_iters)
+        final_carry, outputs = jax.lax.scan(f_scan, init_carry, np.arange(total_iters))
 
         nn_params, _, _ = final_carry
 

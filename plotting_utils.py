@@ -12,9 +12,93 @@ import matplotlib.pyplot as pl
 
 import ipdb
 import time
+import numpy as onp
 
 from functools import partial
 cmap = 'viridis'
+
+
+def plot_2d_gp(gp, gp_ys, xbounds, ybounds, N_disc=101, save=False,
+        savename=None):
+
+    '''
+    plot the 2d gp. makes three plots:
+    - color plot of the function itself
+    - color plot of the function variance
+    - color plot of the gradient variance
+      (how? largest? det cov?)
+    '''
+
+    xmin, xmax = xbounds
+    ymin, ymax = ybounds
+
+    xgrid = np.linspace(xmin, xmax, N_disc)
+    ygrid = np.linspace(ymin, ymax, N_disc)
+
+    xx, yy = np.meshgrid(xgrid, ygrid)
+
+    # TODO maybe package this type of batched, jitted eval functin
+    # with each GP?
+    def eval_gp_single(gp, gp_ys, input_x, input_gradflag):
+        # evaluate gp conditioned on gp_ys at (input_x, input_gradflag).
+        pred_gp = gp.condition(gp_ys, (input_x, input_gradflag)).gp
+        return (pred_gp.loc, np.sqrt(pred_gp.variance))
+
+    eval_gp_multiple = jax.vmap(eval_gp_single, in_axes=(None, None, 0, 0))
+    eval_gp_multiple = jax.jit(eval_gp_multiple, static_argnums=[0])
+
+    fig, ax = pl.subplots(ncols=3, layout='compressed', figsize=(9, 4))
+
+    eval_xs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+    eval_gradflags = np.zeros(eval_xs.shape[0], dtype=np.int8)
+
+    # new try: keep (N_disc, N_disc, 2) shape, pass axes 1,2 into
+    # eval_gp_single, vmap over axis 0
+    eval_xs = np.stack([xx, yy], axis=2)
+    eval_gradflags = np.zeros(xx.shape, dtype=np.int8)
+
+    y_pred, y_std = eval_gp_multiple(gp, gp_ys, eval_xs, eval_gradflags)
+
+    threeD = True
+    if threeD:
+        # ugly subplot over subplot...
+        ax3d = fig.add_subplot(131, projection='3d')
+        ax3d.plot_surface(xx, yy, y_pred)
+    else:
+        pl.subplot(131)
+        pl.pcolor(xx, yy, y_pred)
+    pl.gca().set_title('Value function V(x)')
+
+    pl.subplot(132)
+
+    outputs = y_std.reshape(xx.shape)
+    pl.pcolor(xx, yy, y_std)
+    pl.gca().set_title('std. dev. sqrt(Var(V(x)))')
+
+    pl.subplot(133)
+
+    nx = 2  # otherwise this function needs a complete rewrite anyway
+
+    grad_preds = onp.zeros(eval_xs.shape)
+    grad_stds =  onp.zeros(eval_xs.shape)
+
+    # loop so we can reuse the jitted function
+    for i in range(nx):
+        grad_preds[:, :, i], grad_stds[:, :, i] = eval_gp_multiple(
+                gp, gp_ys, eval_xs, eval_gradflags + i + 1
+        )
+
+    pl.pcolor(xx, yy, np.max(grad_stds, axis=2))
+    pl.gca().set_title('std. dev max_i sqrt(Var(grad_{x_i} V(x)))')
+
+    if save:
+        assert type(savename) == str
+        pl.savefig(savename, dpi=400)
+    else:
+        pl.show()
+
+
+
 
 def value_lambda_scatterplot(x0s, v0s, lamTs, save=True):
 
@@ -33,6 +117,8 @@ def value_lambda_scatterplot(x0s, v0s, lamTs, save=True):
     if save:
         t = int(time.time())
         pl.savefig(f'figs/value_lambda_scatter_{t}.png', dpi=400)
+    else:
+        pl.show()
 
 
 

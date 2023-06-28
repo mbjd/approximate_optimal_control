@@ -6,6 +6,8 @@ import jax.numpy as np
 import gradient_gp
 import sampling
 import pontryagin_utils
+import plotting_utils
+import nn_utils
 
 import ipdb
 import matplotlib
@@ -56,14 +58,14 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     # init = data for fitting first GP and optimising GP hyperparams.
     # main = big pool to sample from when fitting GP.
     # eval = holdout set to do MC estimate of approximation error.
-    init_y0s, main_y0s, eval_y0s = np.split(y0s, [32, y0s.shape[0]-256], axis=0)
+    init_y0s, main_y0s, eval_y0s = np.split(y0s, [128, y0s.shape[0]-256], axis=0)
 
 
     # make GP, optimise hyperparams.
     nx = problem_params['nx']
     initparams = {
             'log_amp': np.log(1),
-            'log_scale': np.zeros(nx),
+            'log_scale': np.ones(nx),
     }
 
     gp_xs, gp_ys, gp_gradflags = gradient_gp.reshape_for_gp(init_y0s)
@@ -74,47 +76,72 @@ def uniform_sampling_learning(problem_params, algo_params, key):
             gp_xs,
             gp_ys,
             gp_gradflags,
+            plot=algo_params['gp_train_plot'],
     )
 
     main_xs, main_ys, main_gradflags = gradient_gp.reshape_for_gp(main_y0s)
     eval_xs, eval_ys, eval_gradflags = gradient_gp.reshape_for_gp(eval_y0s)
+
+    x0max, x1max = np.abs(main_xs).max(axis=0)
+    xbounds = (-x0max, x0max)
+    ybounds = (-x1max, x1max)
 
     N_iters = algo_params['N_learning_iters']
 
     mean_stds = onp.zeros(N_iters)
     rmses = onp.zeros(N_iters)
 
+
+    # maaaan fuck that gp shit lets try the nn again.
+    try_nn = True
+    if try_nn:
+        nx = problem_params['nx']
+
+        V_nn = nn_utils.nn_wrapper(
+                input_dim = nx,
+                layer_dims = algo_params['nn_layersizes'],
+                output_dim = 1,
+        )
+
+        key, subkey = jax.random.split(key)
+        nn_params = V_nn.init_nn_params(subkey)
+
+
+        batchsize = algo_params['nn_batchsize']
+        N_epochs = algo_params['nn_N_epochs']
+
+        # make a test set or not.
+        testset_fraction = algo_params['nn_testset_fraction']
+
+        nn_xs, nn_ys = np.split(main_y0s, [nx], axis=1)
+        nn_params, outputs = V_nn.train(
+                nn_xs, nn_ys, nn_params, algo_params, key
+        )
+
+        plotting_utils.plot_nn_train_outputs(outputs)
+        pl.show()
+        ipdb.set_trace()
+
+
+    # add this many data points per iteration
+    batch_size = 16
+
     for i in range(N_iters):
         # just add one more sample to the GP.
         # None to match shapes
-        gp_xs = np.concatenate([gp_xs, main_xs[None, i]], axis=0)
-        gp_ys = np.concatenate([gp_ys, main_ys[None, i]], axis=0)
-        gp_gradflags = np.concatenate([gp_gradflags, main_gradflags[None, i]], axis=0)
+
+        idx = np.arange(i*batch_size, (i+1)*batch_size)
+        gp_xs = np.concatenate([gp_xs, main_xs[idx, :]], axis=0)
+        gp_ys = np.concatenate([gp_ys, main_ys[idx]], axis=0)
+        gp_gradflags = np.concatenate([gp_gradflags, main_gradflags[idx]], axis=0)
 
         gp = gradient_gp.build_gp(opt_params, gp_xs, gp_gradflags)
 
-        # evaluate approximation accuracy.
-        # this takes ages -- cannot really jit because we are always
-        # changing size.
-        pred_gp = gp.condition(gp_ys, (eval_xs, eval_gradflags)).gp
-        y_pred = pred_gp.loc
-        y_std = np.sqrt(pred_gp.variance)
+        name = f'figs/gp_iter_{i:04d}.png'
 
-        mean_std = np.mean(y_std)
-        rmse = np.sqrt(np.mean(np.square(y_pred - eval_ys)))
-        print(f'i = {i}')
-        print(f'mean standard deviation (hehe): {mean_std}')
-        print(f'rmse: {rmse}')
+        plotting_utils.plot_2d_gp(gp, gp_ys, xbounds, ybounds, save=True, savename=name)
+        print(f'saved figure {i} hopefully')
 
-        mean_stds[i] = mean_std
-        rmses[i] = rmse
-
-    pl.plot(mean_stds, label='mean std')
-    pl.plot(rmses, label='rmses')
-    pl.legend()
-    pl.show()
-
-    ipdb.set_trace()
 
 
     # pred_gp = trained_gp.condition(ys, (X_pred, pred_grad_flag)).gp
@@ -209,10 +236,21 @@ if __name__ == '__main__':
             'x_max_mahalanobis_dist': 2,
 
             'gp_iters': 100,
-            'gp_train_plot': False,
-            'N_learning_iters': 100,
+            'gp_train_plot': True,
+            'N_learning_iters': 200,
 
             'load_last': True,
+
+            'nn_layersizes': [128, 128, 128],
+            'nn_V_gradient_penalty': 10,
+            'nn_batchsize': 128,
+            'nn_N_epochs': 5,
+            'nn_progressbar': True,
+            'nn_testset_fraction': 0.1,
+            'lr_staircase': False,
+            'lr_staircase_steps': 10,
+            'lr_init': 0.05,
+            'lr_final': 0.0005,
     }
 
     # the matrix used to define the relevant state space subset in the paper
@@ -225,5 +263,3 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     uniform_sampling_learning(problem_params, algo_params, key=jax.random.PRNGKey(0))
-
-    sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(121))

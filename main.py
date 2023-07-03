@@ -6,6 +6,7 @@ import jax.numpy as np
 import gradient_gp
 import sampling
 import pontryagin_utils
+import plotting_utils
 
 import ipdb
 import matplotlib
@@ -39,6 +40,9 @@ def uniform_sampling_learning(problem_params, algo_params, key):
 
         y0s = np.load('datasets/last_y0s.npy')
         lamTs = np.load('datasets/last_lamTs.npy')
+
+        plotting_utils.value_lambda_scatterplot(y0s[:, 0:2], y0s[:, -1], lamTs, save=False)
+        pl.show()
 
     else:
 

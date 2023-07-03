@@ -1455,3 +1455,61 @@ todo after lunch:
 - write gp value function fitting code again, self-contained & reusable
 - write a closed loop simulation thing.
 - try another system?
+
+
+2023-06-28
+
+value function approximation error -> control cost regret results?
+lenart has some similar results.
+
+next 2w: run closed loop sim, make plots
+theory: postpone
+
+x' = f*(x,u)
+
+assume: f in {f | ||f - mu|| <= β σ } = M
+
+C(f, π) = \int 0 T f(x, π(x)) dt,  s.t. x' = f(x, p(x))
+
+max_f min_π cost -> turn into min_f min_π cost. optimistically pick
+dynamical model.
+
+regret = closed loop cost - optimal cost.
+       = c(f*, π_n) - c(f*, π*)
+
+something with regret bounded by value function approx error?
+
+V*(x0) = (optimal value fct but \infty horizon)
+
+assume value gradient error bounded
+|| V_x(x0) - V_x_mu(x0) || <= β σ (posterior gp uncertainty thingy!)
+\mathcal M = {all such x -> V_x functions}
+
+π(x) = φ(x) grad_x V(x)
+
+π_h = argmin_π c(f, pi)
+s.t. pi = phi(x) gradx phi(x)
+& s.t. gradx V(x) in M
+
+
+or other way:
+bound on gradV error -> bound on l(., .) accumulation -> bound on regret?
+
+
+
+yet other way: not finished, lenart links some resources.
+
+say there is ||V1 - V2|| <= something
+
+x1' = f1(x1), x2' = f2(x1), x0=x
+
+x1(t) - x2(t) = \int 0 T || f1(x1(s))-f2(x2(s)) || ds.
+
+= \int 0 T || f1(x1(s)) - f1(x2(s)) + f1(x2(s)) - f2(x2(s)) || ds.
+
+
+<= L_f \int 0 T || x1(s) - x2(s) || ds
+
+then apply grönwall ineq.
+
+

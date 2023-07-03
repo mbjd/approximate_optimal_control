@@ -88,6 +88,7 @@ def build_gp(params, X, g):
     base_kernel = amp * tinygp.transforms.Linear(
             scale_vec, tinygp.kernels.ExpSquared()
     )
+    # todo: incorporate an acutal linear map instead of jus
 
     kernel = GradientKernel(base_kernel)
 
@@ -98,7 +99,7 @@ def build_gp(params, X, g):
     # as we are working with almost noise free data, it makes more sense to
     # set a slightly higher value here to make the matrices not too ill conditioned
     # instead of trying to estimate the actual numerical/ODE solver noise.
-    noise_size = 0.05
+    noise_size = 0.1
     return tinygp.GaussianProcess(kernel, (X, g), diag=noise_size**2)
 
 
@@ -119,25 +120,15 @@ def get_optimised_gp(build_gp_fct, init_params, xs, ys, gradient_flags, steps=10
     opti = optax.adam(learning_rate=.05)
     opt_state = opti.init(init_params)
 
-    scan=True
-    if scan:
-        def train_loop_iter(carry, inp):
-            params, opt_state = carry
-            loss_val, grads = nll_value_grad(params, xs, ys, gradient_flags)
-            updates, opt_state = opti.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
-            return (params, opt_state), loss_val
+    def train_loop_iter(carry, inp):
+        params, opt_state = carry
+        loss_val, grads = nll_value_grad(params, xs, ys, gradient_flags)
+        updates, opt_state = opti.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
+        return (params, opt_state), loss_val
 
-        init_carry = (init_params, opt_state)
-        (params, opt_state), losses = jax.lax.scan(train_loop_iter, init_carry, xs=None, length=steps)
-    else:
-        losses = []
-        params = init_params
-        for i in tqdm.tqdm(range(steps)):
-            loss_val, grads = nll_value_grad(params, xs, ys, gradient_flags)
-            losses.append(loss_val)
-            updates, opt_state = opti.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
+    init_carry = (init_params, opt_state)
+    (params, opt_state), losses = jax.lax.scan(train_loop_iter, init_carry, xs=None, length=steps)
 
     if plot:
         pl.plot(losses, label='GP neg log likelihood')
@@ -145,8 +136,9 @@ def get_optimised_gp(build_gp_fct, init_params, xs, ys, gradient_flags, steps=10
         pl.show()
 
     trained_gp = build_gp(params, xs, gradient_flags)
+    nll_value = nll(params, xs, ys, gradient_flags)
 
-    return trained_gp, params
+    return trained_gp, params, nll_value
 
 
 
@@ -191,7 +183,7 @@ if __name__ == '__main__':
     N_pts = 256
     nx = 2
 
-    noise_size = 1e-2
+    noise_size = 0.1
 
     key, subkey = jax.random.split(key)
     xs_f = jax.random.normal(subkey, (N_pts, nx))

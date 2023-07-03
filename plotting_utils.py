@@ -63,10 +63,24 @@ def plot_2d_gp(gp, gp_ys, xbounds, ybounds, N_disc=101, save=False,
     if threeD:
         # ugly subplot over subplot...
         ax3d = fig.add_subplot(131, projection='3d')
-        ax3d.plot_surface(xx, yy, y_pred)
+
+        # just mean
+        # ax3d.plot_surface(xx, yy, y_pred, alpha=.8, cmap='viridis')
+
+        # confidence interval
+        ax3d.plot_surface(xx, yy, np.clip(y_pred + 3*y_std, 0, 12), alpha=.6, color='red')
+        ax3d.plot_surface(xx, yy, np.clip(y_pred - 3*y_std, 0, 12), alpha=.6, color='green')
+
     else:
         pl.subplot(131)
         pl.pcolor(xx, yy, y_pred)
+
+    # plot training data
+    # only get data where gradflag is 0, difficult to scatterplot the gradient
+    train_x = gp.X[0][gp.X[1] == 0]
+    train_V = gp_ys[gp.X[1] == 0]
+    pl.gca().scatter(train_x[:, 0], train_x[:, 1], train_V)
+
     pl.gca().set_title('Value function V(x)')
 
     pl.subplot(132)
@@ -160,8 +174,36 @@ def plot_fct(f, xbounds, ybounds, N_disc = 401):
     all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
 
     all_outputs = jax.vmap(f)(all_inputs).reshape(xx.shape)  # need a lot of memory!
+    # clip at V_max used for data generation.
+    all_outputs = np.clip(all_outputs, 0, 12)
     pl.pcolor(xx, yy, all_outputs, cmap='viridis')
+    pl.contour(xx, yy, all_outputs, c='black')
+    # pl.contourf(xx, yy, all_outputs, cmap='viridis')
     # pl.pcolor(xx, yy, all_outputs, cmap='jet')
+
+def plot_fct_3d(f, xbounds, ybounds, N_disc = 401):
+
+    fig = pl.figure('3d plot ooh')
+    ax = fig.add_subplot(111, projection='3d')
+
+    xmin, xmax = xbounds
+    ymin, ymax = ybounds
+
+    xgrid = np.linspace(xmin, xmax, N_disc)
+    ygrid = np.linspace(ymin, ymax, N_disc)
+
+    xx, yy = np.meshgrid(xgrid, ygrid)
+
+    all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+
+    all_outputs = jax.vmap(f)(all_inputs).reshape(xx.shape)  # need a lot of memory!
+
+    # clip at V_max used for data generation.
+    all_outputs = np.clip(all_outputs, 0, 12)
+
+    ax.plot_surface(xx, yy, all_outputs, cmap='viridis')
+
+
 
 
 def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):

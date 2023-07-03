@@ -54,23 +54,26 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     y0s = y0s[permuted_idx, :]
     lamTs = lamTs[permuted_idx, :]
 
+    # normalise all data (xs, lambdas, values)
+    y0s = y0s / y0s.std(axis=0)[None, :]
+
     # partition data into init, main, eval.
     # init = data for fitting first GP and optimising GP hyperparams.
     # main = big pool to sample from when fitting GP.
     # eval = holdout set to do MC estimate of approximation error.
-    init_y0s, main_y0s, eval_y0s = np.split(y0s, [128, y0s.shape[0]-256], axis=0)
+    init_y0s, main_y0s, eval_y0s = np.split(y0s, [64, y0s.shape[0]-256], axis=0)
 
 
     # make GP, optimise hyperparams.
     nx = problem_params['nx']
     initparams = {
-            'log_amp': np.log(1),
-            'log_scale': np.ones(nx),
+            'log_amp': np.log(12),
+            'log_scale': np.zeros(nx),
     }
 
     gp_xs, gp_ys, gp_gradflags = gradient_gp.reshape_for_gp(init_y0s)
 
-    gp, opt_params = gradient_gp.get_optimised_gp(
+    gp, opt_params, nll = gradient_gp.get_optimised_gp(
             gradient_gp.build_gp,
             initparams,
             gp_xs,
@@ -78,6 +81,14 @@ def uniform_sampling_learning(problem_params, algo_params, key):
             gp_gradflags,
             plot=algo_params['gp_train_plot'],
     )
+
+    print(opt_params)
+
+    # opt_params = {
+    #         'log_amp': np.log(12),
+    #         'log_scale': np.zeros(nx) + .5,
+    # }
+
 
     main_xs, main_ys, main_gradflags = gradient_gp.reshape_for_gp(main_y0s)
     eval_xs, eval_ys, eval_gradflags = gradient_gp.reshape_for_gp(eval_y0s)
@@ -92,8 +103,9 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     rmses = onp.zeros(N_iters)
 
 
+
     # maaaan fuck that gp shit lets try the nn again.
-    try_nn = True
+    try_nn = False
     if try_nn:
         nx = problem_params['nx']
 
@@ -114,6 +126,11 @@ def uniform_sampling_learning(problem_params, algo_params, key):
         testset_fraction = algo_params['nn_testset_fraction']
 
         nn_xs, nn_ys = np.split(main_y0s, [nx], axis=1)
+
+        # normalise. just to experiment. todo, later un-normalise for inference.
+        # nn_xs = nn_xs / nn_xs.std(axis=0)[None, :]
+        # nn_ys = nn_ys / nn_ys.std(axis=0)[None, :]
+
         nn_params, outputs = V_nn.train(
                 nn_xs, nn_ys, nn_params, algo_params, key
         )
@@ -125,28 +142,43 @@ def uniform_sampling_learning(problem_params, algo_params, key):
         plotting_utils.plot_fct(partial(V_nn.nn.apply, nn_params),
                 (-extent, extent), (-extent, extent), N_disc=256)
 
+        plotting_utils.plot_fct_3d(partial(V_nn.nn.apply, nn_params),
+                (-extent, extent), (-extent, extent), N_disc=256)
+
+        # this is all still the normalised data.
+        nplot = 100
+        pl.gca().scatter(nn_xs[0:nplot, 0], nn_xs[0:nplot, 1], nn_ys[0:nplot, 2])
+
+
         pl.show()
         ipdb.set_trace()
 
 
     # add this many data points per iteration
-    batch_size = 16
+    batch_size = 32
 
     for i in range(N_iters):
         # just add one more sample to the GP.
         # None to match shapes
 
-        idx = np.arange(i*batch_size, (i+1)*batch_size)
-        gp_xs = np.concatenate([gp_xs, main_xs[idx, :]], axis=0)
-        gp_ys = np.concatenate([gp_ys, main_ys[idx]], axis=0)
-        gp_gradflags = np.concatenate([gp_gradflags, main_gradflags[idx]], axis=0)
+        # easier to make this new every time
+        y0s = np.concatenate([init_y0s, main_y0s[0:i*batch_size, :]], axis=0)
+        gp_xs, gp_ys, gp_gradflags = gradient_gp.reshape_for_gp(y0s)
+
+        # only fit V, not costate - this is dumb, but just to see whether this improves problems
+        # gp_xs = gp_xs[gp_gradflags == 0]
+        # gp_ys = gp_ys[gp_gradflags == 0]
+        # gp_gradflags = gp_gradflags[gp_gradflags == 0]
 
         gp = gradient_gp.build_gp(opt_params, gp_xs, gp_gradflags)
 
-        name = f'figs/gp_iter_{i:04d}.png'
+        npts = y0s.shape[0]
+        name = f'figs/gp_{npts:04d}_pts.png'
+        # name = f'figs/gp_iter_{i:04d}.png'
 
         plotting_utils.plot_2d_gp(gp, gp_ys, xbounds, ybounds, save=True, savename=name)
-        print(f'saved figure {i} hopefully')
+        pl.clf(); pl.close()
+        print(f'saved figure "{name}" hopefully')
 
 
 
@@ -247,16 +279,16 @@ if __name__ == '__main__':
 
             'load_last': True,
 
-            'nn_layersizes': [128, 128, 128],
+            'nn_layersizes': [64, 64, 64, 64],
             'nn_V_gradient_penalty': 2,
             'nn_batchsize': 128,
-            'nn_N_epochs': 2,
+            'nn_N_epochs': 10,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'lr_staircase': False,
-            'lr_staircase_steps': 10,
-            'lr_init': 0.05,
-            'lr_final': 0.01,
+            'lr_staircase_steps': 4,
+            'lr_init': 0.01,
+            'lr_final': 0.00005,
     }
 
     # the matrix used to define the relevant state space subset in the paper

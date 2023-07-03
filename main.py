@@ -113,7 +113,6 @@ def uniform_sampling_learning(problem_params, algo_params, key):
 
 
     plotting_utils.plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test)
-    return
 
     plotting_utils.plot_nn_train_outputs(outputs)
 
@@ -126,6 +125,7 @@ def uniform_sampling_learning(problem_params, algo_params, key):
             (-extent, extent), (-extent, extent), N_disc=256)
 
     pl.gca().scatter(nn_xs[0:100, 0], nn_xs[0:100, 1], nn_ys[0:100, -1])
+
 
     pl.show()
     ipdb.set_trace()
@@ -220,15 +220,15 @@ if __name__ == '__main__':
             'load_last': True,
 
             'nn_layersizes': [32, 32, 32, 32],
-            'nn_V_gradient_penalty': 10,
+            'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
-            'nn_N_epochs': 1,
+            'nn_N_epochs': 10,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'lr_staircase': False,
             'lr_staircase_steps': 4,
             'lr_init': 0.01,
-            'lr_final': 0.005,
+            'lr_final': 0.001,
     }
 
     # the matrix used to define the relevant state space subset in the paper
@@ -240,10 +240,4 @@ if __name__ == '__main__':
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-
-
-    for i, gp in enumerate(np.logspace(-3, 3, 19)):
-        print(f'trying gradient penalty {gp}...')
-        algo_params['nn_V_gradient_penalty'] = gp
-        uniform_sampling_learning(problem_params, algo_params, key=jax.random.PRNGKey(0))
-        pl.savefig(f'./figs/{i:04d}_fit_gradpenalty_{gp}.png')
+    uniform_sampling_learning(problem_params, algo_params, key=jax.random.PRNGKey(0))

@@ -260,21 +260,23 @@ def plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test):
     V_pred = V_nn(nn_params, xs_test).squeeze()
     V_err = V_pred - ys_test[:, -1]
     m = np.abs(V_err).max()
-    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], c=V_err, cmap='RdYlGn')
-    # fig.colorbar(im, pl.gca())
+    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], vmin=-m, vmax=m, c=V_err, cmap='RdYlGn')
+    pl.colorbar(im)
     pl.gca().set_title('V error')
 
     grad_pred = V_nn.apply_grad(nn_params, xs_test)
     grad_err = grad_pred - ys_test[:, 0:2]
 
     pl.subplot(132)
-    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], c=grad_err[:, 0], cmap='RdYlGn')
-    # fig.colorbar(im, pl.gca())
+    vm = np.abs(grad_err[:, 0]).max()
+    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], vmin=-vm, vmax=vm, c=grad_err[:, 0], cmap='RdYlGn')
+    pl.colorbar(im)
     pl.gca().set_title('λ0 = V_x0 error')
 
     pl.subplot(133)
-    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], c=grad_err[:, 1], cmap='RdYlGn')
-    # fig.colorbar(im, pl.gca())
+    vm = np.abs(grad_err[:, 0]).max()
+    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], vmin=-vm, vmax=vm, c=grad_err[:, 1], cmap='RdYlGn')
+    pl.colorbar(im)
     pl.gca().set_title('λ1 = V_x1 error')
 
 

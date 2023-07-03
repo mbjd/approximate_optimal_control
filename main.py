@@ -223,7 +223,7 @@ if __name__ == '__main__':
             'load_last': True,
 
             'nn_layersizes': [32, 32, 32, 32],
-            'nn_V_gradient_penalty': 50,
+            'nn_V_gradient_penalty': 10,
             'nn_batchsize': 128,
             'nn_N_epochs': 10,
             'nn_progressbar': True,

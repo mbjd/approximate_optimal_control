@@ -99,7 +99,7 @@ def build_gp(params, X, g):
     # as we are working with almost noise free data, it makes more sense to
     # set a slightly higher value here to make the matrices not too ill conditioned
     # instead of trying to estimate the actual numerical/ODE solver noise.
-    noise_size = 0.1
+    noise_size = 0.01
     return tinygp.GaussianProcess(kernel, (X, g), diag=noise_size**2)
 
 

@@ -13,12 +13,11 @@ import ipdb
 import matplotlib
 import matplotlib.pyplot as pl
 import tqdm
-import warnings
 from functools import partial
 
 from jax.config import config
 # config.update("jax_debug_nans", True)
-# jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", True)
 
 import numpy as onp
 
@@ -55,78 +54,139 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     y0s = y0s[permuted_idx, :]
     lamTs = lamTs[permuted_idx, :]
 
+    # normalise all data (xs, lambdas, values)
+    y0s = y0s / y0s.std(axis=0)[None, :]
+
+    # partition data into init, main, eval.
+    # init = data for fitting first GP and optimising GP hyperparams.
+    # main = big pool to sample from when fitting GP.
+    # eval = holdout set to do MC estimate of approximation error.
+    init_y0s, main_y0s, eval_y0s = np.split(y0s, [128, y0s.shape[0]-256], axis=0)
 
 
-
+    # make GP, optimise hyperparams.
     nx = problem_params['nx']
+    initparams = {
+            'log_amp': np.log(12),
+            'log_scale': np.zeros(nx),
+    }
 
-    V_nn = nn_utils.nn_wrapper(
-            input_dim = nx,
-            layer_dims = algo_params['nn_layersizes'],
-            output_dim = 1,
+    gp_xs, gp_ys, gp_gradflags = gradient_gp.reshape_for_gp(init_y0s)
+
+    gp, opt_params, nll = gradient_gp.get_optimised_gp(
+            gradient_gp.build_gp,
+            initparams,
+            gp_xs,
+            gp_ys,
+            gp_gradflags,
+            plot=algo_params['gp_train_plot'],
     )
 
-    key, subkey = jax.random.split(key)
-    nn_params = V_nn.init_nn_params(subkey)
+    print(opt_params)
+
+    # opt_params = {
+    #         'log_amp': np.log(12),
+    #         'log_scale': np.zeros(nx) + .5,
+    # }
 
 
-    batchsize = algo_params['nn_batchsize']
-    N_epochs = algo_params['nn_N_epochs']
+    main_xs, main_ys, main_gradflags = gradient_gp.reshape_for_gp(main_y0s)
+    eval_xs, eval_ys, eval_gradflags = gradient_gp.reshape_for_gp(eval_y0s)
+
+    x0max, x1max = np.abs(main_xs).max(axis=0)
+    xbounds = (-x0max, x0max)
+    ybounds = (-x1max, x1max)
+
+    N_iters = algo_params['N_learning_iters']
+
+    mean_stds = onp.zeros(N_iters)
+    rmses = onp.zeros(N_iters)
+
+    # maaaan fuck that gp shit lets try the nn again.
+    try_nn = False
+    if try_nn:
+        nx = problem_params['nx']
+
+        V_nn = nn_utils.nn_wrapper(
+                input_dim = nx,
+                layer_dims = algo_params['nn_layersizes'],
+                output_dim = 1,
+        )
+
+        key, subkey = jax.random.split(key)
+        nn_params = V_nn.init_nn_params(subkey)
 
 
-    nn_xs, nn_ys = np.split(y0s, [nx], axis=1)
+        batchsize = algo_params['nn_batchsize']
+        N_epochs = algo_params['nn_N_epochs']
 
-    # normalise. just to experiment. todo, later un-normalise for inference.
-    # nn_xs = nn_xs / nn_xs.std(axis=0)[None, -1]
+        # make a test set or not.
+        testset_fraction = algo_params['nn_testset_fraction']
 
-    # this is kind of dumb. we need to normalise the gradient with the same factor
-    # used for the value. otherwise the function we would be looking for would not
-    # exist.
+        nn_xs, nn_ys = np.split(main_y0s, [nx], axis=1)
 
-    # nn_ys = nn_ys / nn_ys[:, -1].std()
+        # normalise. just to experiment. todo, later un-normalise for inference.
+        # nn_xs = nn_xs / nn_xs.std(axis=0)[None, :]
+        # nn_ys = nn_ys / nn_ys.std(axis=0)[None, :]
 
-    nn_params, outputs = V_nn.train(
-            nn_xs, nn_ys, nn_params, algo_params, key
-    )
+        nn_params, outputs = V_nn.train(
+                nn_xs, nn_ys, nn_params, algo_params, key
+        )
 
+        plotting_utils.plot_nn_train_outputs(outputs)
 
+        pl.figure()
+        extent=5
+        plotting_utils.plot_fct(partial(V_nn.nn.apply, nn_params),
+                (-extent, extent), (-extent, extent), N_disc=256)
 
+        plotting_utils.plot_fct_3d(partial(V_nn.nn.apply, nn_params),
+                (-extent, extent), (-extent, extent), N_disc=256)
 
-
-    # recreate train/test set here - kind of inelegant i know
-    # logic copied from V_nn.train.
-    testset_fraction = algo_params['nn_testset_fraction']
-    testset_exists = testset_fraction > 0
-
-    if not testset_exists:
-        warnings.warn('this is untested and should not be done anyway')
-
-    N_datapts = nn_xs.shape[0]
-    xs_test = ys_test = None
-
-    split_idx_float = (1-testset_fraction) * N_datapts
-    split_idx_float_array = onp.array([split_idx_float])
-    split_idx_int_array = split_idx_float_array.astype(onp.int32)
-
-    xs, xs_test = np.split(nn_xs, split_idx_int_array)
-    ys, ys_test = np.split(nn_ys, split_idx_int_array)
+        # this is all still the normalised data.
+        nplot = 100
+        pl.gca().scatter(nn_xs[0:nplot, 0], nn_xs[0:nplot, 1], nn_ys[0:nplot, 2])
 
 
-    plotting_utils.plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test)
+        pl.show()
+        ipdb.set_trace()
 
-    plotting_utils.plot_nn_train_outputs(outputs)
 
-    pl.figure()
-    extent=5
-    plotting_utils.plot_fct(partial(V_nn.nn.apply, nn_params),
-            (-extent, extent), (-extent, extent), N_disc=256)
+    # add this many data points per iteration
+    batch_size = 32
 
-    plotting_utils.plot_fct_3d(partial(V_nn.nn.apply, nn_params),
-            (-extent, extent), (-extent, extent), N_disc=256)
-    pl.gca().scatter(nn_xs[0:100, 0], nn_xs[0:100, 1], nn_ys[0:100, -1])
+    for i in range(N_iters):
+        # just add one more sample to the GP.
+        # None to match shapes
 
-    pl.show()
-    ipdb.set_trace()
+        # easier to make this new every time
+        y0s = np.concatenate([init_y0s, main_y0s[0:i*batch_size, :]], axis=0)
+        gp_xs, gp_ys, gp_gradflags = gradient_gp.reshape_for_gp(y0s)
+
+        # only fit V, not costate - this is dumb, but just to see whether this improves problems
+        # gp_xs = gp_xs[gp_gradflags == 0]
+        # gp_ys = gp_ys[gp_gradflags == 0]
+        # gp_gradflags = gp_gradflags[gp_gradflags == 0]
+
+        gp = gradient_gp.build_gp(opt_params, gp_xs, gp_gradflags)
+
+        npts = y0s.shape[0]
+        name = f'figs/gp_{npts:04d}_pts.png'
+        # name = f'figs/gp_iter_{i:04d}.png'
+
+        plotting_utils.plot_2d_gp(gp, gp_ys, xbounds, ybounds, save=True, savename=name)
+        pl.clf(); pl.close()
+        print(f'saved figure "{name}" hopefully')
+
+
+
+    # pred_gp = trained_gp.condition(ys, (X_pred, pred_grad_flag)).gp
+    # y_pred = pred_gp.loc
+    # y_std = np.sqrt(pred_gp.variance)
+
+
+
+
 
 
 
@@ -217,16 +277,16 @@ if __name__ == '__main__':
 
             'load_last': True,
 
-            'nn_layersizes': [32, 32, 32],
-            'nn_V_gradient_penalty': 10,
+            'nn_layersizes': [64, 64, 64, 64],
+            'nn_V_gradient_penalty': 2,
             'nn_batchsize': 128,
-            'nn_N_epochs': 3,
+            'nn_N_epochs': 10,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'lr_staircase': False,
             'lr_staircase_steps': 4,
             'lr_init': 0.01,
-            'lr_final': 0.001,
+            'lr_final': 0.00005,
     }
 
     # the matrix used to define the relevant state space subset in the paper

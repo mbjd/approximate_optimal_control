@@ -201,7 +201,59 @@ def plot_fct_3d(f, xbounds, ybounds, N_disc = 401):
     # clip at V_max used for data generation.
     all_outputs = np.clip(all_outputs, 0, 12)
 
-    ax.plot_surface(xx, yy, all_outputs, cmap='viridis')
+    ax.plot_surface(xx, yy, all_outputs, cmap='viridis', alpha=.75)
+
+def plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test):
+
+    # xs.shape == (N, nx)
+    # ys.shape == (N, nx+1), first nx costates, then 1 value.
+    # everything should be unnormalised here.
+
+    # the idea is simple: plot scatterplot of actual values vs nn values.
+    # three plots: value vs predicted value, λ0 vs pred λ0, λ1 vs pred λ1.
+    # but two times, once (top row) with training data, once (bottom) test.
+
+    # to keep it somewhat manageable.
+    N_scatter = 512
+
+    pl.figure(figsize=(12, 8))
+
+    pl.subplot(231)
+    pl.scatter(ys[0:N_scatter, -1], V_nn(nn_params, xs[0:N_scatter, :]))
+    pl.gca().set_title('train value vs predicted value')
+    pl.gca().set_aspect('equal', 'box')
+
+    grad_pred_train = V_nn.apply_grad(nn_params, xs[0:N_scatter, :])
+
+    pl.subplot(232)
+    pl.scatter(ys[0:N_scatter, 0], grad_pred_train[:, 0])
+    pl.gca().set_title('train λ0 vs predicted λ0')
+    pl.gca().set_aspect('equal', 'box')
+
+    pl.subplot(233)
+    pl.scatter(ys[0:N_scatter, 1], grad_pred_train[:, 1])
+    pl.gca().set_title('train λ1 vs predicted λ1')
+    pl.gca().set_aspect('equal', 'box')
+
+    pl.subplot(234)
+    pl.scatter(ys_test[0:N_scatter, -1], V_nn(nn_params, xs_test[0:N_scatter, :]))
+    pl.gca().set_title('test value vs predicted value')
+    pl.gca().set_aspect('equal', 'box')
+
+    grad_pred_test = V_nn.apply_grad(nn_params, xs_test[0:N_scatter, :])
+
+    pl.subplot(235)
+    pl.scatter(ys_test[0:N_scatter, 0], grad_pred_test[:, 0])
+    pl.gca().set_title('test λ0 vs predicted λ0')
+    pl.gca().set_aspect('equal', 'box')
+
+    pl.subplot(236)
+    pl.scatter(ys_test[0:N_scatter, 1], grad_pred_test[:, 1])
+    pl.gca().set_title('test λ1 vs predicted λ1')
+    pl.gca().set_aspect('equal', 'box')
+
+
+
 
 
 

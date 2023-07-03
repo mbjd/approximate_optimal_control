@@ -46,13 +46,12 @@ class my_nn_flax(nn.Module):
         return x
 
 
-
 class nn_wrapper():
 
     # all the usual business logic around the NN.
     # initialisation, data loading, training, loss plotting
 
-    def __init__(self, input_dim, layer_dims, output_dim):
+    def __init__(self, input_dim, layer_dims, output_dim, has_t=False):
 
         self.input_dim  = input_dim
         self.layer_dims = layer_dims
@@ -62,7 +61,7 @@ class nn_wrapper():
 
 
     # so we can use it like a function :)
-    def __call__(self, x, params):
+    def __call__(self, params, x):
         return self.nn.apply(params, x)
 
     # just an example loss function, very standard.
@@ -77,14 +76,28 @@ class nn_wrapper():
     # same loss functions but for the prediction *gradient*
     def point_gradient_loss(self, params, x, label_grad):
 
-        # gradient of output of NN w.r.t. whole NN input = (t, x)
         # with jacrev it will be a row vector, shaped (1, 1+nx)
+        # ^^^ deprecated, this was for input (t, x), now we have only x., so shape (1, nx)
         output_grad_whole = jax.jacrev(self.nn.apply, argnums=1)(params, x)
 
-        # extract the relevant part and remove extra dimension
-        output_grad_x = output_grad_whole[:, 1:].squeeze()
+        # we used extract the relevant part and remove extra dimension because input was (t, x)
+        # now it is just x, so we use the whole thing.
+        output_grad_x = output_grad_whole.squeeze()
 
         return (output_grad_x - label_grad)**2
+
+    # basically the same as in the loss function, but for inference.
+    def point_apply_grad(self, params, x):
+
+        output_grad_x = jax.jacrev(self.nn.apply, argnums=1)(params, x).squeeze()
+        return output_grad_x
+
+    # and batched. separate functions so it is easier to keep track of shapes and stuff
+    def apply_grad(self, params, xs):
+
+        grads = jax.vmap(self.point_apply_grad, in_axes=(None, 0))(params, xs)
+        return grads
+
 
     def gradient_loss(self, params, xs, y_grads):
         losses = jax.vmap(self.point_gradient_loss, in_axes=(None, 0, 0))(params, xs, y_grads)

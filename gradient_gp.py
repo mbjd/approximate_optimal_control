@@ -88,6 +88,7 @@ def build_gp(params, X, g):
     base_kernel = amp * tinygp.transforms.Linear(
             scale_vec, tinygp.kernels.ExpSquared()
     )
+    # todo: incorporate an acutal linear map instead of jus
 
     kernel = GradientKernel(base_kernel)
 
@@ -98,7 +99,7 @@ def build_gp(params, X, g):
     # as we are working with almost noise free data, it makes more sense to
     # set a slightly higher value here to make the matrices not too ill conditioned
     # instead of trying to estimate the actual numerical/ODE solver noise.
-    noise_size = 0.05
+    noise_size = 0.01
     return tinygp.GaussianProcess(kernel, (X, g), diag=noise_size**2)
 
 
@@ -119,25 +120,15 @@ def get_optimised_gp(build_gp_fct, init_params, xs, ys, gradient_flags, steps=10
     opti = optax.adam(learning_rate=.05)
     opt_state = opti.init(init_params)
 
-    scan=True
-    if scan:
-        def train_loop_iter(carry, inp):
-            params, opt_state = carry
-            loss_val, grads = nll_value_grad(params, xs, ys, gradient_flags)
-            updates, opt_state = opti.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
-            return (params, opt_state), loss_val
+    def train_loop_iter(carry, inp):
+        params, opt_state = carry
+        loss_val, grads = nll_value_grad(params, xs, ys, gradient_flags)
+        updates, opt_state = opti.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
+        return (params, opt_state), loss_val
 
-        init_carry = (init_params, opt_state)
-        (params, opt_state), losses = jax.lax.scan(train_loop_iter, init_carry, xs=None, length=steps)
-    else:
-        losses = []
-        params = init_params
-        for i in tqdm.tqdm(range(steps)):
-            loss_val, grads = nll_value_grad(params, xs, ys, gradient_flags)
-            losses.append(loss_val)
-            updates, opt_state = opti.update(grads, opt_state)
-            params = optax.apply_updates(params, updates)
+    init_carry = (init_params, opt_state)
+    (params, opt_state), losses = jax.lax.scan(train_loop_iter, init_carry, xs=None, length=steps)
 
     if plot:
         pl.plot(losses, label='GP neg log likelihood')
@@ -145,58 +136,11 @@ def get_optimised_gp(build_gp_fct, init_params, xs, ys, gradient_flags, steps=10
         pl.show()
 
     trained_gp = build_gp(params, xs, gradient_flags)
+    nll_value = nll(params, xs, ys, gradient_flags)
 
-    return trained_gp, params
+    return trained_gp, params, nll_value
 
 
-
-
-def get_gp_prediction_weights(gp, cond_gp, X_pred):
-
-    # the GP basically approximates
-    #   V(x) = Σ_i w_i V(x_i)
-    # how do we get these weights?
-
-    # more fundamentally, the GP models everything as a huge normal distribution.
-    # Here we stack in a vector the training and prediction observations y_t and y_p.
-
-    # [y_t] ~ N( [0]  [ K_tt  K_tp ] )
-    # [y_p]    ( [0], [ K_pt  K_pp ] )
-
-    # with the covariance matrix given by the kernel and the (prior) mean usually 0.
-
-    # to predict we condition on the observed training values.
-    # from https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Conditional_distributions
-
-    # y_p ~ N( K_pt inv(K_tt) (y_t - 0) , K_pp - K_pt inv(K_tt) K_tp )
-
-    # for the prediction itself we just want the mean, and we have the
-    # linear predictor
-
-    # y_p = K_pt inv(K_tt) y_t.
-
-    # which is basically what we wrote at the beginning, with K_pt inv(K_tt) = [w1 ... wN] in the
-    # case of just a single prediction.
-
-    # code mostly adapted from here
-    # https://github.com/dfm/tinygp/issues/163#issuecomment-1507461693
-
-    # see if they are really the same except for the conditioning
-    assert gp.X is cond_gp.mean_function.X
-    assert gp.kernel is cond_gp.mean_function.kernel
-
-    # reuse previous alpha. in the docs it says alpha = L^-1 y.
-    # to do the prediction, we would:
-    # mean = k_star.T @ cond_gp.mean_function.alpha
-    # instead we want the weights, so that mean = prediction_weights @ y.
-
-    # brute force solution: recalculate it...
-    K_tt = gp.kernel(gp.X, gp.X)
-    K_pt = gp.kernel(X_pred, gp.X)
-    ipdb.set_trace()
-
-    ws = K_pt @ np.linalg.inv(K_tt)
-    return ws
 
 
 def reshape_for_gp(ys):
@@ -239,7 +183,7 @@ if __name__ == '__main__':
     N_pts = 256
     nx = 2
 
-    noise_size = 1e-2
+    noise_size = 0.1
 
     key, subkey = jax.random.split(key)
     xs_f = jax.random.normal(subkey, (N_pts, nx))

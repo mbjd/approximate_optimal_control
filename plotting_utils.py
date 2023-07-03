@@ -12,9 +12,107 @@ import matplotlib.pyplot as pl
 
 import ipdb
 import time
+import numpy as onp
 
 from functools import partial
 cmap = 'viridis'
+
+
+def plot_2d_gp(gp, gp_ys, xbounds, ybounds, N_disc=101, save=False,
+        savename=None):
+
+    '''
+    plot the 2d gp. makes three plots:
+    - color plot of the function itself
+    - color plot of the function variance
+    - color plot of the gradient variance
+      (how? largest? det cov?)
+    '''
+
+    xmin, xmax = xbounds
+    ymin, ymax = ybounds
+
+    xgrid = np.linspace(xmin, xmax, N_disc)
+    ygrid = np.linspace(ymin, ymax, N_disc)
+
+    xx, yy = np.meshgrid(xgrid, ygrid)
+
+    # TODO maybe package this type of batched, jitted eval functin
+    # with each GP?
+    def eval_gp_single(gp, gp_ys, input_x, input_gradflag):
+        # evaluate gp conditioned on gp_ys at (input_x, input_gradflag).
+        pred_gp = gp.condition(gp_ys, (input_x, input_gradflag)).gp
+        return (pred_gp.loc, np.sqrt(pred_gp.variance))
+
+    eval_gp_multiple = jax.vmap(eval_gp_single, in_axes=(None, None, 0, 0))
+    eval_gp_multiple = jax.jit(eval_gp_multiple, static_argnums=[0])
+
+    fig, ax = pl.subplots(ncols=3, layout='compressed', figsize=(9, 4))
+
+    eval_xs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+    eval_gradflags = np.zeros(eval_xs.shape[0], dtype=np.int8)
+
+    # new try: keep (N_disc, N_disc, 2) shape, pass axes 1,2 into
+    # eval_gp_single, vmap over axis 0
+    eval_xs = np.stack([xx, yy], axis=2)
+    eval_gradflags = np.zeros(xx.shape, dtype=np.int8)
+
+    y_pred, y_std = eval_gp_multiple(gp, gp_ys, eval_xs, eval_gradflags)
+
+    threeD = True
+    if threeD:
+        # ugly subplot over subplot...
+        ax3d = fig.add_subplot(131, projection='3d')
+
+        # just mean
+        # ax3d.plot_surface(xx, yy, y_pred, alpha=.8, cmap='viridis')
+
+        # confidence interval
+        ax3d.plot_surface(xx, yy, np.clip(y_pred + 3*y_std, 0, 12), alpha=.6, color='red')
+        ax3d.plot_surface(xx, yy, np.clip(y_pred - 3*y_std, 0, 12), alpha=.6, color='green')
+
+    else:
+        pl.subplot(131)
+        pl.pcolor(xx, yy, y_pred)
+
+    # plot training data
+    # only get data where gradflag is 0, difficult to scatterplot the gradient
+    train_x = gp.X[0][gp.X[1] == 0]
+    train_V = gp_ys[gp.X[1] == 0]
+    pl.gca().scatter(train_x[:, 0], train_x[:, 1], train_V)
+
+    pl.gca().set_title('Value function V(x)')
+
+    pl.subplot(132)
+
+    outputs = y_std.reshape(xx.shape)
+    pl.pcolor(xx, yy, y_std)
+    pl.gca().set_title('std. dev. sqrt(Var(V(x)))')
+
+    pl.subplot(133)
+
+    nx = 2  # otherwise this function needs a complete rewrite anyway
+
+    grad_preds = onp.zeros(eval_xs.shape)
+    grad_stds =  onp.zeros(eval_xs.shape)
+
+    # loop so we can reuse the jitted function
+    for i in range(nx):
+        grad_preds[:, :, i], grad_stds[:, :, i] = eval_gp_multiple(
+                gp, gp_ys, eval_xs, eval_gradflags + i + 1
+        )
+
+    pl.pcolor(xx, yy, np.max(grad_stds, axis=2))
+    pl.gca().set_title('std. dev max_i sqrt(Var(grad_{x_i} V(x)))')
+
+    if save:
+        assert type(savename) == str
+        pl.savefig(savename, dpi=400)
+    else:
+        pl.show()
+
+
+
 
 def value_lambda_scatterplot(x0s, v0s, lamTs, save=True):
 
@@ -33,6 +131,8 @@ def value_lambda_scatterplot(x0s, v0s, lamTs, save=True):
     if save:
         t = int(time.time())
         pl.savefig(f'figs/value_lambda_scatter_{t}.png', dpi=400)
+    else:
+        pl.show()
 
 
 
@@ -74,8 +174,113 @@ def plot_fct(f, xbounds, ybounds, N_disc = 401):
     all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
 
     all_outputs = jax.vmap(f)(all_inputs).reshape(xx.shape)  # need a lot of memory!
+    # clip at V_max used for data generation.
+    all_outputs = np.clip(all_outputs, 0, 12)
     pl.pcolor(xx, yy, all_outputs, cmap='viridis')
+    pl.contour(xx, yy, all_outputs, c='black')
+    # pl.contourf(xx, yy, all_outputs, cmap='viridis')
     # pl.pcolor(xx, yy, all_outputs, cmap='jet')
+
+def plot_fct_3d(f, xbounds, ybounds, N_disc = 401):
+
+    fig = pl.figure('3d plot ooh')
+    ax = fig.add_subplot(111, projection='3d')
+
+    xmin, xmax = xbounds
+    ymin, ymax = ybounds
+
+    xgrid = np.linspace(xmin, xmax, N_disc)
+    ygrid = np.linspace(ymin, ymax, N_disc)
+
+    xx, yy = np.meshgrid(xgrid, ygrid)
+
+    all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+
+    all_outputs = jax.vmap(f)(all_inputs).reshape(xx.shape)  # need a lot of memory!
+
+    # clip at V_max used for data generation.
+    all_outputs = np.clip(all_outputs, 0, 12)
+
+    ax.plot_surface(xx, yy, all_outputs, cmap='viridis', alpha=.75)
+
+def plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test):
+
+    # xs.shape == (N, nx)
+    # ys.shape == (N, nx+1), first nx costates, then 1 value.
+    # everything should be unnormalised here.
+
+    # the idea is simple: plot scatterplot of actual values vs nn values.
+    # three plots: value vs predicted value, λ0 vs pred λ0, λ1 vs pred λ1.
+    # but two times, once (top row) with training data, once (bottom) test.
+
+    # to keep it somewhat manageable.
+    N_scatter = 512
+
+    pl.figure(figsize=(12, 8))
+
+    pl.subplot(231)
+    pl.scatter(ys[0:N_scatter, -1], V_nn(nn_params, xs[0:N_scatter, :]))
+    pl.gca().set_title('train value vs predicted value')
+    pl.gca().set_aspect('equal', 'box')
+
+    grad_pred_train = V_nn.apply_grad(nn_params, xs[0:N_scatter, :])
+
+    pl.subplot(232)
+    pl.scatter(ys[0:N_scatter, 0], grad_pred_train[:, 0])
+    pl.gca().set_title('train λ0 vs predicted λ0')
+    pl.gca().set_aspect('equal', 'box')
+
+    pl.subplot(233)
+    pl.scatter(ys[0:N_scatter, 1], grad_pred_train[:, 1])
+    pl.gca().set_title('train λ1 vs predicted λ1')
+    pl.gca().set_aspect('equal', 'box')
+
+    pl.subplot(234)
+    pl.scatter(ys_test[0:N_scatter, -1], V_nn(nn_params, xs_test[0:N_scatter, :]))
+    pl.gca().set_title('test value vs predicted value')
+    pl.gca().set_aspect('equal', 'box')
+
+    grad_pred_test = V_nn.apply_grad(nn_params, xs_test[0:N_scatter, :])
+
+    pl.subplot(235)
+    pl.scatter(ys_test[0:N_scatter, 0], grad_pred_test[:, 0])
+    pl.gca().set_title('test λ0 vs predicted λ0')
+    pl.gca().set_aspect('equal', 'box')
+
+    pl.subplot(236)
+    pl.scatter(ys_test[0:N_scatter, 1], grad_pred_test[:, 1])
+    pl.gca().set_title('test λ1 vs predicted λ1')
+    pl.gca().set_aspect('equal', 'box')
+
+
+    fig = pl.figure()
+    # next figure: scatterplot of test data x0, x1, coloured by error.
+
+    pl.subplot(131)
+    V_pred = V_nn(nn_params, xs_test).squeeze()
+    V_err = V_pred - ys_test[:, -1]
+    m = np.abs(V_err).max()
+    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], c=V_err, cmap='RdYlGn')
+    # fig.colorbar(im, pl.gca())
+    pl.gca().set_title('V error')
+
+    grad_pred = V_nn.apply_grad(nn_params, xs_test)
+    grad_err = grad_pred - ys_test[:, 0:2]
+
+    pl.subplot(132)
+    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], c=grad_err[:, 0], cmap='RdYlGn')
+    # fig.colorbar(im, pl.gca())
+    pl.gca().set_title('λ0 = V_x0 error')
+
+    pl.subplot(133)
+    im = pl.gca().scatter(xs_test[:, 0], xs_test[:, 1], c=grad_err[:, 1], cmap='RdYlGn')
+    # fig.colorbar(im, pl.gca())
+    pl.gca().set_title('λ1 = V_x1 error')
+
+
+
+
+
 
 
 def plot_2d_V(V_nn_wrapper, nn_params, tbounds, xbounds):

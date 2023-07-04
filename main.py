@@ -36,15 +36,17 @@ import numpy as onp
 
 
 
-def uniform_sampling_learning(problem_params, algo_params, key):
+def fit_value_fct(problem_params, algo_params, key):
 
     if algo_params['load_last']:
 
-        y0s = np.load('datasets/last_y0s.npy')
-        lamTs = np.load('datasets/last_lamTs.npy')
+        sysname = problem_params['system_name']
 
-        plotting_utils.value_lambda_scatterplot(y0s[:, 0:2], y0s[:, -1], lamTs, save=False)
-        pl.show()
+        y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+        lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
+
+        # seen this
+        # plotting_utils.value_lambda_scatterplot(y0s[:, 0:2], y0s[:, -1], lamTs, save=False)
 
     else:
 
@@ -77,6 +79,18 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     N_epochs = algo_params['nn_N_epochs']
 
 
+    # data to evaluate the nn on
+    eval_set, y0s = np.split(y0s, [256])
+
+
+    # for N_pts in 2**np.arange(4, 14):
+
+    # easier to repeat data so we have the same size everytime and
+    # the same training dynamics...
+    # N_pts = 128
+    # repeated_idx = np.mod(np.arange(y0s.shape[0]), N_pts)
+
+    # nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
     nn_xs, nn_ys = np.split(y0s, [nx], axis=1)
 
     # normalise. just to experiment. todo, later un-normalise for inference.
@@ -134,6 +148,16 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     ipdb.set_trace()
 
 
+def evaluate_closedloop(V_nn, problem_params, algo_params, key):
+
+    # obtain a monte carlo estimate of the control cost
+    # expectation_x0~p(x0)
+
+    N_sims = 100
+    nx = problem_params['nx']
+
+    x0s = jax.random.normal(key, shape=(N_sims, nx))
+
 
 
 def sample_uniform(problem_params, algo_params, key):
@@ -147,7 +171,8 @@ def sample_uniform(problem_params, algo_params, key):
     reward_fct = lambda x: -10 * np.maximum(0, x.T @ Q_S @ x - 1)
     reward_fct = lambda y: -10 * np.maximum(0, y[0:nx].T @ Q_S @ y[0:nx] - 1)  # S = some ellipse
 
-    Vmax = 10
+    Vmax = problem_params['V_max']
+
     reward_fct = lambda y: -10 * np.maximum(0, y[-1] - Vmax)  # S = value sublevel set
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
@@ -180,6 +205,7 @@ if __name__ == '__main__':
 
 
     problem_params = {
+            'system_name': 'double_integrator',
             'f': f,
             'l': l,
             'h': h,
@@ -187,6 +213,7 @@ if __name__ == '__main__':
             'nx': 2,
             'nu': 1,
             'terminal_constraint': True,  # not tested with False for a long time
+            'V_max': 15,
     }
 
     x_sample_scale = np.diag(np.array([1, 3]))
@@ -195,7 +222,7 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/16,
+            'pontryagin_solver_dt': 1/64,
 
             # 'pontryagin_sampler_n_trajectories': 32,
             # 'pontryagin_sampler_n_iters': 8,
@@ -205,11 +232,11 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 1/128,
+            'sampler_dt': 1/64,
             'sampler_burn_in': 0,
             'sampler_N_chains': 4,  # with pmap this has to be 4
-            'sampler_samples': 2**13,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 1,
+            'sampler_samples': 2**12,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 4,
             'sampler_plot': True,
             'sampler_tqdm': True,
 
@@ -222,8 +249,8 @@ if __name__ == '__main__':
 
             'load_last': True,
 
-            'nn_layersizes': [32, 32, 32, 32],
-            'nn_V_gradient_penalty': 10,
+            'nn_layersizes': [64, 64, 64],
+            'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
             'nn_N_epochs': 10,
             'nn_progressbar': True,
@@ -231,7 +258,7 @@ if __name__ == '__main__':
             'lr_staircase': False,
             'lr_staircase_steps': 4,
             'lr_init': 0.01,
-            'lr_final': 0.001,
+            'lr_final': 0.0001,
     }
 
     # the matrix used to define the relevant state space subset in the paper
@@ -243,4 +270,7 @@ if __name__ == '__main__':
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    uniform_sampling_learning(problem_params, algo_params, key=jax.random.PRNGKey(0))
+    # to re-make the sample:
+    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(10101))
+
+    fit_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(0))

@@ -36,7 +36,21 @@ import numpy as onp
 
 
 
-def fit_value_fct(problem_params, algo_params, key):
+def fit_eval_value_fct(problem_params, algo_params, key):
+
+    '''
+    to recreate plot, put this in some main somewhere:
+
+        for i in range(16):
+            point_Ns, test_grad_losses = fit_eval_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(i))
+            pl.semilogx(point_Ns, test_grad_losses, alpha=.5, color='tab:blue', marker='.')
+
+        pl.xlabel('number of training data points')
+        pl.ylabel('value gradient test loss')
+    '''
+
+
+    # fits value function as described in paper, for growing size of training data.
 
     if algo_params['load_last']:
 
@@ -80,72 +94,39 @@ def fit_value_fct(problem_params, algo_params, key):
 
 
     # data to evaluate the nn on
-    eval_set, y0s = np.split(y0s, [256])
+    eval_set, y0s = np.split(y0s, [256], axis=0)
+    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
+
+    test_grad_losses = []
+
+    point_Ns = 2**np.arange(4, 14)
+    for N_pts in point_Ns:
+
+        # generate training data, always of the full size, but
+        # repeated so only the first N_pts points are in it.
+        # a bit inelegant but easy bc training dynamics stay the same.
+        repeated_idx = np.mod(np.arange(y0s.shape[0]), N_pts)
+        nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
+
+        # train the nn
+        nn_params, outputs = V_nn.train(
+                nn_xs, nn_ys, nn_params, algo_params, key
+        )
+
+        # plotting_utils.plot_nn_train_outputs(outputs)
+        # pl.show()
+
+        # evaluate test (gradient) errors.
+        gradients_pred = V_nn.apply_grad(nn_params, xs_eval)
+
+        grad_errs = gradients_pred - gradients_eval
+
+        test_grad_loss = np.square(grad_errs).mean()
+        test_grad_losses.append(test_grad_loss)
 
 
-    # for N_pts in 2**np.arange(4, 14):
+    return point_Ns, test_grad_losses
 
-    # easier to repeat data so we have the same size everytime and
-    # the same training dynamics...
-    # N_pts = 128
-    # repeated_idx = np.mod(np.arange(y0s.shape[0]), N_pts)
-
-    # nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
-    nn_xs, nn_ys = np.split(y0s, [nx], axis=1)
-
-    # normalise. just to experiment. todo, later un-normalise for inference.
-    # nn_xs = nn_xs / nn_xs.std(axis=0)[None, -1]
-
-    # this is kind of dumb. we need to normalise the gradient with the same factor
-    # used for the value. otherwise the function we would be looking for would not
-    # exist.
-
-    # nn_ys = nn_ys / nn_ys[:, -1].std()
-
-    nn_params, outputs = V_nn.train(
-            nn_xs, nn_ys, nn_params, algo_params, key
-    )
-
-
-
-
-
-    # recreate train/test set here - kind of inelegant i know
-    # logic copied from V_nn.train.
-    testset_fraction = algo_params['nn_testset_fraction']
-    testset_exists = testset_fraction > 0
-
-    if not testset_exists:
-        warnings.warn('this is untested and should not be done anyway')
-
-    N_datapts = nn_xs.shape[0]
-    xs_test = ys_test = None
-
-    split_idx_float = (1-testset_fraction) * N_datapts
-    split_idx_float_array = onp.array([split_idx_float])
-    split_idx_int_array = split_idx_float_array.astype(onp.int32)
-
-    xs, xs_test = np.split(nn_xs, split_idx_int_array)
-    ys, ys_test = np.split(nn_ys, split_idx_int_array)
-
-
-    plotting_utils.plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test)
-
-    plotting_utils.plot_nn_train_outputs(outputs)
-
-    pl.figure()
-    extent=5
-    plotting_utils.plot_fct(partial(V_nn.nn.apply, nn_params),
-            (-extent, extent), (-extent, extent), N_disc=256)
-
-    plotting_utils.plot_fct_3d(partial(V_nn.nn.apply, nn_params),
-            (-extent, extent), (-extent, extent), N_disc=256)
-
-    pl.gca().scatter(nn_xs[0:100, 0], nn_xs[0:100, 1], nn_ys[0:100, -1])
-
-
-    pl.show()
-    ipdb.set_trace()
 
 
 def evaluate_closedloop(V_nn, problem_params, algo_params, key):
@@ -252,7 +233,7 @@ if __name__ == '__main__':
             'nn_layersizes': [64, 64, 64],
             'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
-            'nn_N_epochs': 10,
+            'nn_N_epochs': 2,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'lr_staircase': False,
@@ -273,4 +254,10 @@ if __name__ == '__main__':
     # to re-make the sample:
     # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(10101))
 
-    fit_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(0))
+    for i in range(16):
+        point_Ns, test_grad_losses = fit_eval_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(i))
+        pl.semilogx(point_Ns, test_grad_losses, alpha=.5, color='tab:blue', marker='.')
+
+    pl.xlabel('number of training data points')
+    pl.ylabel('value gradient test loss')
+    pl.show()

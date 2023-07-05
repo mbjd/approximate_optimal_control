@@ -52,7 +52,7 @@ def u_star_functions(f, l, V, t, x, nx, nu):
     return u_star_matrices(R, A)
 
 def u_star_costate(f, l, costate, t, x, nx, nu):
-    zero_u = np.zeros(1)  # u is a rank-1 array!
+    zero_u = np.zeros(nu)  # u is a rank-1 array!
     R = jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
 
     # costate = grad_V_x.T (costate colvec, grad_V_x col vec)

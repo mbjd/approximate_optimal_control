@@ -1530,3 +1530,29 @@ todo for next week:
 
 
 
+other thought: currently we fit the nn using (mainly) the gradient cost,
+i.e. the error norm || predicted λ - training λ ||_2^2. but are we actually
+interested in minimising that norm? what if one is important and the other
+not so much?
+
+from pontryagin we know u* = argmin_u l(x, u) + λ(x).T @ (f(x) + g(x) u).
+
+can we calculate the sensitivity of that solution w.r.t. the approximation
+error and then try to minimise the NN loss based on that?
+
+the solution is available in closed form,
+
+u*(x, λ) = argmin_u u.T @ R @ u + λ.T @ g(x) @ u
+         = -(R + R.T)^-1 @ (λ.T @ g(x))
+
+so should we actually minimise -(R+R.T)^-1 @ (λ_NN - λ_train).T @ g(x)?
+that would basically amount to minimising directly the error in u*, which
+probably is the most sensible option....
+
+basically this is then similar to fitting an NN to directly model u*, BUT
+with the difference that the presence of a differentiable V model from
+which we get u* helps as an inductive bias.
+
+but for now fit costate and keep this only on backburner, not too much time
+left :(
+

@@ -8,6 +8,7 @@ import sampling
 import pontryagin_utils
 import plotting_utils
 import nn_utils
+import eval_utils
 
 import ipdb
 import matplotlib
@@ -20,7 +21,6 @@ from jax.config import config
 # config.update("jax_debug_nans", True)
 # jax.config.update("jax_enable_x64", True)
 
-import numpy as onp
 
 # import matplotlib
 # import matplotlib.pyplot as pl
@@ -33,6 +33,64 @@ import numpy as onp
 #     'text.usetex': True,
 #     'pgf.rcfonts': False,
 # })
+
+
+def fit_ensemble_value(problem_params, algo_params, key):
+
+
+    if algo_params['load_last']:
+
+        sysname = problem_params['system_name']
+
+        y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+        lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
+
+    else:
+
+        key, subkey = jax.random.split(key)
+        y0s, lamTs = sample_uniform(problem_params, algo_params, subkey)
+
+    # shuffle data to 'get rid of' interdependence
+    key, subkey = jax.random.split(key)
+    permuted_idx = jax.random.permutation(subkey, np.arange(y0s.shape[0]))
+
+    y0s = y0s[permuted_idx, :]
+    lamTs = lamTs[permuted_idx, :]
+
+    nx = problem_params['nx']
+
+    V_nn = nn_utils.nn_wrapper(
+            input_dim = nx,
+            layer_dims = algo_params['nn_layersizes'],
+            output_dim = 1,
+    )
+
+    batchsize = algo_params['nn_batchsize']
+    N_epochs = algo_params['nn_N_epochs']
+
+    # data to evaluate the nn on
+    eval_set, y0s = np.split(y0s, [256], axis=0)
+    nn_xs, nn_ys = np.split(y0s, [nx], axis=1)
+    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
+
+
+
+    # train the nns
+    nn_params, outputs = V_nn.ensemble_init_and_train(
+            jax.random.split(key, algo_params['nn_ensemble_size']), nn_xs, nn_ys, algo_params
+    )
+
+    means, stds = V_nn.ensemble_mean_std(nn_params, xs_eval)
+
+    # make some plots.
+    # plotting_utils.plot_nn_ensemble(V_nn, nn_params, (-3, 3), (-8, 8))
+
+    return V_nn, nn_params
+
+
+
+
+
 
 
 
@@ -129,17 +187,6 @@ def fit_eval_value_fct(problem_params, algo_params, key):
 
 
 
-def evaluate_closedloop(V_nn, problem_params, algo_params, key):
-
-    # obtain a monte carlo estimate of the control cost
-    # expectation_x0~p(x0)
-
-    N_sims = 100
-    nx = problem_params['nx']
-
-    x0s = jax.random.normal(key, shape=(N_sims, nx))
-
-
 
 def sample_uniform(problem_params, algo_params, key):
 
@@ -233,13 +280,18 @@ if __name__ == '__main__':
             'nn_layersizes': [64, 64, 64],
             'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
-            'nn_N_epochs': 2,
+            'nn_N_epochs': 1,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
+            'nn_ensemble_size': 2,
             'lr_staircase': False,
             'lr_staircase_steps': 4,
             'lr_init': 0.01,
             'lr_final': 0.0001,
+
+            'sim_T': 16,
+            'sim_dt': 1/16,
+            'sim_N': 32,
     }
 
     # the matrix used to define the relevant state space subset in the paper
@@ -254,10 +306,26 @@ if __name__ == '__main__':
     # to re-make the sample:
     # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(10101))
 
-    for i in range(16):
-        point_Ns, test_grad_losses = fit_eval_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(i))
-        pl.semilogx(point_Ns, test_grad_losses, alpha=.5, color='tab:blue', marker='.')
+    key = jax.random.PRNGKey(0)
+    nn_key, state_key = jax.random.split(key, 2)
 
-    pl.xlabel('number of training data points')
-    pl.ylabel('value gradient test loss')
-    pl.show()
+    V_nn, nn_params = fit_ensemble_value(problem_params, algo_params, key=nn_key)
+
+
+
+
+    # x0s = jax.random.normal(state_key, shape=(sim_N, 2))
+
+    # instead:
+    sysname = problem_params['system_name']
+    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+
+    for i in range(100):
+        x0s = jax.random.choice(jax.random.PRNGKey(i), y0s, shape=(algo_params['sim_N'],))[:, 0:2]
+
+        all_sols = eval_utils.closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x0s)
+        ipdb.set_trace()
+        ccost = eval_utils.compute_controlcost(problem_params, all_sols)
+        print(ccost)
+
+

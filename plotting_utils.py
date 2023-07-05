@@ -279,6 +279,33 @@ def plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test):
     pl.gca().set_title('λ1 = V_x1 error')
 
 
+def plot_nn_ensemble(V_nn, nn_params, xbounds, ybounds, Nd = 101):
+
+    xmin, xmax = xbounds
+    ymin, ymax = ybounds
+
+    xgrid = np.linspace(xmin, xmax, Nd)
+    ygrid = np.linspace(ymin, ymax, Nd)
+
+    xx, yy = np.meshgrid(xgrid, ygrid)
+    all_inputs = np.column_stack([xx.reshape(-1), yy.reshape(-1)])
+
+    means, stds = V_nn.ensemble_mean_std(nn_params, all_inputs)
+
+    fig, axs = pl.subplots(2, 3)
+
+    # pcolor likes everything to be (nx, ny) shaped
+    names = ['Value std.', 'λ0 std.', 'λ1 std.']
+    for i in range(3):
+        im = axs[0, i].pcolormesh(xx, yy, means[:, i].reshape(Nd, Nd))
+        axs[1, i].set_xlabel(names[i].replace('std', 'mean'))
+        pl.colorbar(im)
+
+        im = axs[1, i].pcolormesh(xx, yy, stds[:, i].reshape(Nd, Nd))
+        axs[1, i].set_xlabel(names[i])
+        pl.colorbar(im)
+    pl.tight_layout()
+    pl.show()
 
 
 

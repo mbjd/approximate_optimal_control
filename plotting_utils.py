@@ -116,7 +116,6 @@ def plot_2d_gp(gp, gp_ys, xbounds, ybounds, N_disc=101, save=False,
 
 def value_lambda_scatterplot(x0s, v0s, lamTs, save=True):
 
-    pl.figure()
     fig, ax = pl.subplots(ncols=2, layout='compressed', figsize=(6, 3))
     pl.subplot(121)
     pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=v0s)

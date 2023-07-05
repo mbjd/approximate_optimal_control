@@ -36,15 +36,31 @@ import numpy as onp
 
 
 
-def uniform_sampling_learning(problem_params, algo_params, key):
+def fit_eval_value_fct(problem_params, algo_params, key):
+
+    '''
+    to recreate plot, put this in some main somewhere:
+
+        for i in range(16):
+            point_Ns, test_grad_losses = fit_eval_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(i))
+            pl.semilogx(point_Ns, test_grad_losses, alpha=.5, color='tab:blue', marker='.')
+
+        pl.xlabel('number of training data points')
+        pl.ylabel('value gradient test loss')
+    '''
+
+
+    # fits value function as described in paper, for growing size of training data.
 
     if algo_params['load_last']:
 
-        y0s = np.load('datasets/last_y0s.npy')
-        lamTs = np.load('datasets/last_lamTs.npy')
+        sysname = problem_params['system_name']
 
-        plotting_utils.value_lambda_scatterplot(y0s[:, 0:2], y0s[:, -1], lamTs, save=False)
-        pl.show()
+        y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+        lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
+
+        # seen this
+        # plotting_utils.value_lambda_scatterplot(y0s[:, 0:2], y0s[:, -1], lamTs, save=False)
 
     else:
 
@@ -77,62 +93,51 @@ def uniform_sampling_learning(problem_params, algo_params, key):
     N_epochs = algo_params['nn_N_epochs']
 
 
-    nn_xs, nn_ys = np.split(y0s, [nx], axis=1)
+    # data to evaluate the nn on
+    eval_set, y0s = np.split(y0s, [256], axis=0)
+    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
 
-    # normalise. just to experiment. todo, later un-normalise for inference.
-    # nn_xs = nn_xs / nn_xs.std(axis=0)[None, -1]
+    test_grad_losses = []
 
-    # this is kind of dumb. we need to normalise the gradient with the same factor
-    # used for the value. otherwise the function we would be looking for would not
-    # exist.
+    point_Ns = 2**np.arange(4, 14)
+    for N_pts in point_Ns:
 
-    # nn_ys = nn_ys / nn_ys[:, -1].std()
+        # generate training data, always of the full size, but
+        # repeated so only the first N_pts points are in it.
+        # a bit inelegant but easy bc training dynamics stay the same.
+        repeated_idx = np.mod(np.arange(y0s.shape[0]), N_pts)
+        nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
 
-    nn_params, outputs = V_nn.train(
-            nn_xs, nn_ys, nn_params, algo_params, key
-    )
+        # train the nn
+        nn_params, outputs = V_nn.train(
+                nn_xs, nn_ys, nn_params, algo_params, key
+        )
 
+        # plotting_utils.plot_nn_train_outputs(outputs)
+        # pl.show()
 
+        # evaluate test (gradient) errors.
+        gradients_pred = V_nn.apply_grad(nn_params, xs_eval)
 
+        grad_errs = gradients_pred - gradients_eval
 
-
-    # recreate train/test set here - kind of inelegant i know
-    # logic copied from V_nn.train.
-    testset_fraction = algo_params['nn_testset_fraction']
-    testset_exists = testset_fraction > 0
-
-    if not testset_exists:
-        warnings.warn('this is untested and should not be done anyway')
-
-    N_datapts = nn_xs.shape[0]
-    xs_test = ys_test = None
-
-    split_idx_float = (1-testset_fraction) * N_datapts
-    split_idx_float_array = onp.array([split_idx_float])
-    split_idx_int_array = split_idx_float_array.astype(onp.int32)
-
-    xs, xs_test = np.split(nn_xs, split_idx_int_array)
-    ys, ys_test = np.split(nn_ys, split_idx_int_array)
+        test_grad_loss = np.square(grad_errs).mean()
+        test_grad_losses.append(test_grad_loss)
 
 
-    plotting_utils.plot_nn_gradient_eval(V_nn, nn_params, xs, xs_test, ys, ys_test)
-
-    plotting_utils.plot_nn_train_outputs(outputs)
-
-    pl.figure()
-    extent=5
-    plotting_utils.plot_fct(partial(V_nn.nn.apply, nn_params),
-            (-extent, extent), (-extent, extent), N_disc=256)
-
-    plotting_utils.plot_fct_3d(partial(V_nn.nn.apply, nn_params),
-            (-extent, extent), (-extent, extent), N_disc=256)
-
-    pl.gca().scatter(nn_xs[0:100, 0], nn_xs[0:100, 1], nn_ys[0:100, -1])
+    return point_Ns, test_grad_losses
 
 
-    pl.show()
-    ipdb.set_trace()
 
+def evaluate_closedloop(V_nn, problem_params, algo_params, key):
+
+    # obtain a monte carlo estimate of the control cost
+    # expectation_x0~p(x0)
+
+    N_sims = 100
+    nx = problem_params['nx']
+
+    x0s = jax.random.normal(key, shape=(N_sims, nx))
 
 
 
@@ -147,7 +152,8 @@ def sample_uniform(problem_params, algo_params, key):
     reward_fct = lambda x: -10 * np.maximum(0, x.T @ Q_S @ x - 1)
     reward_fct = lambda y: -10 * np.maximum(0, y[0:nx].T @ Q_S @ y[0:nx] - 1)  # S = some ellipse
 
-    Vmax = 10
+    Vmax = problem_params['V_max']
+
     reward_fct = lambda y: -10 * np.maximum(0, y[-1] - Vmax)  # S = value sublevel set
 
     integrate = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
@@ -180,6 +186,7 @@ if __name__ == '__main__':
 
 
     problem_params = {
+            'system_name': 'double_integrator',
             'f': f,
             'l': l,
             'h': h,
@@ -187,6 +194,7 @@ if __name__ == '__main__':
             'nx': 2,
             'nu': 1,
             'terminal_constraint': True,  # not tested with False for a long time
+            'V_max': 15,
     }
 
     x_sample_scale = np.diag(np.array([1, 3]))
@@ -195,7 +203,7 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/16,
+            'pontryagin_solver_dt': 1/64,
 
             # 'pontryagin_sampler_n_trajectories': 32,
             # 'pontryagin_sampler_n_iters': 8,
@@ -205,11 +213,11 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 1/128,
+            'sampler_dt': 1/64,
             'sampler_burn_in': 0,
             'sampler_N_chains': 4,  # with pmap this has to be 4
-            'sampler_samples': 2**13,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 1,
+            'sampler_samples': 2**12,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 4,
             'sampler_plot': True,
             'sampler_tqdm': True,
 
@@ -222,16 +230,16 @@ if __name__ == '__main__':
 
             'load_last': True,
 
-            'nn_layersizes': [32, 32, 32, 32],
-            'nn_V_gradient_penalty': 10,
+            'nn_layersizes': [64, 64, 64],
+            'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
-            'nn_N_epochs': 10,
+            'nn_N_epochs': 2,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'lr_staircase': False,
             'lr_staircase_steps': 4,
             'lr_init': 0.01,
-            'lr_final': 0.001,
+            'lr_final': 0.0001,
     }
 
     # the matrix used to define the relevant state space subset in the paper
@@ -243,4 +251,13 @@ if __name__ == '__main__':
     # problem_params are parameters of the problem itself
     # algo_params contains the 'implementation details'
 
-    uniform_sampling_learning(problem_params, algo_params, key=jax.random.PRNGKey(0))
+    # to re-make the sample:
+    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(10101))
+
+    for i in range(16):
+        point_Ns, test_grad_losses = fit_eval_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(i))
+        pl.semilogx(point_Ns, test_grad_losses, alpha=.5, color='tab:blue', marker='.')
+
+    pl.xlabel('number of training data points')
+    pl.ylabel('value gradient test loss')
+    pl.show()

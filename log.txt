@@ -1513,3 +1513,20 @@ x1(t) - x2(t) = \int 0 T || f1(x1(s))-f2(x2(s)) || ds.
 then apply grönwall ineq.
 
 
+
+euler:
+ssh -J dbalduin@jumphost.inf.ethz.ch dbalduin@euler.ethz.ch
+
+or without -J if within eth network/vpn
+
+
+todo for next week:
+
+- multiple seeds
+- control performance
+- start with linear 2x int
+- make some plots & write about them
+- then, investigate numerical noise/dt/nn sizes relationship
+
+
+

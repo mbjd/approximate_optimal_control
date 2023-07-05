@@ -1517,6 +1517,8 @@ then apply grönwall ineq.
 euler:
 ssh -J dbalduin@jumphost.inf.ethz.ch dbalduin@euler.ethz.ch
 
+two files sent by lenart basically make commands to run parallel jobs
+
 or without -J if within eth network/vpn
 
 

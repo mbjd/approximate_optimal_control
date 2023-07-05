@@ -17,6 +17,8 @@ import tqdm
 import warnings
 from functools import partial
 
+import numpy as onp
+
 from jax.config import config
 # config.update("jax_debug_nans", True)
 # jax.config.update("jax_enable_x64", True)
@@ -130,13 +132,28 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
     point_Ns = 2**np.arange(3, 14)
 
 
+
     N_keys = 16
+
+    # axis 0: which PRNG key was used?
+    # axis 1: which point number?
+    # axis 2: which type of data?
+    #  index 0: number of training points used (-> x axis for plot)
+    #  index 1: costate test loss
+    #  index 2: mean control cost
+    #  index 3: std. dev. control cost.
+    # TODO put this on the euler cluster or be ok with waiting a couple hours.
+
+    out_data = onp.zeros((N_keys, point_Ns.shape[0], 4))
+
     for i in range(N_keys):
         # the keys are automatically made with jax.random.split.
         costate_test_losses = []
         control_costs = []
 
-        for point_N in point_Ns:
+        for j, point_N in enumerate(point_Ns):
+
+            out_data[i, j, 0] = point_N
 
             # 'subsample' data
             repeated_idx = np.mod(np.arange(y0s.shape[0]), point_N)
@@ -153,18 +170,29 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
             # evaluate test loss
             mean_pred, std_pred = V_nn.ensemble_mean_std(nn_params, xs_eval)
             costate_test_loss = np.mean((mean_pred[:, 1:] - gradients_eval)**2)
-            costate_test_losses.append(costate_test_loss.item())
+
+            out_data[i, j, 1] = costate_test_loss
 
             # simulate closed loop
             all_sols = eval_utils.closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x0s)
 
             # record control cost.
-            cost = eval_utils.compute_controlcost(problem_params, all_sols)
-            control_costs.append(cost.item())
+            cost_mean = all_sols.ys[:, -1, nx].mean()
+            cost_std = all_sols.ys[:, -1, nx].std()
 
-        pl.semilogx(point_Ns, costate_test_losses, label='costate loss' if i==0 else '', alpha=.5, marker='.', color='tab:blue')
-        pl.semilogx(point_Ns, control_costs, label='control cost' if i==0 else '', alpha=.5, marker='.', color='grey')
-    pl.show()
+            out_data[i, j, 2] = cost_mean
+            out_data[i, j, 3] = cost_std
+
+            # just because i wanna be extra extra sure to not lose data
+            np.save('datasets/trainpts_controlcost_data.npy', out_data)
+
+
+    ipdb.set_trace()
+    try:
+        np.save('datasets/trainpts_controlcost_data.npy', out_data)
+    except:
+        print('it went wrong :( handle this ipdb session with care')
+
     ipdb.set_trace()
 
 

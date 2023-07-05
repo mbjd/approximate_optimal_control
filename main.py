@@ -65,12 +65,13 @@ def fit_ensemble_value(problem_params, algo_params, key):
             output_dim = 1,
     )
 
-    batchsize = algo_params['nn_batchsize']
-    N_epochs = algo_params['nn_N_epochs']
-
     # data to evaluate the nn on
     eval_set, y0s = np.split(y0s, [256], axis=0)
-    nn_xs, nn_ys = np.split(y0s, [nx], axis=1)
+
+    # only use part of the data.
+    repeated_idx = np.mod(np.arange(y0s.shape[0]), algo_params['nn_N_trainpts'])
+    nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
+
     xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
 
 
@@ -80,7 +81,7 @@ def fit_ensemble_value(problem_params, algo_params, key):
             jax.random.split(key, algo_params['nn_ensemble_size']), nn_xs, nn_ys, algo_params
     )
 
-    means, stds = V_nn.ensemble_mean_std(nn_params, xs_eval)
+    # means, stds = V_nn.ensemble_mean_std(nn_params, xs_eval)
 
     # make some plots.
     # plotting_utils.plot_nn_ensemble(V_nn, nn_params, (-3, 3), (-8, 8))
@@ -91,6 +92,80 @@ def fit_ensemble_value(problem_params, algo_params, key):
 
 
 
+def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
+
+    # train the NN with different amounts of training data.
+    # each time, evaluate:
+    #  - mean λ approx. error
+    #  - control cost
+
+
+    sysname = problem_params['system_name']
+    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+    lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
+
+    # choose initial states for sim. the same each time.
+    key, x0key = jax.random.split(key)
+    x0s = jax.random.choice(x0key, y0s, shape=(algo_params['sim_N'],))[:, 0:2]
+
+    # shuffle data to 'get rid of' interdependence
+    key, subkey = jax.random.split(key)
+    permuted_idx = jax.random.permutation(subkey, np.arange(y0s.shape[0]))
+    y0s = y0s[permuted_idx, :]
+    lamTs = lamTs[permuted_idx, :]
+
+    nx = problem_params['nx']
+
+    V_nn = nn_utils.nn_wrapper(
+            input_dim = nx,
+            layer_dims = algo_params['nn_layersizes'],
+            output_dim = 1,
+    )
+
+    # data to evaluate the nn on
+    eval_set, y0s = np.split(y0s, [256], axis=0)
+    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
+
+
+    point_Ns = 2**np.arange(3, 14)
+
+
+    N_keys = 16
+    for i in range(N_keys):
+        # the keys are automatically made with jax.random.split.
+        costate_test_losses = []
+        control_costs = []
+
+        for point_N in point_Ns:
+
+            # 'subsample' data
+            repeated_idx = np.mod(np.arange(y0s.shape[0]), point_N)
+            nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
+
+            # train NN ensemble
+            key, subkey = jax.random.split(key)
+            nn_params, outputs = V_nn.ensemble_init_and_train(
+                    jax.random.split(subkey, algo_params['nn_ensemble_size']), nn_xs, nn_ys, algo_params
+            )
+
+            # plotting_utils.plot_nn_ensemble(V_nn, nn_params, (-3, 3), (-6, 6), save='figs/ensemble_{point_N}_pts.png')
+
+            # evaluate test loss
+            mean_pred, std_pred = V_nn.ensemble_mean_std(nn_params, xs_eval)
+            costate_test_loss = np.mean((mean_pred[:, 1:] - gradients_eval)**2)
+            costate_test_losses.append(costate_test_loss.item())
+
+            # simulate closed loop
+            all_sols = eval_utils.closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x0s)
+
+            # record control cost.
+            cost = eval_utils.compute_controlcost(problem_params, all_sols)
+            control_costs.append(cost.item())
+
+        pl.semilogx(point_Ns, costate_test_losses, label='costate loss' if i==0 else '', alpha=.5, marker='.', color='tab:blue')
+        pl.semilogx(point_Ns, control_costs, label='control cost' if i==0 else '', alpha=.5, marker='.', color='grey')
+    pl.show()
+    ipdb.set_trace()
 
 
 
@@ -145,10 +220,6 @@ def fit_eval_value_fct(problem_params, algo_params, key):
 
     key, subkey = jax.random.split(key)
     nn_params = V_nn.init_nn_params(subkey)
-
-
-    batchsize = algo_params['nn_batchsize']
-    N_epochs = algo_params['nn_N_epochs']
 
 
     # data to evaluate the nn on
@@ -280,10 +351,10 @@ if __name__ == '__main__':
             'nn_layersizes': [64, 64, 64],
             'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
-            'nn_N_epochs': 1,
+            'nn_N_epochs': 2,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
-            'nn_ensemble_size': 2,
+            'nn_ensemble_size': 16,
             'lr_staircase': False,
             'lr_staircase_steps': 4,
             'lr_init': 0.01,
@@ -307,25 +378,4 @@ if __name__ == '__main__':
     # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(10101))
 
     key = jax.random.PRNGKey(0)
-    nn_key, state_key = jax.random.split(key, 2)
-
-    V_nn, nn_params = fit_ensemble_value(problem_params, algo_params, key=nn_key)
-
-
-
-
-    # x0s = jax.random.normal(state_key, shape=(sim_N, 2))
-
-    # instead:
-    sysname = problem_params['system_name']
-    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
-
-    for i in range(100):
-        x0s = jax.random.choice(jax.random.PRNGKey(i), y0s, shape=(algo_params['sim_N'],))[:, 0:2]
-
-        all_sols = eval_utils.closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x0s)
-        ipdb.set_trace()
-        ccost = eval_utils.compute_controlcost(problem_params, all_sols)
-        print(ccost)
-
-
+    experiment_controlcost_vs_traindata(problem_params, algo_params, key)

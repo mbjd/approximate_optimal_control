@@ -17,6 +17,54 @@ import numpy as onp
 from functools import partial
 cmap = 'viridis'
 
+def plot_controlcost_vs_traindata():
+
+    # axis 0: which PRNG key was used?
+    # axis 1: which point number?
+    # axis 2: which type of data?
+    #  index 0: number of training points used (-> x axis for plot)
+    #  index 1: costate test loss
+    #  index 2: mean control cost
+    #  index 3: std. dev. control cost.
+
+    # we swap here for easier plotting
+    data = np.load('datasets/trainpts_controlcost_data.npy').swapaxes(0, 1)
+
+    N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
+
+    # all the same
+    N_trainpts = N_trainpts[:, 0]
+    N_seeds = data.shape[1]
+
+    labels = ['' for _ in range(N_seeds)]
+    labels[0] = 'costate test loss'
+    # pl.subplot(121)
+    a = .3
+    pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
+
+
+    labels[0] = 'mean control cost'
+    pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+    pl.xlabel('Training set size')
+
+
+    pl.legend()
+
+    # pl.subplot(122)
+
+    # labels[0] = 'control cost vs. λ test loss'
+    # pl.loglog(costate_testloss.squeeze(), cost_mean.squeeze(), c='tab:orange', marker='.', alpha=a, label=labels)
+    # pl.xlabel('λ test loss')
+    # pl.ylabel('control cost')
+
+    pl.legend()
+    pl.show()
+
+
+
+    ipdb.set_trace()
+
+
 
 def plot_2d_gp(gp, gp_ys, xbounds, ybounds, N_disc=101, save=False,
         savename=None):

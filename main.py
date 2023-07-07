@@ -103,12 +103,12 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
 
 
     sysname = problem_params['system_name']
+
     y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
     lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
 
     # choose initial states for sim. the same each time.
     key, x0key = jax.random.split(key)
-    x0s = jax.random.choice(x0key, y0s, shape=(algo_params['sim_N'],))[:, 0:2]
 
     # shuffle data to 'get rid of' interdependence
     key, subkey = jax.random.split(key)
@@ -128,6 +128,8 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
     eval_set, y0s = np.split(y0s, [256], axis=0)
     xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
 
+    # x0s from test set.
+    x0s = jax.random.choice(x0key, xs_eval, shape=(algo_params['sim_N'],))
 
     point_Ns = 2**np.arange(3, 14)
 
@@ -147,25 +149,26 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
     out_data = onp.zeros((N_keys, point_Ns.shape[0], 4))
 
     for i in range(N_keys):
-        # the keys are automatically made with jax.random.split.
-        costate_test_losses = []
-        control_costs = []
+
+        key = jax.random.PRNGKey(i)
+
+        # shuffle once for each PRNG key
+        y0s_shuffled = jax.random.permutation(key, y0s, axis=0, independent=False)
 
         for j, point_N in enumerate(point_Ns):
 
+            NN_key, key = jax.random.split(key)
+
             out_data[i, j, 0] = point_N
 
-            # 'subsample' data
-            repeated_idx = np.mod(np.arange(y0s.shape[0]), point_N)
-            nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
+            # 'subsample' data = take first point_N and repeat
+            repeated_idx = np.mod(np.arange(y0s_shuffled.shape[0]), point_N)
+            nn_xs, nn_ys = np.split(y0s_shuffled[repeated_idx], [nx], axis=1)
 
             # train NN ensemble
-            key, subkey = jax.random.split(key)
             nn_params, outputs = V_nn.ensemble_init_and_train(
-                    jax.random.split(subkey, algo_params['nn_ensemble_size']), nn_xs, nn_ys, algo_params
+                    jax.random.split(NN_key, algo_params['nn_ensemble_size']), nn_xs, nn_ys, algo_params
             )
-
-            # plotting_utils.plot_nn_ensemble(V_nn, nn_params, (-3, 3), (-6, 6), save='figs/ensemble_{point_N}_pts.png')
 
             # evaluate test loss
             mean_pred, std_pred = V_nn.ensemble_mean_std(nn_params, xs_eval)
@@ -184,12 +187,11 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
             out_data[i, j, 3] = cost_std
 
             # just because i wanna be extra extra sure to not lose data
-            np.save('datasets/trainpts_controlcost_data.npy', out_data)
+            np.save(f'datasets/trainpts_controlcost_data_{sysname}.npy', out_data)
 
 
-    ipdb.set_trace()
     try:
-        np.save('datasets/trainpts_controlcost_data.npy', out_data)
+        np.save(f'datasets/trainpts_controlcost_data_{sysname}.npy', out_data)
     except:
         print('it went wrong :( handle this ipdb session with care')
 
@@ -319,6 +321,7 @@ if __name__ == '__main__':
         # f = -v**3 + u
         # clip so we don't have finite escape time when integrating backwards
         v_cubed = np.clip((np.array([[0, 1]]) @ x)**3, -10, 10)
+        # v_cubed = (np.array([[0, 1]]) @ x)**3
         return np.array([[0, 1], [0, 0]]) @ x + np.array([[0, 1]]).T @ (u - v_cubed)
 
     def l(t, x, u):
@@ -332,6 +335,7 @@ if __name__ == '__main__':
 
 
     problem_params = {
+            # 'system_name': 'double_integrator_unlimited',
             'system_name': 'double_integrator',
             'f': f,
             'l': l,
@@ -340,7 +344,7 @@ if __name__ == '__main__':
             'nx': 2,
             'nu': 1,
             'terminal_constraint': True,  # not tested with False for a long time
-            'V_max': 15,
+            'V_max': 16,
     }
 
     x_sample_scale = np.diag(np.array([1, 3]))
@@ -349,7 +353,7 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/64,
+            'pontryagin_solver_dt': 1/32,
 
             # 'pontryagin_sampler_n_trajectories': 32,
             # 'pontryagin_sampler_n_iters': 8,
@@ -359,13 +363,14 @@ if __name__ == '__main__':
             # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
             # 'pontryagin_sampler_returns': 'functions',
 
-            'sampler_dt': 1/64,
+            'sampler_dt': 1/32,
             'sampler_burn_in': 0,
             'sampler_N_chains': 4,  # with pmap this has to be 4
-            'sampler_samples': 2**12,  # actual samples = N_chains * samples
+            'sampler_samples': 2**16,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 4,
-            'sampler_plot': True,
+            'sampler_plot': False,
             'sampler_tqdm': True,
+            # 'sampler_x_proposal_cov': np.array([[3.5, -4.5], [-4.5, 12]]),
 
             'x_sample_cov': x_sample_cov,
             'x_max_mahalanobis_dist': 2,
@@ -403,7 +408,8 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     # to re-make the sample:
-    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(10101))
+    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+
 
     key = jax.random.PRNGKey(0)
     experiment_controlcost_vs_traindata(problem_params, algo_params, key)

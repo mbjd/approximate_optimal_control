@@ -306,6 +306,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
     # heuristically found to represent the problem dimensions nicely
     jumpsizes = np.diag(np.sqrt(algo_params['x_sample_cov']) * algo_params['x_max_mahalanobis_dist']) * np.sqrt(problem_params['V_max']/10)
+    jumpsizes = np.array([4, 8])
     print(f'sampler: jumpsizes = {jumpsizes}')
 
     # all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
@@ -320,10 +321,11 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     print(f'time for 1st jit run: {t1-t0:.4f}')
     print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
 
-    # t0 = time.perf_counter()
-    # outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
-    # t1 = time.perf_counter()
-    # print(f'time for 2nd jit run: {t1-t0:.4f}')
+    t0 = time.perf_counter()
+    outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
+    t1 = time.perf_counter()
+    print(f'time for 2nd jit run: {t1-t0:.4f}')
+    print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
 
     all_tcs = outputs['tc']
 
@@ -417,8 +419,8 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     # also write the dataset into a csv so we have it ready the next time.
     sysname = problem_params['system_name']
 
-    np.save('datasets/last_y0s_{sysname}.npy', subsampled_y0s)
-    np.save('datasets/last_lamTs_{sysname}.npy', subsampled_λTs)
+    np.save(f'datasets/last_y0s_{sysname}.npy', subsampled_y0s)
+    np.save(f'datasets/last_lamTs_{sysname}.npy', subsampled_λTs)
 
     return subsampled_y0s, subsampled_λTs
 

@@ -30,7 +30,7 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     sysname = problem_params['system_name']
 
-    assert sysname == 'double_integrator_linear', 'otherwise lqr comparison makes no sense'
+    assert sysname.startswith('double_integrator_linear'), 'otherwise lqr comparison makes no sense'
 
     y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
     lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
@@ -206,14 +206,15 @@ algo_params = {
         'nn_layersizes': [64, 64, 64],
         'nn_V_gradient_penalty': 50,
         'nn_batchsize': 128,
-        'nn_N_epochs': 2,
+        'nn_N_max': 8192,
+        'nn_N_epochs': 10,
         'nn_progressbar': True,
         'nn_testset_fraction': 0.1,
         'nn_ensemble_size': 16,
         'lr_staircase': False,
         'lr_staircase_steps': 4,
-        'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_init': 0.05,
+        'lr_final': 0.005,
 
         'sim_T': 16,
         'sim_dt': 1/16,
@@ -229,5 +230,5 @@ algo_params['x_Q_S'] = np.linalg.inv(x_sample_cov) / algo_params['x_max_mahalano
 # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
 
 key = jax.random.PRNGKey(0)
-# experiment_controlcost_vs_traindata(problem_params, algo_params, key)
-experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)
+experiment_controlcost_vs_traindata(problem_params, algo_params, key)
+# experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)

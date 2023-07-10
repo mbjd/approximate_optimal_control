@@ -18,7 +18,7 @@ import scipy
 # global config
 dpi = 400
 halfwidth = 5  # in
-subsample=False
+subsample=True
 save=False
 
 def save_fig_wrapper(figname):
@@ -173,13 +173,14 @@ if __name__ == '__main__':
 
     # new example with more correct prng key handling
     # fig_controlcost('double_integrator_unlimited')
-    fig_train_data_big('double_integrator_lofi')
+    # fig_train_data_big('double_integrator_lofi')
 
     # for paper:
-    # fig_controlcost('double_integrator')
-    # fig_train_data_big('double_integrator_linear')
-    # fig_train_data_big('double_integrator_bigsample')
-    # fig_controlcost('double_integrator_linear')
+    fig_train_data_big('double_integrator_linear')    # 65536  pts
+    fig_train_data_big('double_integrator')           # 16384  pts
+    # fig_train_data_big('double_integrator_bigsample') # 262144 pts
+    fig_controlcost('double_integrator_linear')
+    fig_controlcost('double_integrator')
 
     # the two are literally the exact same
     # fig_controlcost('double_integrator')

@@ -125,28 +125,32 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
 
     # data to evaluate the nn on
     eval_set, y0s = np.split(y0s, [256], axis=0)
-    y0s = y0s[0:2**14]  # only 16384 training pts
+    N_max = algo_params['nn_N_max']
+    y0s = y0s[0:N_max]  # only N_max training pts
     xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
 
     # x0s from test set.
     x0s = jax.random.choice(x0key, xs_eval, shape=(algo_params['sim_N'],))
 
-    point_Ns = 2**np.arange(3, 14)
-
-
-
+    point_Ns = 2**np.arange(3, int(1 + np.log2(N_max)))
+    print(point_Ns)
     N_keys = 16
+
+    # light version :)
+    # point_Ns = 2**np.arange(8, int(1 + np.log2(N_max)))
+    # N_keys = 2
 
     # axis 0: which PRNG key was used?
     # axis 1: which point number?
     # axis 2: which type of data?
     #  index 0: number of training points used (-> x axis for plot)
     #  index 1: costate test loss
-    #  index 2: mean control cost
-    #  index 3: std. dev. control cost.
-    # TODO put this on the euler cluster or be ok with waiting a couple hours.
+    #  index 2: costate prediction std. maximum <- this is new! TODO: adapt plotting function
+    #  index 3: costate prediction std. mean    <-
+    #  index 4: mean control cost
+    #  index 5: std. dev. control cost.
 
-    out_data = onp.zeros((N_keys, point_Ns.shape[0], 4))
+    out_data = onp.zeros((N_keys, point_Ns.shape[0], 6))
 
     for i in range(N_keys):
 
@@ -175,6 +179,8 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
             costate_test_loss = np.mean((mean_pred[:, 1:] - gradients_eval)**2)
 
             out_data[i, j, 1] = costate_test_loss
+            out_data[i, j, 2] = std_pred[:, 1:].max()
+            out_data[i, j, 3] = std_pred[:, 1:].mean()
 
             # simulate closed loop
             all_sols = eval_utils.closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x0s)
@@ -183,8 +189,8 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
             cost_mean = all_sols.ys[:, -1, nx].mean()
             cost_std = all_sols.ys[:, -1, nx].std()
 
-            out_data[i, j, 2] = cost_mean
-            out_data[i, j, 3] = cost_std
+            out_data[i, j, 4] = cost_mean
+            out_data[i, j, 5] = cost_std
 
             # just because i wanna be extra extra sure to not lose data
             np.save(f'datasets/trainpts_controlcost_data_{sysname}.npy', out_data)
@@ -195,96 +201,7 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
     except:
         print('it went wrong :( handle this ipdb session with care')
 
-    ipdb.set_trace()
-
-
-
-def fit_eval_value_fct(problem_params, algo_params, key):
-
-    '''
-    to recreate plot, put this in some main somewhere:
-
-        for i in range(16):
-            point_Ns, test_grad_losses = fit_eval_value_fct(problem_params, algo_params, key=jax.random.PRNGKey(i))
-            pl.semilogx(point_Ns, test_grad_losses, alpha=.5, color='tab:blue', marker='.')
-
-        pl.xlabel('number of training data points')
-        pl.ylabel('value gradient test loss')
-    '''
-
-
-    # fits value function as described in paper, for growing size of training data.
-
-    if algo_params['load_last']:
-
-        sysname = problem_params['system_name']
-
-        y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
-        lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
-
-        # seen this
-        # plotting_utils.value_lambda_scatterplot(y0s[:, 0:2], y0s[:, -1], lamTs, save=False)
-
-    else:
-
-        key, subkey = jax.random.split(key)
-        y0s, lamTs = sample_uniform(problem_params, algo_params, subkey)
-
-    # shuffle data to 'get rid of' interdependence
-    key, subkey = jax.random.split(key)
-    permuted_idx = jax.random.permutation(subkey, np.arange(y0s.shape[0]))
-
-    y0s = y0s[permuted_idx, :]
-    lamTs = lamTs[permuted_idx, :]
-
-
-
-
-    nx = problem_params['nx']
-
-    V_nn = nn_utils.nn_wrapper(
-            input_dim = nx,
-            layer_dims = algo_params['nn_layersizes'],
-            output_dim = 1,
-    )
-
-    key, subkey = jax.random.split(key)
-    nn_params = V_nn.init_nn_params(subkey)
-
-
-    # data to evaluate the nn on
-    eval_set, y0s = np.split(y0s, [256], axis=0)
-    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
-
-    test_grad_losses = []
-
-    point_Ns = 2**np.arange(4, 14)
-    for N_pts in point_Ns:
-
-        # generate training data, always of the full size, but
-        # repeated so only the first N_pts points are in it.
-        # a bit inelegant but easy bc training dynamics stay the same.
-        repeated_idx = np.mod(np.arange(y0s.shape[0]), N_pts)
-        nn_xs, nn_ys = np.split(y0s[repeated_idx], [nx], axis=1)
-
-        # train the nn
-        nn_params, outputs = V_nn.train(
-                nn_xs, nn_ys, nn_params, algo_params, key
-        )
-
-        # plotting_utils.plot_nn_train_outputs(outputs)
-        # pl.show()
-
-        # evaluate test (gradient) errors.
-        gradients_pred = V_nn.apply_grad(nn_params, xs_eval)
-
-        grad_errs = gradients_pred - gradients_eval
-
-        test_grad_loss = np.square(grad_errs).mean()
-        test_grad_losses.append(test_grad_loss)
-
-
-    return point_Ns, test_grad_losses
+    # ipdb.set_trace()
 
 
 
@@ -336,7 +253,8 @@ if __name__ == '__main__':
 
     problem_params = {
             # 'system_name': 'double_integrator_unlimited',
-            'system_name': 'double_integrator_lofi',
+            # 'system_name': 'double_integrator',
+            'system_name': 'double_integrator_tuning',  # data copied from double_integrator
             'f': f,
             'l': l,
             'h': h,
@@ -361,7 +279,7 @@ if __name__ == '__main__':
             'sampler_samples': 2**8,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 4,
             'sampler_plot': True,
-            'sampler_tqdm': True,
+            'sampler_tqdm': False,
             # 'sampler_x_proposal_cov': np.array([[3.5, -4.5], [-4.5, 12]]),
 
             'x_sample_cov': x_sample_cov,
@@ -372,14 +290,15 @@ if __name__ == '__main__':
             'nn_layersizes': [64, 64, 64],
             'nn_V_gradient_penalty': 50,
             'nn_batchsize': 128,
-            'nn_N_epochs': 2,
+            'nn_N_max': 8192,
+            'nn_N_epochs': 10,
             'nn_progressbar': True,
             'nn_testset_fraction': 0.1,
             'nn_ensemble_size': 16,
             'lr_staircase': False,
             'lr_staircase_steps': 4,
-            'lr_init': 0.01,
-            'lr_final': 0.0001,
+            'lr_init': 0.05,
+            'lr_final': 0.005,
 
             'sim_T': 16,
             'sim_dt': 1/16,
@@ -396,8 +315,8 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     # to re-make the sample:
-    sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
 
 
     key = jax.random.PRNGKey(0)
-    # experiment_controlcost_vs_traindata(problem_params, algo_params, key)
+    experiment_controlcost_vs_traindata(problem_params, algo_params, key)

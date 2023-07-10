@@ -30,6 +30,8 @@ def plot_controlcost_vs_traindata():
     # we swap here for easier plotting
     data = np.load('datasets/trainpts_controlcost_data.npy').swapaxes(0, 1)
 
+    # this will fail for the new data format with more entries in last dim.
+    # todo: adapt
     N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
 
     # all the same
@@ -626,10 +628,15 @@ def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
 def plot_nn_train_outputs(outputs):
 
+
     pl.figure('NN training visualisation', figsize=(15, 10))
 
     # outputs is a dict where keys are different outputs, and the value
     # is an array containing that output for ALL relevant training iterations,
+
+    cs = ['tab:blue', 'tab:green', 'tab:red']
+    c=0
+    a = .2
 
     # training subplot
     ax1 = pl.subplot(211)
@@ -638,7 +645,15 @@ def plot_nn_train_outputs(outputs):
 
     for k in outputs.keys():
         if 'train' in k:
-            pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
+            if len(outputs[k].shape) == 2:
+                # NN ensemble
+                N_ens, Nt = outputs[k].shape
+                labels = ['' for i in range(N_ens)]
+                labels[0] = make_nice(k)
+                pl.semilogy(outputs[k].T, label=labels, alpha=a, c=cs[c])
+                c = c+1
+            else:
+                pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
     pl.grid(axis='both')
     pl.ylim([1e-3, 1e3])
     pl.legend()
@@ -646,12 +661,21 @@ def plot_nn_train_outputs(outputs):
     # training subplot
     pl.subplot(212, sharex=ax1)
     pl.gca().set_prop_cycle(None)
+    c = 0
 
     for k in outputs.keys():
         if 'test' in k:
-            pl.semilogy(outputs[k], label=make_nice(k), alpha=1)
-        if 'lr' in k:
-            pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
+            if len(outputs[k].shape) == 2:
+                # NN ensemble
+                N_ens, Nt = outputs[k].shape
+                labels = ['' for i in range(N_ens)]
+                labels[0] = make_nice(k)
+                pl.semilogy(outputs[k].T, label=labels, alpha=a, c=cs[c])
+                c = c+1
+            else:
+                pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
+        # if 'lr' in k:
+            # pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
     pl.grid(axis='both')
     pl.ylim([1e-3, 1e3])
     pl.legend()

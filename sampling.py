@@ -324,8 +324,8 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     t0 = time.perf_counter()
     outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
     t1 = time.perf_counter()
-    print(f'time for 2nd jit run: {t1-t0:.4f}')
-    print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
+    # print(f'time for 2nd jit run: {t1-t0:.4f}')
+    # print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
 
     all_tcs = outputs['tc']
 
@@ -496,7 +496,7 @@ def adam_uncertainty_sampler(logpdf, init_population, algo_params, key=jax.rando
     # and get xs (N_steps, nx) and logpdfs (N_steps,)
     # xs, logpdfs = run_single_chain(key, init_population[0], noise_schedule)
 
-    run_multiple_chains = jax.pmap(run_single_chain, in_axes=(0, 0, None))
+    run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None))
     keys = jax.random.split(key, init_population.shape[0])
     all_xs, all_logpdfs = run_multiple_chains(keys, init_population, noise_schedule)
 

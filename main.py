@@ -20,8 +20,8 @@ from functools import partial
 import numpy as onp
 
 from jax.config import config
+jax.config.update("jax_enable_x64", True)
 # config.update("jax_debug_nans", True)
-# jax.config.update("jax_enable_x64", True)
 
 
 # import matplotlib
@@ -93,7 +93,6 @@ def fit_ensemble_value(problem_params, algo_params, key):
 
 
 
-
 def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
 
     # train the NN with different amounts of training data.
@@ -126,6 +125,7 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
 
     # data to evaluate the nn on
     eval_set, y0s = np.split(y0s, [256], axis=0)
+    y0s = y0s[0:2**14]  # only 16384 training pts
     xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
 
     # x0s from test set.
@@ -320,8 +320,8 @@ if __name__ == '__main__':
         # v' = f
         # f = -v**3 + u
         # clip so we don't have finite escape time when integrating backwards
-        v_cubed = np.clip((np.array([[0, 1]]) @ x)**3, -10, 10)
-        # v_cubed = (np.array([[0, 1]]) @ x)**3
+        v_cubed = (np.array([[0, 1]]) @ x)**3
+        v_cubed = np.clip(v_cubed, -10, 10)
         return np.array([[0, 1], [0, 0]]) @ x + np.array([[0, 1]]).T @ (u - v_cubed)
 
     def l(t, x, u):
@@ -336,7 +336,7 @@ if __name__ == '__main__':
 
     problem_params = {
             # 'system_name': 'double_integrator_unlimited',
-            'system_name': 'double_integrator',
+            'system_name': 'double_integrator_lofi',
             'f': f,
             'l': l,
             'h': h,
@@ -353,31 +353,19 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/32,
+            'pontryagin_solver_dt': 1/16,
 
-            # 'pontryagin_sampler_n_trajectories': 32,
-            # 'pontryagin_sampler_n_iters': 8,
-            # 'pontryagin_sampler_n_extrarounds': 2,
-            # 'pontryagin_sampler_strategy': 'importance',
-            # 'pontryagin_sampler_deterministic': False,
-            # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
-            # 'pontryagin_sampler_returns': 'functions',
-
-            'sampler_dt': 1/32,
+            'sampler_dt': 1/64,
             'sampler_burn_in': 0,
             'sampler_N_chains': 4,  # with pmap this has to be 4
-            'sampler_samples': 2**16,  # actual samples = N_chains * samples
+            'sampler_samples': 2**8,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 4,
-            'sampler_plot': False,
+            'sampler_plot': True,
             'sampler_tqdm': True,
             # 'sampler_x_proposal_cov': np.array([[3.5, -4.5], [-4.5, 12]]),
 
             'x_sample_cov': x_sample_cov,
             'x_max_mahalanobis_dist': 2,
-
-            # 'gp_iters': 100,
-            # 'gp_train_plot': True,
-            # 'N_learning_iters': 200,
 
             'load_last': True,
 
@@ -408,8 +396,8 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     # to re-make the sample:
-    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+    sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
 
 
     key = jax.random.PRNGKey(0)
-    experiment_controlcost_vs_traindata(problem_params, algo_params, key)
+    # experiment_controlcost_vs_traindata(problem_params, algo_params, key)

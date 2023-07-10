@@ -1,0 +1,8 @@
+(env) dbalduin@cab-e81-6:~/approximate_optimal_control$ ./main.py
+No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+sampler: jumpsizes = [4 8]
+time for 1st jit run: 4299.3675
+time per sample     : 0.0164
+time for 2nd jit run: 4269.1100
+time per sample     : 0.0163
+

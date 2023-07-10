@@ -3,6 +3,8 @@
 import jax
 import jax.numpy as np
 
+import diffrax
+
 import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
@@ -10,9 +12,13 @@ import matplotlib.pyplot as pl
 import ipdb
 import os
 
+import numpy as onp
+import scipy
+
 # global config
 dpi = 400
 halfwidth = 5  # in
+subsample=False
 save=False
 
 def save_fig_wrapper(figname):
@@ -29,13 +35,15 @@ def fig_train_data(sysname):
     lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
 
     k = jax.random.PRNGKey(0)
-    Nmax = 1024
     print(f'total pts: {y0s.shape[0]}')
-    rand_idx = jax.random.choice(k, np.arange(y0s.shape[0]), shape=(Nmax,))
+    if subsample:
+        Nmax = 2048
+        rand_idx = jax.random.choice(k, np.arange(y0s.shape[0]), shape=(Nmax,))
 
-    y0s = y0s[rand_idx, :]
-    lamTs = lamTs[rand_idx, :]
+        y0s = y0s[rand_idx, :]
+        lamTs = lamTs[rand_idx, :]
 
+    print(f'total pts to plot: {y0s.shape[0]}')
     x0s, lam0s, v0s = np.split(y0s, [2, 4], axis=1)
 
     cmap = 'viridis'
@@ -56,6 +64,61 @@ def fig_train_data(sysname):
     pl.colorbar(sc, label='Value $V(x_0)$')
 
     save_fig_wrapper(f'fig_train_data_{sysname}.png')
+
+def fig_train_data_big(sysname):
+
+    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+    lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
+
+
+    k = jax.random.PRNGKey(0)
+    print(f'total pts: {y0s.shape[0]}')
+    if subsample:
+        Nmax = 2048
+        rand_idx = jax.random.choice(k, np.arange(y0s.shape[0]), shape=(Nmax,))
+
+        y0s = y0s[rand_idx, :]
+        lamTs = lamTs[rand_idx, :]
+
+    print(f'total pts to plot: {y0s.shape[0]}')
+    x0s, lam0s, v0s = np.split(y0s, [2, 4], axis=1)
+
+
+
+
+    cmap = 'viridis'
+
+    fig, ax = pl.subplots(ncols=2, layout='compressed', figsize=(2*halfwidth, 2*halfwidth*.8))
+    pl.subplot(221)
+    pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=v0s)
+    pl.xlabel(r'$x_0^{(0)}$')
+    pl.ylabel(r'$x_0^{(1)}$')
+    pl.gca().set_title(r'Sampled $x_0$, coloured by $V(x_0)$')
+
+    pl.subplot(222)
+    sc = pl.scatter(*np.split(lamTs, [1], axis=1), cmap=cmap, c=v0s)
+    pl.xlabel(r'$λ_T^{(0)}$')
+    pl.ylabel(r'$λ_T^{(1)}$')
+    pl.gca().set_title(r'Sampled $\lambda_T$, coloured by $V(PMP(λ_T))$')
+
+    pl.colorbar(sc, label='Value $V(x_0)$')
+
+    pl.subplot(223)
+    sc = pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=y0s[:, 2])
+    pl.xlabel(r'$x_0^{(0)}$')
+    pl.ylabel(r'$x_0^{(1)}$')
+    pl.gca().set_title(r'Sampled $x_0$, coloured by $λ^{(0)}(x_0)$')
+
+    pl.subplot(224)
+    sc = pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=y0s[:, 3])
+    pl.xlabel(r'$x_0^{(0)}$')
+    pl.ylabel(r'$x_0^{(1)}$')
+    pl.gca().set_title(r'Sampled $x_0$, coloured by $λ^{(1)}(x_0)$')
+
+    pl.colorbar(sc, label='Costate $λ(x_0)$')
+
+
+    save_fig_wrapper(f'fig_train_data_big_{sysname}.png')
 
 def fig_controlcost(sysname):
 
@@ -80,8 +143,8 @@ def fig_controlcost(sysname):
     # pl.gca().set_yticks([.5, .6, .7, .8, .9, 1, 2, 3, 4, 5, 6, 7, 8])
     pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
     # so it looks less weird
-    pl.gca().set_ylim([0.4, 12])
-    pl.gca().axes.xaxis.set_ticklabels([])
+    # pl.gca().set_ylim([0.4, 12])
+    # pl.gca().axes.xaxis.set_ticklabels([])
     pl.legend()
     pl.grid()
 
@@ -91,11 +154,18 @@ def fig_controlcost(sysname):
     pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
     pl.xlabel('Training set size')
 
+    # plot lqr baseline:
+    if sysname == 'double_integrator_linear':
+        mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
+        pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+
+
     pl.legend()
     pl.grid()
 
     pl.tight_layout()
     pl.subplots_adjust(hspace=0)
+
 
     save_fig_wrapper(f'fig_controlcost_{sysname}.png')
 
@@ -103,12 +173,16 @@ if __name__ == '__main__':
 
     # new example with more correct prng key handling
     # fig_controlcost('double_integrator_unlimited')
-    # fig_controlcost('double_integrator')
+    fig_train_data_big('double_integrator_lofi')
 
+    # for paper:
     # fig_controlcost('double_integrator')
+    # fig_train_data_big('double_integrator_linear')
+    # fig_train_data_big('double_integrator_bigsample')
+    # fig_controlcost('double_integrator_linear')
 
     # the two are literally the exact same
-    fig_train_data('double_integrator_test')
-    fig_train_data('double_integrator_unlimited')
-    fig_train_data('double_integrator')
+    # fig_controlcost('double_integrator')
+    # fig_train_data('double_integrator_unlimited')
+    # fig_train_data('double_integrator')
 

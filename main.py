@@ -254,7 +254,7 @@ if __name__ == '__main__':
     problem_params = {
             # 'system_name': 'double_integrator_unlimited',
             # 'system_name': 'double_integrator',
-            'system_name': 'double_integrator_tuning',  # data copied from double_integrator
+            'system_name': 'double_integrator_samplingtest_new',  # data copied from double_integrator
             'f': f,
             'l': l,
             'h': h,
@@ -315,8 +315,8 @@ if __name__ == '__main__':
     # algo_params contains the 'implementation details'
 
     # to re-make the sample:
-    # sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+    sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
 
 
     key = jax.random.PRNGKey(0)
-    experiment_controlcost_vs_traindata(problem_params, algo_params, key)
+    # experiment_controlcost_vs_traindata(problem_params, algo_params, key)

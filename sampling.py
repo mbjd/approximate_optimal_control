@@ -202,7 +202,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
             # and get the info for the backward transition for ensuring detailed balance.
             b_transition_info = mala_transition_info(tc_proposed, dt)
-            b_transition_mean, b_transition_cov, tc_next_logpdf, _ = b_transition_info
+            b_transition_mean, b_transition_cov, tc_next_logpdf, y0_proposed = b_transition_info
 
 
             # now, evaluate the transition probability densities
@@ -255,8 +255,15 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
                     # 'next_tc': next_tc,
                     # 'H': H,
                     # 'u': u,
-                    'tc': tc,
-                    'y0': y0_current,
+
+                    # 'tc': tc,
+                    # 'y0': y0_current,
+                    # 'do_accept': do_accept,
+
+                    # only change: return proposed sample, not accepted.
+                    # this smooths out the pdf
+                    'tc': tc_proposed,
+                    'y0': y0_proposed,
                     'do_accept': do_accept,
             }
 

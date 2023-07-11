@@ -174,6 +174,9 @@ if __name__ == '__main__':
     # new example with more correct prng key handling
     # fig_controlcost('double_integrator_unlimited')
     # fig_train_data_big('double_integrator_lofi')
+    fig_train_data_big('double_integrator_samplingtest')
+    fig_train_data_big('double_integrator_samplingtest_new')
+
 
     # for paper:
     fig_train_data_big('double_integrator_linear')    # 65536  pts

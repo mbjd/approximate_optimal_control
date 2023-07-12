@@ -261,6 +261,7 @@ if __name__ == '__main__':
             'T': 8,
             'nx': 2,
             'nu': 1,
+            'U_interval': [-1, 1],
             'terminal_constraint': True,  # not tested with False for a long time
             'V_max': 16,
     }

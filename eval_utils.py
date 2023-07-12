@@ -34,6 +34,7 @@ def closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x
                 x,
                 problem_params['nx'],
                 problem_params['nu'],
+                problem_params['U_interval'],
         )
 
         return u_star

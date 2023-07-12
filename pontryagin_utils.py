@@ -33,13 +33,14 @@ import diffrax
 # we have a fake version of function overloading -- these do the same thing but with different inputs.
 # mostly the same though, only cosmetic difference, in the end they all reduce down to the first one.
 
-def u_star_matrices(R, A):
+def u_star_matrices(R, A, U):
     # A is a row vector here...
     u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
-    # return u_star_unconstrained
-    return np.clip(u_star_unconstrained, -1, 1)
 
-def u_star_functions(f, l, V, t, x, nx, nu):
+    # if unconstrained: U = [-np.inf, np.inf]
+    return np.clip(u_star_unconstrained, U[0], U[1])
+
+def u_star_functions(f, l, V, t, x, nx, nu, U):
     # assuming that l is actually of the form l(t, x, u) = l_tx(t, x) + u.T @ R @ u,
     # the hessian R is independent of u. R should be of shape (nu, nu).
     zero_u = np.zeros((1, 1))
@@ -49,9 +50,9 @@ def u_star_functions(f, l, V, t, x, nx, nu):
     grad_f_u = jax.jacobian(f, argnums=2)(t, x, zero_u).reshape(nx, nu)
     A = grad_V_x @ grad_f_u        # should have shape (1, nu)
 
-    return u_star_matrices(R, A)
+    return u_star_matrices(R, A, U)
 
-def u_star_costate(f, l, costate, t, x, nx, nu):
+def u_star_costate(f, l, costate, t, x, nx, nu, U):
     zero_u = np.zeros(nu)  # u is a rank-1 array!
     R = jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
 
@@ -60,7 +61,7 @@ def u_star_costate(f, l, costate, t, x, nx, nu):
     grad_f_u = jax.jacobian(f, argnums=2)(t, x, zero_u).reshape(nx, nu)
     A = costate.T @ grad_f_u        # should have shape (1, nu)
 
-    return u_star_matrices(R, A)
+    return u_star_matrices(R, A, U)
 
 
 
@@ -88,7 +89,9 @@ def define_extended_dynamics(problem_params):
         # define ze hamiltonian for that time.
         H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
 
-        u_star = u_star_costate(f, l, costate, t, state, nx, nu)
+
+        U = problem_params['U_interval']
+        u_star = u_star_costate(f, l, costate, t, state, nx, nu, U)
 
         # the first line is just a restatement of the dynamics
         # but doesn't it look cool with those partial derivatives??

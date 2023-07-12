@@ -165,6 +165,7 @@ problem_params = {
         'T': 8,
         'nx': 2,
         'nu': 1,
+        'U_interval': [-np.inf, np.inf],
         'terminal_constraint': True,  # not tested with False for a long time
         'V_max': 16,
 }

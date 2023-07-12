@@ -8,6 +8,7 @@ import diffrax
 import matplotlib
 matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
+import matplotlib.ticker as mticker
 
 import ipdb
 import os
@@ -65,7 +66,6 @@ def fig_train_data(sysname):
 
     save_fig_wrapper(f'fig_train_data_{sysname}.png')
 
-'''
 def fig_train_data_big(sysname):
 
     y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
@@ -121,6 +121,7 @@ def fig_train_data_big(sysname):
 
     save_fig_wrapper(f'fig_train_data_big_{sysname}.png')
 
+'''
 def fig_controlcost_newformat(sysname):
 
     # control cost/test loss/N training pts figure.
@@ -183,6 +184,7 @@ def fig_controlcost_newformat(sysname):
 def fig_controlcost(sysname):
 
     # control cost/test loss/N training pts figure.
+    base2 = False  # sad but more readable for avg joe
 
     # we swap here for easier plotting
     data = np.load(f'datasets/trainpts_controlcost_data_{sysname}.npy').swapaxes(0, 1)
@@ -208,6 +210,9 @@ def fig_controlcost(sysname):
     a = .3
     # pl.gca().set_yticks([.5, .6, .7, .8, .9, 1, 2, 3, 4, 5, 6, 7, 8])
     pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
+    if base2:
+        pl.gca().set_xscale('log', base=2)  # base 2 is love, base 2 is life
+        pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
     # so it looks less weird
     # pl.gca().set_ylim([0.4, 12])
     # pl.gca().axes.xaxis.set_ticklabels([])
@@ -224,6 +229,9 @@ def fig_controlcost(sysname):
 
             labels[0] = '(mean control cost - LQR cost) / LQR cost'
             pl.loglog(N_trainpts, (cost_mean.squeeze()-mean)/mean, c='tab:green', marker='.', alpha=a, label=labels)
+            if base2:
+                pl.gca().set_xscale('log', base=2)
+                pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
 
             # this is clearly the worse visualisation, although the one above is maybe harder
             # to grasp intuitively, it shows a lot more useful info
@@ -237,6 +245,9 @@ def fig_controlcost(sysname):
             pl.subplot(212)
             labels[0] = 'mean control cost'
             pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+            if base2:
+                pl.gca().set_xscale('log', base=2)
+                pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
             pl.xlabel('Training set size')
 
             # plot lqr baseline:
@@ -246,8 +257,14 @@ def fig_controlcost(sysname):
 
 
     else:
+
         labels[0] = 'mean control cost'
         pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+        margin=1.3
+        pl.gca().set_ylim([1e1/margin, 1e2*margin])
+        if base2:
+            pl.gca().set_xscale('log', base=2)
+            pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
         pl.xlabel('Training set size')
 
 
@@ -272,7 +289,7 @@ if __name__ == '__main__':
     #fig_train_data_big('double_integrator_linear_pontryagintest')    # 65536  pts
     # fig_train_data_big('double_integrator')           # 16384  pts
     # fig_train_data_big('double_integrator_bigsample') # 262144 pts
-    fig_controlcost('double_integrator_linear')
+    # fig_controlcost('double_integrator_linear')
     fig_controlcost('double_integrator_tuning')
 
     # the two are literally the exact same

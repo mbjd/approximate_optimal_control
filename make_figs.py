@@ -65,6 +65,7 @@ def fig_train_data(sysname):
 
     save_fig_wrapper(f'fig_train_data_{sysname}.png')
 
+'''
 def fig_train_data_big(sysname):
 
     y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
@@ -177,6 +178,7 @@ def fig_controlcost_newformat(sysname):
 
 
     save_fig_wrapper(f'fig_controlcost_{sysname}.png')
+'''
 
 def fig_controlcost(sysname):
 
@@ -222,6 +224,11 @@ def fig_controlcost(sysname):
 
             labels[0] = '(mean control cost - LQR cost) / LQR cost'
             pl.loglog(N_trainpts, (cost_mean.squeeze()-mean)/mean, c='tab:green', marker='.', alpha=a, label=labels)
+
+            # this is clearly the worse visualisation, although the one above is maybe harder
+            # to grasp intuitively, it shows a lot more useful info
+            # labels[0] = 'mean control cost / LQR cost'
+            # pl.loglog(N_trainpts, (cost_mean.squeeze())/mean, c='tab:green', marker='.', alpha=a, label=labels)
             pl.gca().set_ylim([1e-2, 1e3])
             pl.xlabel('Training set size')
             # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')

@@ -89,7 +89,6 @@ def define_extended_dynamics(problem_params):
         # define ze hamiltonian for that time.
         H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
 
-
         U = problem_params['U_interval']
         u_star = u_star_costate(f, l, costate, t, state, nx, nu, U)
 
@@ -138,6 +137,7 @@ def make_pontryagin_solver(problem_params, algo_params):
         # this should return the last calculated (= non-inf) solution.
         return solution, solution.ys[solution.stats['num_accepted_steps']-1]
 
+    ipdb.set_trace()
     # vmap = gangster!
     # vmap only across first argument.
     batch_pontryagin_backward_solver = jax.jit(jax.vmap(
@@ -145,6 +145,40 @@ def make_pontryagin_solver(problem_params, algo_params):
     ))
 
     return batch_pontryagin_backward_solver
+
+
+def make_single_pontryagin_solver(problem_params, algo_params):
+
+    f_forward = define_extended_dynamics(problem_params)
+
+    # solve pontryagin backwards, for vampping later.
+    # slightly differently parameterised than in other version.
+    def pontryagin_backward_solver(y0, t0, t1):
+
+        # setup ODE solver
+        term = diffrax.ODETerm(f_forward)
+        solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
+
+        # negative if t1 < t0, backward integration just works
+        assert algo_params['pontryagin_solver_dt'] > 0
+        dt = algo_params['pontryagin_solver_dt'] * np.sign(t1 - t0)
+
+        # what if we accept that we could create NaNs?
+        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
+
+        # maybe easier to control the timing intervals like this?
+        saveat = diffrax.SaveAt(steps=True, dense=True)  # dense=True for debugging
+
+        # and solve :)
+        solution = diffrax.diffeqsolve(
+                term, solver, t0=t0, t1=t1, dt0=dt, y0=y0,
+                saveat=saveat, max_steps=max_steps,
+        )
+
+        # this should return the last calculated (= non-inf) solution.
+        return solution, solution.ys[solution.stats['num_accepted_steps']-1]
+
+    return pontryagin_backward_solver
 
 
 def make_pontryagin_solver_wrapped(problem_params, algo_params):

@@ -151,14 +151,22 @@ def fig_controlcost_newformat(sysname):
 
 
     pl.subplot(212)
-    labels[0] = 'mean control cost'
-    pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
-    pl.xlabel('Training set size')
 
     # plot lqr baseline:
     if sysname == 'double_integrator_linear':
         mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
-        pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+
+        labels[0] = 'mean control cost / LQR cost'
+        pl.loglog(N_trainpts, cost_mean.squeeze()/mean, c='tab:green', marker='.', alpha=a, label=labels)
+        pl.xlabel('Training set size')
+        # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+
+
+    else:
+        labels[0] = 'mean control cost'
+        pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+        pl.xlabel('Training set size')
+
 
 
     pl.legend()
@@ -206,14 +214,34 @@ def fig_controlcost(sysname):
 
 
     pl.subplot(212)
-    labels[0] = 'mean control cost'
-    pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
-    pl.xlabel('Training set size')
-
     # plot lqr baseline:
     if sysname == 'double_integrator_linear':
-        mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
-        pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+        relative_cost = True
+        if relative_cost:
+            mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
+
+            labels[0] = '(mean control cost - LQR cost) / LQR cost'
+            pl.loglog(N_trainpts, (cost_mean.squeeze()-mean)/mean, c='tab:green', marker='.', alpha=a, label=labels)
+            pl.gca().set_ylim([1e-2, 1e3])
+            pl.xlabel('Training set size')
+            # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+        else:
+            # do the same as otherwise + lqr baseline  overlaid
+            pl.subplot(212)
+            labels[0] = 'mean control cost'
+            pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+            pl.xlabel('Training set size')
+
+            # plot lqr baseline:
+            if sysname == 'double_integrator_linear':
+                mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
+                pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+
+
+    else:
+        labels[0] = 'mean control cost'
+        pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+        pl.xlabel('Training set size')
 
 
     pl.legend()
@@ -225,6 +253,7 @@ def fig_controlcost(sysname):
 
     save_fig_wrapper(f'fig_controlcost_{sysname}.png')
 
+
 if __name__ == '__main__':
 
     # new example with more correct prng key handling
@@ -232,8 +261,9 @@ if __name__ == '__main__':
     # fig_train_data_big('double_integrator_lofi')
 
     # for paper:
-    fig_train_data_big('double_integrator_linear')    # 65536  pts
-    fig_train_data_big('double_integrator')           # 16384  pts
+    #fig_train_data_big('double_integrator_linear')    # 65536  pts
+    #fig_train_data_big('double_integrator_linear_pontryagintest')    # 65536  pts
+    # fig_train_data_big('double_integrator')           # 16384  pts
     # fig_train_data_big('double_integrator_bigsample') # 262144 pts
     fig_controlcost('double_integrator_linear')
     fig_controlcost('double_integrator_tuning')

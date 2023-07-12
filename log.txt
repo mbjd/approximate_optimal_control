@@ -1558,3 +1558,25 @@ which we get u* helps as an inductive bias.
 but for now fit costate and keep this only on backburner, not too much time
 left :(
 
+
+2023-07-12
+
+noticed that even though nn approx. error goes very low (< 1e-2) on lqr
+problem, there is still a clear gap to the actual lqr cost, and instead we
+seem to converge to a higher cost.
+
+looked around and found that the training data (V(x, 0) and λ(x, 0)) do not
+really match the LQR solution well. They correlate, the relative error is
+about 10% ish. Is this ODE integration error? would make sense that this is
+not i.i.d. over the state space at all.
+
+but generated new training data with pontryagin integrator dt 1/128 (before
+1/32). the errors seem to stay pretty much the same. not sure what to do
+here... at this point i probably wont try to optimise the results and
+instead report it as a difficulty with this method.
+
+
+... or is it really? plotted some PMP trajectories (λ) for different dt and
+it seems already for small dt the solution is nice... whyyyy
+
+

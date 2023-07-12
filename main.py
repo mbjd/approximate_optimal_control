@@ -227,6 +227,51 @@ def sample_uniform(problem_params, algo_params, key):
 
     return y0s, λTs
 
+def ode_dt_sweep(problem_params, algo_params):
+
+    '''
+    as an exception, make the figure here as well, since otherwise it is a mess to store data
+    of varying size
+    '''
+
+    from make_figs import dpi, halfwidth, save, save_fig_wrapper
+
+    fig, axs = pl.subplots(3, 1, figsize=(halfwidth, halfwidth))
+
+    # dts = 2.0 ** -np.arange(2, 6)
+    dts = np.logspace(-2, -8, 10, base=2)
+
+    lamT = np.array([0.1, -.05])  # should be ok for linear and nonlinear example in report
+    lamT = np.array([-.05, -.025])  # should be ok for linear and nonlinear example in report
+    yT = np.concatenate([np.zeros(2), lamT, np.zeros(1)])
+
+    T = problem_params['T']
+
+    for i, dt in enumerate(dts):
+        print(f'dt = {dt}')
+
+        algo_params['pontryagin_solver_dt'] = dt
+        solver = pontryagin_utils.make_single_pontryagin_solver(problem_params, algo_params)
+
+        sol, _  = solver(yT, T, 0.)
+
+        a = i/dts.shape[0]
+
+        red, green, _ = np.eye(3)
+        c = a * red + (1-a) * green
+        c_tuple = [i.item() for i in c]
+
+        axs[0].plot(sol.ts, sol.ys[:, 2], c=c_tuple)
+        axs[1].plot(sol.ts, sol.ys[:, 3], c=c_tuple)
+        axs[2].plot(sol.ts, sol.ys[:, 4], c=c_tuple)
+
+    pl.show()
+
+    ipdb.set_trace()
+
+
+
+
 
 
 if __name__ == '__main__':
@@ -272,7 +317,7 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/16,
+            'pontryagin_solver_dt': 1/64,
 
             'sampler_dt': 1/64,
             'sampler_burn_in': 0,
@@ -320,4 +365,6 @@ if __name__ == '__main__':
 
 
     key = jax.random.PRNGKey(0)
-    experiment_controlcost_vs_traindata(problem_params, algo_params, key)
+
+    ode_dt_sweep(problem_params, algo_params)
+    # experiment_controlcost_vs_traindata(problem_params, algo_params, key)

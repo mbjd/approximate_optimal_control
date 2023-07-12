@@ -30,8 +30,6 @@ def plot_controlcost_vs_traindata():
     # we swap here for easier plotting
     data = np.load('datasets/trainpts_controlcost_data.npy').swapaxes(0, 1)
 
-    # this will fail for the new data format with more entries in last dim.
-    # todo: adapt
     N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
 
     # all the same

@@ -120,12 +120,68 @@ def fig_train_data_big(sysname):
 
     save_fig_wrapper(f'fig_train_data_big_{sysname}.png')
 
+def fig_controlcost_newformat(sysname):
+
+    # control cost/test loss/N training pts figure.
+
+    # we swap here for easier plotting
+    data = np.load(f'datasets/trainpts_controlcost_data_{sysname}.npy').swapaxes(0, 1)
+
+    # todo unpack more values here
+    N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
+
+    # all the same
+    N_trainpts = N_trainpts[:, 0]
+    N_seeds = data.shape[1]
+
+    labels = ['' for _ in range(N_seeds)]
+    labels[0] = 'costate test loss'
+    pl.figure(figsize=(halfwidth, 1.*halfwidth))
+
+
+    pl.subplot(211)
+    a = .3
+    # pl.gca().set_yticks([.5, .6, .7, .8, .9, 1, 2, 3, 4, 5, 6, 7, 8])
+    pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
+    # so it looks less weird
+    # pl.gca().set_ylim([0.4, 12])
+    # pl.gca().axes.xaxis.set_ticklabels([])
+    pl.legend()
+    pl.grid()
+
+
+    pl.subplot(212)
+    labels[0] = 'mean control cost'
+    pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+    pl.xlabel('Training set size')
+
+    # plot lqr baseline:
+    if sysname == 'double_integrator_linear':
+        mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
+        pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+
+
+    pl.legend()
+    pl.grid()
+
+    pl.tight_layout()
+    pl.subplots_adjust(hspace=0)
+
+
+    save_fig_wrapper(f'fig_controlcost_{sysname}.png')
+
 def fig_controlcost(sysname):
 
     # control cost/test loss/N training pts figure.
 
     # we swap here for easier plotting
     data = np.load(f'datasets/trainpts_controlcost_data_{sysname}.npy').swapaxes(0, 1)
+
+    if data.shape[2] == 6:
+        # throw it away :)
+        data = data[:, :, np.array([0, 1, 4, 5])]
+        # fig_controlcost_newformat(sysname)
+        # return
 
     N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
 
@@ -180,7 +236,7 @@ if __name__ == '__main__':
     fig_train_data_big('double_integrator')           # 16384  pts
     # fig_train_data_big('double_integrator_bigsample') # 262144 pts
     fig_controlcost('double_integrator_linear')
-    fig_controlcost('double_integrator')
+    fig_controlcost('double_integrator_tuning')
 
     # the two are literally the exact same
     # fig_controlcost('double_integrator')

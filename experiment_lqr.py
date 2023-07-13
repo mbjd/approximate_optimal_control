@@ -167,6 +167,26 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     # pl.show()
 
 
+    f = problem_params['f']
+    l = problem_params['l']
+    nx, nu = 2, 1
+    U = problem_params['U_interval']
+
+    ### linear fit for u* found by PMP.
+
+    u_star_simple = lambda x, λ: pontryagin_utils.u_star_costate(f, l, λ, 0, x, nx, nu, U)
+    ustars = jax.vmap(u_star_simple)(x0s, lam0s)
+
+    # we want to find K such that u = -K x
+    K_pmp, residuals, rank, svals = np.linalg.lstsq(x0s, -ustars)
+
+    print(' linear gain obtained by fitting lstsq to PMP u0')
+    print(K_pmp.T)
+    print(' elementwise K_pmp / K_lqr finite horizon')
+    print(K_pmp.T / K0)
+    # very good fit with max error norm 1e-15...
+
+
 
     ### compare trajectories found by PMP with value/costate info from LQR sol.
 
@@ -174,7 +194,7 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     lamT = np.array([-.05, -.025])  # should be ok for linear and nonlinear example in report
     yT = np.concatenate([np.zeros(2), lamT, np.zeros(1)])
 
-    sol, _ = solver(yT, problem_params['T'], 0.)
+    sol, y0 = solver(yT, problem_params['T'], 0.)
 
 
     # V(x) = x.T P x, λ(x) = grad_x V(x) = 2 x.T P
@@ -193,27 +213,130 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     lqr_values_along_pmp_traj = jax.vmap(lqr_V_fct, in_axes=(0, 0))(P_sol_ys, xs_for_Psol)
 
 
-    pl.subplot(311)
-    pl.plot(sol.ts, sol.ys[:, 2], label='λ0 (PMP solver)')
-    pl.plot(P_sol_ts, lqr_costates_along_pmp_traj[:, 0], label='λ0 (from LQR sol, along PMP traj)')
+    def plot_var(ts, ys, comment):
+        labels = ['x0', 'x1', 'λ0', 'λ1', 'v']
+        for i in range(5):
+            pl.subplot(5, 1, i+1)
+            pl.plot(ts, ys[:, i], label=labels[i] + ' ' + comment)
+            pl.legend()
+            pl.subplots_adjust(hspace=0)
+
+    plot_var(sol.ts, sol.ys, '(PMP solver)')
+
+    ustar_fct = lambda x: -K0 @ x
+    x0s = y0[None, 0:2]
+    lqr_sol = eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct, x0s)
+    lqr_t_idx = lqr_sol.ts.squeeze() < 8
+    lqr_ts = lqr_sol.ts[0, lqr_t_idx]
+
+    pseudo_vs = lqr_sol.ys[0, lqr_t_idx, 2]
+    lqr_ys = np.column_stack([
+        lqr_sol.ys[0, lqr_t_idx, 0:2],
+        np.zeros((lqr_ts.shape[0], 2)),
+        pseudo_vs[-1] - pseudo_vs,
+    ])
+
+    plot_var(lqr_ts, lqr_ys, '(LQR closed loop)')
+
+    ustar_fct = lambda x: -K_pmp.T @ x
+    x0s = y0[None, 0:2]
+    lqr_sol = eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct, x0s)
+    lqr_t_idx = lqr_sol.ts.squeeze() < 8
+    lqr_ts = lqr_sol.ts[0, lqr_t_idx]
+
+    pseudo_vs = lqr_sol.ys[0, lqr_t_idx, 2]
+    lqr_ys = np.column_stack([
+        lqr_sol.ys[0, lqr_t_idx, 0:2],
+        np.zeros((lqr_ts.shape[0], 2)),
+        pseudo_vs[-1] - pseudo_vs,
+    ])
+
+    plot_var(lqr_ts, lqr_ys, '(K = lstsq fit of PMP u0s closed loop)')
+
+    # pl.subplot(311)
+    # pl.plot(sol.ts, sol.ys[:, 2], label='λ0 (PMP solver)')
+    # pl.plot(P_sol_ts, lqr_costates_along_pmp_traj[:, 0], label='λ0 (from LQR sol, along PMP traj)')
 
 
-    pl.legend()
+    # pl.legend()
 
-    pl.subplot(312)
-    pl.plot(sol.ts, sol.ys[:, 3], label='λ1 (PMP solver)')
-    pl.plot(P_sol_ts, lqr_costates_along_pmp_traj[:, 1], label='λ1 (from LQR sol, along PMP traj)')
+    # pl.subplot(312)
+    # pl.plot(sol.ts, sol.ys[:, 3], label='λ1 (PMP solver)')
+    # pl.plot(P_sol_ts, lqr_costates_along_pmp_traj[:, 1], label='λ1 (from LQR sol, along PMP traj)')
 
-    pl.legend()
+    # pl.legend()
 
-    pl.subplot(313)
-    pl.plot(sol.ts, sol.ys[:, 4], label='v (PMP solver)')
-    pl.plot(P_sol_ts, lqr_values_along_pmp_traj, label='λ1 (from LQR sol, along PMP traj)')
+    # pl.subplot(313)
+    # pl.plot(sol.ts, sol.ys[:, 4], label='v (PMP solver)')
+    # pl.plot(P_sol_ts, lqr_values_along_pmp_traj, label='λ1 (from LQR sol, along PMP traj)')
 
-    pl.legend()
+    # pl.legend()
+
+
+
+
+    # next sanity check - see if the gradient of V w.r.t. x is really the costate...
+
+    x0 = y0[0:2]
+
+    # maps λT to y0 (whole vector!)
+    pmp_fct = lambda λT: solver(np.concatenate([np.zeros(2), λT, np.zeros(1)]), problem_params['T'], 0.)[1]
+
+
+    dydlam = jax.jacobian(pmp_fct)(lamT)
+
+    dxdlam, dlam0dlam, dvdlam = np.split(dydlam, [2, 4], axis=0)
+
+    # we want: dvdx, to see if it is equal to the costate
+    # dvdx = dvdlam * dlamdx = dvdlam @
+
+    # we want: dvdx, to see if it is equal to the costate
+    # dvdx = dvdlam @ dlamdx = dvdlam @ (dxdlam)^-1
+
+
+
+    dvdx = dvdlam @ np.linalg.inv(dxdlam)
+    print(f'dv/dx calculated with autodiff:  {dvdx}')
+    print(f'dv/dx according to costate λ(0): {y0[2:4]}')
+    # but also: dvdx = lam0. that seems to not be the case at all...
+
+    # then: is d/dt H(x, u, λ) = 0?
+
+    H = lambda x, u, λ: l(0, x, u) + λ.T @ f(0, x, u)
+
+    xs, λs, vs = np.split(sol.ys[:-1], [2, 4], axis=1)
+
+    all_ustars = jax.vmap(u_star_simple)(xs, λs)
+    all_H_vals = jax.vmap(H)(xs, all_ustars, λs)
+
+    ipdb.set_trace()
+
+    xtest = xs[4]
+    lamtest = λs[4]
+
+    def u_star_gd(xtest, lamtest):
+        # find ustar by gradient descent
+        u = np.zeros(1)
+        for i in range(1000):
+            u = u = u - 0.01 * jax.grad(H, argnums=1)(xtest, u, lamtest)
+
+        return u
+
+    # it seems that consistently u_star_simple = 2*u_star_gd.
+    print('u* closed form:')
+    print(u_star_simple(xtest, lamtest))
+    print('u* gradient descent:')
+    print(u_star_gd(xtest, lamtest))
+
+
+
+
+
+
+    ipdb.set_trace()
+
 
     pl.show()
-    ipdb.set_trace()
 
 
 
@@ -260,6 +383,7 @@ x_sample_cov = x_sample_scale @ x_sample_scale.T
 # -> so some of them might not be relevant
 algo_params = {
         'pontryagin_solver_dt': 1/128,
+        'pontryagin_solver_dense': False,
 
         # 'pontryagin_sampler_n_trajectories': 32,
         # 'pontryagin_sampler_n_iters': 8,

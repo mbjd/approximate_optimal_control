@@ -4,3 +4,4 @@ figs/
 env/
 __pycache__/
 V_grad_penalty_plots/
+animation animation45.mp4 animation.mp4 animation_orig animation_orig.mp4

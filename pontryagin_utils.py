@@ -35,7 +35,8 @@ import diffrax
 
 def u_star_matrices(R, A, U):
     # A is a row vector here...
-    u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
+    # u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
+    u_star_unconstrained = np.linalg.solve(R, -A.T)
 
     # if unconstrained: U = [-np.inf, np.inf]
     return np.clip(u_star_unconstrained, U[0], U[1])
@@ -125,8 +126,9 @@ def make_pontryagin_solver(problem_params, algo_params):
         # what if we accept that we could create NaNs?
         max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
 
-        # maybe easier to control the timing intervals like this?
         saveat = diffrax.SaveAt(steps=True)
+        if algo_params['pontryagin_solver_dense']:
+            saveat = diffrax.SaveAt(steps=True, dense=True)
 
         # and solve :)
         solution = diffrax.diffeqsolve(
@@ -137,7 +139,6 @@ def make_pontryagin_solver(problem_params, algo_params):
         # this should return the last calculated (= non-inf) solution.
         return solution, solution.ys[solution.stats['num_accepted_steps']-1]
 
-    ipdb.set_trace()
     # vmap = gangster!
     # vmap only across first argument.
     batch_pontryagin_backward_solver = jax.jit(jax.vmap(

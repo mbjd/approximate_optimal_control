@@ -318,6 +318,7 @@ if __name__ == '__main__':
     # -> so some of them might not be relevant
     algo_params = {
             'pontryagin_solver_dt': 1/64,
+            'pontryagin_solver_dense': False,
 
             'sampler_dt': 1/64,
             'sampler_burn_in': 0,

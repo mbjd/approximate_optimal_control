@@ -1580,3 +1580,79 @@ instead report it as a difficulty with this method.
 it seems already for small dt the solution is nice... whyyyy
 
 
+2023-07-13
+
+checked again, it seems that dv/dx != λ by a long shot.
+
+effort to check theory. PMP as stated from dpoc script is (10.2.1
+
+H(x, u, λ) = l(x, u) + λ.T f(x, u)
+
+λ' = -dH/dx
+x' = f(x, u*) = dH/dλ
+
+u* = argmin_u H
+
+also, dH/dt = 0? why? does this hold in our numerical stuff?
+dH/dt = some huge mess.
+But lets just evaluate the hamiltonian along our example trajectory.
+--> it does weird stuff :( goes from 1e-4 (at T) to 1e-2, back to 1e-4,
+then to almost 10 in magnitude :(((
+
+also, the closed loop LQR trajectory from THE SAME initial condition that
+hte pmp trajecotry arrived at just achieves the clearly lower cost.
+
+the u0s found by PMP are a linear function of x0 (with lstsq fit max error
+norm of 1e-15...), BUT a different one than LQR K. yyyyyyyy
+
+numerically, we get
+lqr finite horizon gain = [[1.00001319 1.73205986]]
+pmp lstsq gain          = [[0.70718037 1.38360507]]
+
+and indeed the closed loop sim with the pmp lstsq gain closely matches the
+backward PMP trajectory, until the end when the terminal constraint comes
+into play.
+
+
+
+other option, let me try to solve the PMP in closed form for this linear
+case. the system and OCP is:
+
+x' = [0 1; 0 0] x + [0; 1] u
+
+cost l(x, u) = x.T x + u^2, T=8, x(T) = 0
+
+now let us profit from the DPOC lecture.
+
+H(x, u, λ) = x.T x + u^2 + λ.T (Ax + Bu)
+           = x1^2 + x2^2 + u^2 + λ1 x2 + λ2 u
+
+dH/du      =               2u          + λ2
+
+so u*(x, λ) = argmin_u H(x, u, λ)
+            = u s.t. dH/du == 0
+            = -λ2/2
+
+
+
+in our script we seem to get u*(x, λ) = -λ2/4. why?
+
+
+Numerically, the u* solution given by our code seems to be just half that
+found by gradient descent, and also that provided by the closed form here.
+
+alright, i think i found it. in pontryagin_utils/u_star_matrices, i changed
+this:
+
+    # old
+    # u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
+    # new
+    u_star_unconstrained = np.linalg.solve(R, -A.T)
+
+and now the u*-s agree with each other, and more importantly, the backward
+PMP trajectory is the same as the forward LQR trajectory!!!
+
+todo next:
+1. re-generate results with this change
+2. find out why the hell i failed at finding the minimum of a convex
+quadratic form in closed form

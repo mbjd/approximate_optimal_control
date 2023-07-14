@@ -133,23 +133,23 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     # np.save(f'datasets/controlcost_lqr_meanstd_{sysname}.npy', mean_std)
 
     # sanity check - compare w/ dataset itself
-    y0s = np.load('datasets/last_y0s_double_integrator_linear.npy')
-    y0s_smaller_dt = np.load('datasets/last_y0s_double_integrator_linear_pontryagintest.npy')
+    # y0s = np.load('datasets/last_y0s_double_integrator_linear.npy')
+    # y0s_smaller_dt = np.load('datasets/last_y0s_double_integrator_linear_pontryagintest.npy')
     x0s, lam0s, v0s      = np.split(y0s, [2, 4], axis=1)
-    x0s_smaller_dt, _, v0s_smaller_dt = np.split(y0s_smaller_dt, [2, 4], axis=1)
+    # x0s_smaller_dt, _, v0s_smaller_dt = np.split(y0s_smaller_dt, [2, 4], axis=1)
 
-    get_lam_v = jax.vmap(lambda x0: np.concatenate([(2 * x0.T @ P0).reshape(2,), (x0.T @ P0 @ x0).reshape(1,)]))
-    lqr_lam_v_base = get_lam_v(x0s)
-    lqr_lam_v_smalldt = get_lam_v(x0s_smaller_dt)
+    # get_lam_v = jax.vmap(lambda x0: np.concatenate([(2 * x0.T @ P0).reshape(2,), (x0.T @ P0 @ x0).reshape(1,)]))
+    # lqr_lam_v_base = get_lam_v(x0s)
+    # lqr_lam_v_smalldt = get_lam_v(x0s_smaller_dt)
 
 
-    mean_errs_base = np.mean(((lqr_lam_v_base - y0s[:, 2:])/(1+np.abs(lqr_lam_v_base)))**2, axis=0)
-    mean_errs_smalldt = np.mean(((lqr_lam_v_smalldt - y0s_smaller_dt[:, 2:])/(1+np.abs(lqr_lam_v_smalldt)))**2, axis=0)
-    # mean_errs_smalldt = np.mean((lqr_lam_v_smalldt - y0s_smaller_dt[:, 2:])**2, axis=0)
+    # mean_errs_base = np.mean(((lqr_lam_v_base - y0s[:, 2:])/(1+np.abs(lqr_lam_v_base)))**2, axis=0)
+    # mean_errs_smalldt = np.mean(((lqr_lam_v_smalldt - y0s_smaller_dt[:, 2:])/(1+np.abs(lqr_lam_v_smalldt)))**2, axis=0)
+    # # mean_errs_smalldt = np.mean((lqr_lam_v_smalldt - y0s_smaller_dt[:, 2:])**2, axis=0)
 
-    print(' errors. cols = [λ0, λ1, v] ')
-    print(f'base    : {mean_errs_base}')
-    print(f'small dt: {mean_errs_smalldt}')
+    # print(' errors. cols = [λ0, λ1, v] ')
+    # print(f'base    : {mean_errs_base}')
+    # print(f'small dt: {mean_errs_smalldt}')
 
     # really weird: these errors do not seem to decrease at all or only veery slightly
     # is the problem posed the wrong way???
@@ -364,7 +364,7 @@ def h(x):
 
 problem_params = {
         # 'system_name': 'double_integrator_unlimited',
-        'system_name': 'double_integrator_linear',
+        'system_name': 'double_integrator_linear_corrected',
         'f': f,
         'l': l,
         'h': h,
@@ -382,7 +382,7 @@ x_sample_cov = x_sample_scale @ x_sample_scale.T
 # algo params copied from first resampling characteristics solvers
 # -> so some of them might not be relevant
 algo_params = {
-        'pontryagin_solver_dt': 1/128,
+        'pontryagin_solver_dt': 1/64,
         'pontryagin_solver_dense': False,
 
         # 'pontryagin_sampler_n_trajectories': 32,
@@ -393,10 +393,10 @@ algo_params = {
         # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
         # 'pontryagin_sampler_returns': 'functions',
 
-        'sampler_dt': 1/32,
+        'sampler_dt': 1/64,
         'sampler_burn_in': 0,
         'sampler_N_chains': 4,  # with pmap this has to be 4
-        'sampler_samples': 2**10,  # actual samples = N_chains * samples
+        'sampler_samples': 2**14,  # actual samples = N_chains * samples
         'sampler_steps_per_sample': 4,
         'sampler_plot': False,
         'sampler_tqdm': True,

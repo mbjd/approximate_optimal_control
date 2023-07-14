@@ -290,7 +290,11 @@ if __name__ == '__main__':
     # fig_train_data_big('double_integrator')           # 16384  pts
     # fig_train_data_big('double_integrator_bigsample') # 262144 pts
     # fig_controlcost('double_integrator_linear')
-    fig_controlcost('double_integrator_tuning')
+    # fig_controlcost('double_integrator_tuning')
+
+    fig_train_data_big('double_integrator_linear_corrected')
+
+
 
     # the two are literally the exact same
     # fig_controlcost('double_integrator')

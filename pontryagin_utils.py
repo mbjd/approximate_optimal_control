@@ -97,7 +97,7 @@ def u_star_new(x, costate, problem_params):
 
     # === solve the linear system: grad_u H(x, u, λ) = 0 ===
     u_star_unconstrained = np.linalg.solve(R + R.T, -costate.T @ grad_f_u)
-    u_star = np.clip(u_star_unconstrained, U[0], U[1])
+    u_star = np.clip(u_star_unconstrained, *problem_params['U_interval'])
     return u_star
 
 

@@ -62,8 +62,8 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     B = np.array([[0, 1]]).T
     Q = np.eye(2)
     R = np.eye(1)
-    invR = R  # only if R = eye
-    N = np.zeros((2, 1))
+    invR = np.linalg.inv(R)
+    N = np.zeros((2, 1))  # coupled state-input cost
 
     # define matrix ricatti diff. eq.
     def P_dot(t, P, args=None):
@@ -130,7 +130,11 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     mean_std = np.array([cost_mean, cost_std])
     print(f'mean cost: {cost_mean}')
 
-    # np.save(f'datasets/controlcost_lqr_meanstd_{sysname}.npy', mean_std)
+    np.save(f'datasets/controlcost_lqr_meanstd_{sysname}.npy', mean_std)
+    return
+
+    # from here on this has become my debugging playground
+    # but the corresponding error is found and fixed so hopefully we won't need this anymore
 
     # sanity check - compare w/ dataset itself
     # y0s = np.load('datasets/last_y0s_double_integrator_linear.npy')
@@ -174,8 +178,8 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     ### linear fit for u* found by PMP.
 
-    u_star_simple = lambda x, λ: pontryagin_utils.u_star_costate(f, l, λ, 0, x, nx, nu, U)
-    ustars = jax.vmap(u_star_simple)(x0s, lam0s)
+    # u_star_simple = lambda x, λ: pontryagin_utils.u_star_costate(f, l, λ, 0, x, nx, nu, U)
+    ustars = jax.vmap(pontryagin_utils.u_star_new, in_axes=(0, 0, None))(x0s, lam0s, problem_params)
 
     # we want to find K such that u = -K x
     K_pmp, residuals, rank, svals = np.linalg.lstsq(x0s, -ustars)
@@ -306,37 +310,30 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     xs, λs, vs = np.split(sol.ys[:-1], [2, 4], axis=1)
 
-    all_ustars = jax.vmap(u_star_simple)(xs, λs)
+    all_ustars = jax.vmap(pontryagin_utils.u_star_new, in_axes=(0, 0, None))(xs, λs, problem_params)
     all_H_vals = jax.vmap(H)(xs, all_ustars, λs)
 
-    ipdb.set_trace()
 
     xtest = xs[4]
     lamtest = λs[4]
 
-    def u_star_gd(xtest, lamtest):
+    def u_star_gd(xtest, lamtest, N=1000):
         # find ustar by gradient descent
         u = np.zeros(1)
-        for i in range(1000):
-            u = u = u - 0.01 * jax.grad(H, argnums=1)(xtest, u, lamtest)
+        gradH = jax.jit(jax.grad(H, argnums=1))
+        for i in range(N):
+            u = u = u - 0.01 * gradH(xtest, u, lamtest)
 
         return u
 
     # it seems that consistently u_star_simple = 2*u_star_gd.
     print('u* closed form:')
-    print(u_star_simple(xtest, lamtest))
+    print(pontryagin_utils.u_star_new(xtest, lamtest, problem_params))
     print('u* gradient descent:')
     print(u_star_gd(xtest, lamtest))
 
-
-
-
-
-
-    ipdb.set_trace()
-
-
     pl.show()
+    ipdb.set_trace()
 
 
 
@@ -363,7 +360,6 @@ def h(x):
 
 
 problem_params = {
-        # 'system_name': 'double_integrator_unlimited',
         'system_name': 'double_integrator_linear_corrected',
         'f': f,
         'l': l,
@@ -382,7 +378,7 @@ x_sample_cov = x_sample_scale @ x_sample_scale.T
 # algo params copied from first resampling characteristics solvers
 # -> so some of them might not be relevant
 algo_params = {
-        'pontryagin_solver_dt': 1/64,
+        'pontryagin_solver_dt': 1/16,
         'pontryagin_solver_dense': False,
 
         # 'pontryagin_sampler_n_trajectories': 32,
@@ -394,9 +390,9 @@ algo_params = {
         # 'pontryagin_sampler_returns': 'functions',
 
         'sampler_dt': 1/64,
-        'sampler_burn_in': 0,
-        'sampler_N_chains': 4,  # with pmap this has to be 4
-        'sampler_samples': 2**14,  # actual samples = N_chains * samples
+        'sampler_burn_in': 8,
+        'sampler_N_chains': 64,  # with pmap this has to be 4
+        'sampler_samples': 2**6,  # actual samples = N_chains * samples
         'sampler_steps_per_sample': 4,
         'sampler_plot': False,
         'sampler_tqdm': True,
@@ -435,10 +431,12 @@ algo_params = {
 # so we can set Q_S = Σ_inv/max_dist and just get a different scaling factor
 algo_params['x_Q_S'] = np.linalg.inv(x_sample_cov) / algo_params['x_max_mahalanobis_dist']**2
 
-# sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+# generate data
+sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
 
+# fit NNs & evaluate controller performance for different amounts of data
 key = jax.random.PRNGKey(0)
+# experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)
 # experiment_controlcost_vs_traindata(problem_params, algo_params, key)
-experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)
 
 # ode_dt_sweep(problem_params, algo_params)

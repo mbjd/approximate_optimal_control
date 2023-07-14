@@ -30,13 +30,19 @@ import diffrax
 #     = solution of linear system (R + R.T, -A)
 #
 # this is implemented in the following - the pointwise minimization over u of the hamiltonian.
-# we have a fake version of function overloading -- these do the same thing but with different inputs.
-# mostly the same though, only cosmetic difference, in the end they all reduce down to the first one.
 
+'''
 def u_star_matrices(R, A, U):
     # A is a row vector here...
-    # u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
-    u_star_unconstrained = np.linalg.solve(R, -A.T)
+
+    # so this was apparently the central error. when we put just R instead of
+    # R + R.T here, then it works and we get suboptimality over LQR of below 0.001%
+
+    # nevermind, this was correct, but we passed the wrong 'R' which was actually 2R
+    u_star_unconstrained = np.linalg.solve(R + R.T, -A.T)
+
+    # and this is the 'verschlimmbesserung' just for the record
+    # u_star_unconstrained = np.linalg.solve(R, -A.T)
 
     # if unconstrained: U = [-np.inf, np.inf]
     return np.clip(u_star_unconstrained, U[0], U[1])
@@ -55,7 +61,7 @@ def u_star_functions(f, l, V, t, x, nx, nu, U):
 
 def u_star_costate(f, l, costate, t, x, nx, nu, U):
     zero_u = np.zeros(nu)  # u is a rank-1 array!
-    R = jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
+    R = 0.5 * jax.hessian(l, argnums=2)(t, x, zero_u).reshape(1, 1)
 
     # costate = grad_V_x.T (costate colvec, grad_V_x col vec)
     # grad_V_x = jax.jacobian(V, argnums=1)(t, x).reshape(1, nx)
@@ -63,6 +69,36 @@ def u_star_costate(f, l, costate, t, x, nx, nu, U):
     A = costate.T @ grad_f_u        # should have shape (1, nu)
 
     return u_star_matrices(R, A, U)
+'''
+
+def u_star_new(x, costate, problem_params):
+    # basically a rewrite of the above mess in a single function, that hopefully works
+    #   u* = argmin_u l(t, x, u) + λ.T @ f(t, x, u)
+
+    # because everything is quadratic in u, we can solve this quite easily
+    #   u* = argmin_u u.T R u + λ.T @ g(x, u) @ u
+    #   0  = grad_u (...) = (R + R') u + λ.T @ g(x, u)
+    # we find R and g with autodiff because we are lazy like that.
+    # WARNING this will silently fail when l is not quadratic or f is not linear in u
+
+    # we have only time invariant problems. if not change this.
+    t = 0
+    zero_u = np.zeros(problem_params['nu'])
+
+    # === get the relevant matrices ===
+
+    # this was actually the mistake before.
+    # the hessian of u' R u is R + R', not R (if symmetric = 2R)
+    hess_u_l = jax.hessian(problem_params['l'], argnums=2)(t, x, zero_u)  # shape (nx, nx)
+    R = 0.5 * hess_u_l
+
+    # g(x, u) = grad_f_u
+    grad_f_u = jax.jacobian(problem_params['f'], argnums=2)(t, x, zero_u) # shape (nx, nu)
+
+    # === solve the linear system: grad_u H(x, u, λ) = 0 ===
+    u_star_unconstrained = np.linalg.solve(R + R.T, -costate.T @ grad_f_u)
+    u_star = np.clip(u_star_unconstrained, *problem_params['U_interval'])
+    return u_star
 
 
 
@@ -90,8 +126,10 @@ def define_extended_dynamics(problem_params):
         # define ze hamiltonian for that time.
         H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
 
-        U = problem_params['U_interval']
-        u_star = u_star_costate(f, l, costate, t, state, nx, nu, U)
+        # U = problem_params['U_interval']
+        # u_star = u_star_costate(f, l, costate, t, state, nx, nu, U)
+        # TODO verify this works
+        u_star = u_star_new(state, costate, problem_params)
 
         # the first line is just a restatement of the dynamics
         # but doesn't it look cool with those partial derivatives??

@@ -283,6 +283,46 @@ def fig_controlcost(sysname):
 
     save_fig_wrapper(f'fig_controlcost_{sysname}.png')
 
+def fig_mcmc(sysname):
+
+    # shape = (N_chains, N_iters, 2*nx+1)
+    y0s = np.load(f'datasets/mcmc_complete/last_y0s_{sysname}.npy')
+
+    # shape = (N_chains, N_iters, nx)
+    lamTs = np.load(f'datasets/mcmc_complete/last_lamTs_{sysname}.npy')
+
+    x0s = y0s[:, :, 0:2]
+
+    # in theory: autocorrelation η(n) = E_k[ x_k^T x_{k+n} ]
+
+    # n goes from 0 to this
+    max_dist = 64
+
+    # this does not work yet...
+    # approx. expectation with empirical mean
+    # this takes two sequences of shape (seq_len, nx)
+    def correlate(seq_a, seq_b):
+        all_corrs = jax.vmap(np.dot)(seq_a, seq_b)
+        mean_corr = all_corrs.mean()
+        return mean_corr
+
+    def calc_autocorrs(offsets, subseq_len, data):
+        # offsets: ns to use for evaluating η(n)
+        # subseq_len: length of sequences passed to correlate(., .)
+        # data: time series of shape (N_iters, nx)
+
+        @jax.jit
+        def calc_autocorr_n(n):
+            seq_a = data[0:subseq_len]
+            seq_b = data[n:subseq_len+n]
+            return correlate(seq_a, seq_b)
+
+        ipdb.set_trace()
+        # return all_autocorrs
+
+    autocorrs_0 = calc_autocorrs(np.arange(max_dist), x0s.shape[1]-max_dist-1, x0s[0])
+    ipdb.set_trace()
+
 
 if __name__ == '__main__':
 
@@ -298,6 +338,7 @@ if __name__ == '__main__':
     # fig_controlcost('double_integrator_linear')
     # fig_controlcost('double_integrator_tuning')
 
+    fig_mcmc('double_integrator_linear_corrected')
     fig_train_data_big('double_integrator_linear_corrected')
     fig_controlcost('double_integrator_linear_corrected')
 

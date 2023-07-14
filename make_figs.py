@@ -20,7 +20,7 @@ import scipy
 dpi = 400
 halfwidth = 5  # in
 subsample=True
-save=True
+save=False
 
 def save_fig_wrapper(figname):
     if save:
@@ -121,70 +121,90 @@ def fig_train_data_big(sysname):
 
     save_fig_wrapper(f'fig_train_data_big_{sysname}.png')
 
-'''
-def fig_controlcost_newformat(sysname):
-
-    # control cost/test loss/N training pts figure.
-
-    # we swap here for easier plotting
-    data = np.load(f'datasets/trainpts_controlcost_data_{sysname}.npy').swapaxes(0, 1)
-
-    # todo unpack more values here
-    N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
-
-    # all the same
-    N_trainpts = N_trainpts[:, 0]
-    N_seeds = data.shape[1]
-
-    labels = ['' for _ in range(N_seeds)]
-    labels[0] = 'costate test loss'
-    pl.figure(figsize=(halfwidth, 1.*halfwidth))
-
-
-    pl.subplot(211)
-    a = .3
-    # pl.gca().set_yticks([.5, .6, .7, .8, .9, 1, 2, 3, 4, 5, 6, 7, 8])
-    pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
-    # so it looks less weird
-    # pl.gca().set_ylim([0.4, 12])
-    # pl.gca().axes.xaxis.set_ticklabels([])
-    pl.legend()
-    pl.grid()
-
-
-    pl.subplot(212)
-
-    # plot lqr baseline:
-    if sysname == 'double_integrator_linear':
-        mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
-
-        labels[0] = 'control cost / LQR cost'
-        pl.loglog(N_trainpts, cost_mean.squeeze()/mean, c='tab:green', marker='.', alpha=a, label=labels)
-        pl.xlabel('Training set size')
-        # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
-
-
-    else:
-        labels[0] = 'control cost'
-        pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
-        pl.xlabel('Training set size')
-
-
-
-    pl.legend()
-    pl.grid()
-
-    pl.tight_layout()
-    pl.subplots_adjust(hspace=0)
-
-
-    save_fig_wrapper(f'fig_controlcost_{sysname}.png')
-'''
+# def fig_controlcost_newformat(sysname):
+#
+#     # control cost/test loss/N training pts figure.
+#
+#     # we swap here for easier plotting
+#     data = np.load(f'datasets/trainpts_controlcost_data_{sysname}.npy').swapaxes(0, 1)
+#
+#     # todo unpack more values here
+#     N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
+#
+#     # all the same
+#     N_trainpts = N_trainpts[:, 0]
+#     N_seeds = data.shape[1]
+#
+#     labels = ['' for _ in range(N_seeds)]
+#     labels[0] = 'costate test loss'
+#     pl.figure(figsize=(halfwidth, 1.*halfwidth))
+#
+#
+#     pl.subplot(211)
+#     a = .3
+#     # pl.gca().set_yticks([.5, .6, .7, .8, .9, 1, 2, 3, 4, 5, 6, 7, 8])
+#     pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
+#     # so it looks less weird
+#     # pl.gca().set_ylim([0.4, 12])
+#     # pl.gca().axes.xaxis.set_ticklabels([])
+#     pl.legend()
+#     pl.grid()
+#
+#
+#     pl.subplot(212)
+#
+#     # plot lqr baseline:
+#     if sysname == 'double_integrator_linear':
+#         mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
+#
+#         labels[0] = 'control cost / LQR cost'
+#         pl.loglog(N_trainpts, cost_mean.squeeze()/mean, c='tab:green', marker='.', alpha=a, label=labels)
+#         pl.xlabel('Training set size')
+#         # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+#
+#
+#     else:
+#         labels[0] = 'control cost'
+#         pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
+#         pl.xlabel('Training set size')
+#
+#
+#
+#     pl.legend()
+#     pl.grid()
+#
+#     pl.tight_layout()
+#     pl.subplots_adjust(hspace=0)
+#
+#
+#     save_fig_wrapper(f'fig_controlcost_{sysname}.png')
 
 def fig_controlcost(sysname):
 
     # control cost/test loss/N training pts figure.
-    base2 = False  # sad but more readable for avg joe
+    base2 = True  # sad but more readable for avg joe
+    shaded_percentile = True
+
+    def plot_data(xs, data, c, label_arr):
+        # data.shape[0] = number of points per line
+        # data.shape[1] = number of lines
+        assert len(data.shape) == 2
+
+        if not shaded_percentile:
+            # previous plot
+            pl.loglog(xs, data, color=c, marker='.', alpha=.3, label=label_arr)
+            return
+
+        # otherwise: plot shaded areas for percentiles.
+
+        lower = np.percentile(data, 0, axis=1)
+        upper = np.percentile(data, 100, axis=1)
+        median = np.percentile(data, 50, axis=1)
+
+        a = 0.3 # onp.clip(p/40 + 0.2, 0, 1)
+        pl.fill_between(xs, lower, upper, color=c, alpha=a)
+        pl.loglog(xs, median, color=c, marker='.', alpha=1, label=label_arr[0])
+
 
     # we swap here for easier plotting
     data = np.load(f'datasets/trainpts_controlcost_data_{sysname}.npy').swapaxes(0, 1)
@@ -204,7 +224,7 @@ def fig_controlcost(sysname):
         print(f'warning: making fig_controlcost with incomplete data ({n_complete}/{n_total})')
 
     # all the same
-    N_trainpts = N_trainpts[:, 0]
+    N_trainpts = N_trainpts[:, 0].squeeze()
     N_seeds = data.shape[1]
 
     labels = ['' for _ in range(N_seeds)]
@@ -214,8 +234,7 @@ def fig_controlcost(sysname):
 
     pl.subplot(211)
     a = .3
-    # pl.gca().set_yticks([.5, .6, .7, .8, .9, 1, 2, 3, 4, 5, 6, 7, 8])
-    pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
+    plot_data(N_trainpts, costate_testloss.squeeze(), 'tab:blue', labels)
     if base2:
         pl.gca().set_xscale('log', base=2)  # base 2 is love, base 2 is life
         pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
@@ -229,49 +248,33 @@ def fig_controlcost(sysname):
     pl.subplot(212)
     # plot lqr baseline:
     if sysname in ('double_integrator_linear', 'double_integrator_linear_corrected'):
-        relative_cost = True
-        if relative_cost:
-            mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
+        mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
 
-            labels[0] = '(control cost - LQR cost) / LQR cost'
-            pl.loglog(N_trainpts, (cost_mean.squeeze()-mean)/mean, c='tab:green', marker='.', alpha=a, label=labels)
-            if base2:
-                pl.gca().set_xscale('log', base=2)
-                pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
+        labels[0] = '(control cost - LQR cost) / LQR cost'
+        plot_data(N_trainpts, (cost_mean.squeeze()-mean)/mean, 'tab:green', labels)
 
-            # this is clearly the worse visualisation, although the one above is maybe harder
-            # to grasp intuitively, it shows a lot more useful info
-            # labels[0] = 'control cost / LQR cost'
-            # pl.loglog(N_trainpts, (cost_mean.squeeze())/mean, c='tab:green', marker='.', alpha=a, label=labels)
-            # pl.gca().set_ylim([1e-2, 1e3])
-            pl.xlabel('Training set size')
-            # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
-        else:
-            # do the same as otherwise + lqr baseline  overlaid
-            pl.subplot(212)
-            labels[0] = 'control cost'
-            pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
-            if base2:
-                pl.gca().set_xscale('log', base=2)
-                pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
-            pl.xlabel('Training set size')
+        # pl.loglog(N_trainpts, (cost_mean.squeeze()-mean)/mean, c='tab:green', marker='.', alpha=a, label=labels)
+        if base2:
+            pl.gca().set_xscale('log', base=2)
+            pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
 
-            # plot lqr baseline:
-            if sysname == 'double_integrator_linear':
-                mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
-                pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
+        # this is clearly the worse visualisation, although the one above is maybe harder
+        # to grasp intuitively, it shows a lot more useful info
+        # labels[0] = 'control cost / LQR cost'
+        # pl.loglog(N_trainpts, (cost_mean.squeeze())/mean, c='tab:green', marker='.', alpha=a, label=labels)
+        # pl.gca().set_ylim([1e-2, 1e3])
+        # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
 
 
     else:
 
         labels[0] = 'control cost'
-        pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
-        margin=1.3
-        pl.gca().set_ylim([1e1/margin, 1e2*margin])
+        plot_data(N_trainpts, cost_mean.squeeze(), 'tab:green', labels)
         if base2:
             pl.gca().set_xscale('log', base=2)
             pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
-        pl.xlabel('Training set size')
+
+    pl.xlabel('Training set size')
 
 
     pl.legend()
@@ -330,16 +333,16 @@ if __name__ == '__main__':
     # fig_controlcost('double_integrator_unlimited')
     # fig_train_data_big('double_integrator_lofi')
 
-    # for paper:
     #fig_train_data_big('double_integrator_linear')    # 65536  pts
     #fig_train_data_big('double_integrator_linear_pontryagintest')    # 65536  pts
     # fig_train_data_big('double_integrator')           # 16384  pts
     # fig_train_data_big('double_integrator_bigsample') # 262144 pts
     # fig_controlcost('double_integrator_linear')
-    # fig_controlcost('double_integrator_tuning')
+    # fig_controlcost('double_integrator')
 
-    fig_mcmc('double_integrator_linear_corrected')
-    fig_train_data_big('double_integrator_linear_corrected')
+    # fig_mcmc('double_integrator_linear_corrected')
+
+    # fig_train_data_big('double_integrator_linear_corrected')
     fig_controlcost('double_integrator_linear_corrected')
 
 

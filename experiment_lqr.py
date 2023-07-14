@@ -395,15 +395,10 @@ algo_params = {
         'sampler_samples': 2**6,  # actual samples = N_chains * samples
         'sampler_steps_per_sample': 4,
         'sampler_plot': False,
-        'sampler_tqdm': True,
-        # 'sampler_x_proposal_cov': np.array([[3.5, -4.5], [-4.5, 12]]),
+        'sampler_tqdm': False,
 
         'x_sample_cov': x_sample_cov,
         'x_max_mahalanobis_dist': 2,
-
-        # 'gp_iters': 100,
-        # 'gp_train_plot': True,
-        # 'N_learning_iters': 200,
 
         'load_last': True,
 

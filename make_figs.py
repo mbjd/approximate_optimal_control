@@ -20,7 +20,7 @@ import scipy
 dpi = 400
 halfwidth = 5  # in
 subsample=True
-save=False
+save=True
 
 def save_fig_wrapper(figname):
     if save:
@@ -158,14 +158,14 @@ def fig_controlcost_newformat(sysname):
     if sysname == 'double_integrator_linear':
         mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
 
-        labels[0] = 'mean control cost / LQR cost'
+        labels[0] = 'control cost / LQR cost'
         pl.loglog(N_trainpts, cost_mean.squeeze()/mean, c='tab:green', marker='.', alpha=a, label=labels)
         pl.xlabel('Training set size')
         # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
 
 
     else:
-        labels[0] = 'mean control cost'
+        labels[0] = 'control cost'
         pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
         pl.xlabel('Training set size')
 
@@ -197,6 +197,12 @@ def fig_controlcost(sysname):
 
     N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
 
+    # see if the data is complete...
+    n_complete = (cost_mean > 0).sum()
+    n_total = cost_mean.size
+    if n_complete < n_total:
+        print(f'warning: making fig_controlcost with incomplete data ({n_complete}/{n_total})')
+
     # all the same
     N_trainpts = N_trainpts[:, 0]
     N_seeds = data.shape[1]
@@ -222,12 +228,12 @@ def fig_controlcost(sysname):
 
     pl.subplot(212)
     # plot lqr baseline:
-    if sysname == 'double_integrator_linear':
+    if sysname in ('double_integrator_linear', 'double_integrator_linear_corrected'):
         relative_cost = True
         if relative_cost:
             mean, std = np.load(f'datasets/controlcost_lqr_meanstd_{sysname}.npy')
 
-            labels[0] = '(mean control cost - LQR cost) / LQR cost'
+            labels[0] = '(control cost - LQR cost) / LQR cost'
             pl.loglog(N_trainpts, (cost_mean.squeeze()-mean)/mean, c='tab:green', marker='.', alpha=a, label=labels)
             if base2:
                 pl.gca().set_xscale('log', base=2)
@@ -235,15 +241,15 @@ def fig_controlcost(sysname):
 
             # this is clearly the worse visualisation, although the one above is maybe harder
             # to grasp intuitively, it shows a lot more useful info
-            # labels[0] = 'mean control cost / LQR cost'
+            # labels[0] = 'control cost / LQR cost'
             # pl.loglog(N_trainpts, (cost_mean.squeeze())/mean, c='tab:green', marker='.', alpha=a, label=labels)
-            pl.gca().set_ylim([1e-2, 1e3])
+            # pl.gca().set_ylim([1e-2, 1e3])
             pl.xlabel('Training set size')
             # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
         else:
             # do the same as otherwise + lqr baseline  overlaid
             pl.subplot(212)
-            labels[0] = 'mean control cost'
+            labels[0] = 'control cost'
             pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
             if base2:
                 pl.gca().set_xscale('log', base=2)
@@ -258,7 +264,7 @@ def fig_controlcost(sysname):
 
     else:
 
-        labels[0] = 'mean control cost'
+        labels[0] = 'control cost'
         pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
         margin=1.3
         pl.gca().set_ylim([1e1/margin, 1e2*margin])
@@ -293,6 +299,7 @@ if __name__ == '__main__':
     # fig_controlcost('double_integrator_tuning')
 
     fig_train_data_big('double_integrator_linear_corrected')
+    fig_controlcost('double_integrator_linear_corrected')
 
 
 

@@ -1701,3 +1701,14 @@ but the behaviour seems correct, it looks like now (as opposed to before!)
 the costate is actually the gradient of the value. this gives us MUCH lower
 test errors for the NN (because the inductive bias that V_x = λ is now
 correct...)
+
+
+
+... re-made data and tried to tune the sampler for better speed. slight
+speedup when using more chains, but shorter (in exact proportion) of about
+2x. ofc large speedup when increasing dt. it seems that *for linear system*
+we can afford quite large dt. for dt=1/8, we still find the exact LQR
+controller when lstsq fitting the optimal inputs. if we instead go way up
+to dt=1 (making the whole MCMC loop for 16384 points after jit take 1
+sec!), thnen we find that the ratio betwen lqr and lstsq gains are now:
+[[1.00000002 1.00000001]]

@@ -288,7 +288,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
     # vectorise & speed up :)
     run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
-    # run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
+    run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
     run_multiple_chains_nojit = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
 
     N_chains = algo_params['sampler_N_chains']
@@ -344,6 +344,16 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
     subsampled_λTs = outputs['tc'][:, burn_in::steps_per_sample, :].reshape(-1, nx)
 
+    # also write the dataset into a csv so we have it ready the next time.
+    sysname = problem_params['system_name']
+
+    np.save(f'datasets/last_y0s_{sysname}.npy', subsampled_y0s)
+    np.save(f'datasets/last_lamTs_{sysname}.npy', subsampled_λTs)
+    np.save(f'datasets/mcmc_complete/last_y0s_{sysname}.npy', outputs['y0'])
+    np.save(f'datasets/mcmc_complete/last_lamTs_{sysname}.npy', outputs['tc'])
+
+    ipdb.set_trace()
+
     if algo_params['sampler_plot']:
 
         pl.figure('V(x) and V(x(λ))')
@@ -393,16 +403,13 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
         # time series
         pl.figure()
-        pl.subplot(211)
 
         # all_x0s.shape == (N_chains, N_samples, nx)
         for x0 in all_x0s:
-            pl.plot(x0, alpha=.3)
-        # pl.plot(all_x0s[0, :, 0])
-        # pl.plot(all_x0s[0, :, 1])
-
-        # autocorrelation function
-        pl.subplot(212)
+            pl.subplot(211)
+            pl.plot(x0[:, 0], alpha=.3)
+            pl.subplot(212)
+            pl.plot(x0[:, 1], alpha=.3)
 
 
         '''
@@ -416,11 +423,6 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
         pl.show()
 
-    # also write the dataset into a csv so we have it ready the next time.
-    sysname = problem_params['system_name']
-
-    np.save(f'datasets/last_y0s_{sysname}.npy', subsampled_y0s)
-    np.save(f'datasets/last_lamTs_{sysname}.npy', subsampled_λTs)
 
     return subsampled_y0s, subsampled_λTs
 

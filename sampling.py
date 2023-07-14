@@ -308,6 +308,13 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     jumpsizes = np.diag(np.sqrt(algo_params['x_sample_cov']) * algo_params['x_max_mahalanobis_dist']) * np.sqrt(problem_params['V_max']/10)
     jumpsizes = np.array([4, 8])
     print(f'sampler: jumpsizes = {jumpsizes}')
+    pont_dt = algo_params['pontryagin_solver_dt']
+    print(f'sampler: pontryagin solver dt = {pont_dt}')
+    print(f'sampler will generate')
+    print(f'    {N_steps*N_chains} samples = {N_chains} chains * ({burn_in} burn in + {samples} usable samples/chain * {steps_per_sample} subsampling)')
+    print(f'and return a total of ')
+    print(f'    {samples*N_chains}')
+    print(f'usable samples. good luck :)')
 
     # all_tcs, all_x0s, accept = run_multiple_chains(keys, inits, np.ones(2), N_steps)
     # t0 = time.perf_counter()

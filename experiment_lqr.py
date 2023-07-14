@@ -309,16 +309,16 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     all_ustars = jax.vmap(u_star_simple)(xs, λs)
     all_H_vals = jax.vmap(H)(xs, all_ustars, λs)
 
-    ipdb.set_trace()
 
     xtest = xs[4]
     lamtest = λs[4]
 
-    def u_star_gd(xtest, lamtest):
+    def u_star_gd(xtest, lamtest, N=1000):
         # find ustar by gradient descent
         u = np.zeros(1)
-        for i in range(1000):
-            u = u = u - 0.01 * jax.grad(H, argnums=1)(xtest, u, lamtest)
+        gradH = jax.jit(jax.grad(H, argnums=1))
+        for i in range(N):
+            u = u = u - 0.01 * gradH(xtest, u, lamtest)
 
         return u
 
@@ -329,11 +329,12 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     print(u_star_gd(xtest, lamtest))
 
 
-
-
-
-
+    pontryagin_utils.u_star_new(xtest, lamtest, problem_params)
     ipdb.set_trace()
+
+
+
+
 
 
     pl.show()

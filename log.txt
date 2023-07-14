@@ -1656,3 +1656,48 @@ todo next:
 1. re-generate results with this change
 2. find out why the hell i failed at finding the minimum of a convex
 quadratic form in closed form
+3. make baseline for nonlinear case.
+
+
+2023-07-14
+
+alright, I think the correction from yesterday was not entirely correct.
+
+in pontryagin_utils -> u_star_matrices, say we have just a scalar input,
+and our lti system. then we want to find
+
+    u* = argmin_u u.T @ R @ u + A @ u
+       = argmin_u     u^2     + V_x(t, x).T @ g(t, x) @ u
+       = argmin_u     u^2     + [λ1 λ2] [0; 1] u
+       = argmin_u     u^2     + λ2 u
+
+so far, same as when we calculated closed form yesterday. d/du (..) =  2u + λ2, u* = -λ2/2.
+
+
+let us go from this:
+    u* = argmin_u u.T @ R @ u + A @ u
+
+on one hand, with matrix calculus, we get:
+    grad_u (...) = A + R u + R' u = (R + R') u + A
+so to get the minimum, we solve:
+    (R + R') u + A = 0
+    (R + R') u = -A
+    u* = linsolve(R + R', A)
+so the one we had *before* grrrr
+
+on the other hand, if u is scalar, then
+    u* = argmin_u u.T @ R @ u + A @ u
+    0 = d/du (u.T R u + A u)
+      = d/du R * u^2 + A * u
+      = 2 R u + A
+so u = -A/(2R), the same as we would have gotten with the matrix solver.
+
+so, in conclusion: the error cannot be there. by changing the above line we
+instead *introduced* a new error which seems to compensate for a previous
+error.  instead, we probably used the function the wrong way from
+somewhere... let the debugging continue
+
+but the behaviour seems correct, it looks like now (as opposed to before!)
+the costate is actually the gradient of the value. this gives us MUCH lower
+test errors for the NN (because the inductive bias that V_x = λ is now
+correct...)

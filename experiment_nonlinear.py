@@ -82,15 +82,15 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/8,
+            'pontryagin_solver_dt': 1/64,
             'pontryagin_solver_dense': False,
 
             'sampler_dt': 1/64,
             'sampler_burn_in': 8,
-            'sampler_N_chains': 64,  # with pmap this has to be 4
-            'samper_samples_per_chain': 2**6,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 4,
-            'sampler_plot': False,
+            'sampler_N_chains': 16,  # with pmap this has to be 4
+            'samper_samples_per_chain': 2**10,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 16,
+            'sampler_plot': True,
             'sampler_tqdm': False,
 
             'x_sample_cov': x_sample_cov,
@@ -131,5 +131,5 @@ if __name__ == '__main__':
 
     key = jax.random.PRNGKey(0)
 
-    ode_dt_sweep(problem_params, algo_params)
+    # ode_dt_sweep(problem_params, algo_params)
     # experiment_controlcost_vs_traindata(problem_params, algo_params, key)

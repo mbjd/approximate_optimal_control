@@ -208,13 +208,6 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
 
 def sample_uniform(problem_params, algo_params, key):
 
-    # so nice, exactly from paper
-    Q_S = algo_params['x_Q_S']
-    nx = problem_params['nx']
-
-    # reward_fct = lambda x: -50 * np.maximum(0, x.T @ Q_S @ x - 1) + 5 * np.sqrt(0.01 + x.T @ np.array([[1,0],[0,0]]) @ x)
-    # reward_fct = lambda x: -100 * np.maximum(0, x.T @ Q_S @ x - 1) + 10 * np.sqrt(0.01 + np.square(np.array([3, 1]) @ x))
-    reward_fct = lambda x: -10 * np.maximum(0, x.T @ Q_S @ x - 1)
     reward_fct = lambda y: -10 * np.maximum(0, y[0:nx].T @ Q_S @ y[0:nx] - 1)  # S = some ellipse
 
     Vmax = problem_params['V_max']

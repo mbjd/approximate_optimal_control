@@ -343,7 +343,8 @@ if __name__ == '__main__':
     # fig_mcmc('double_integrator_linear_corrected')
 
     # fig_train_data_big('double_integrator_linear_corrected')
-    fig_controlcost('double_integrator_linear_corrected')
+    # fig_controlcost('double_integrator_linear_corrected')
+    fig_train_data_big('double_integrator_corrected')
 
 
 

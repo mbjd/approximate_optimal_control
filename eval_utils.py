@@ -26,16 +26,19 @@ def closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x
         costate = costate_estimates.mean(axis=0)
 
         # what kind of idiot wrote this function
-        u_star = pontryagin_utils.u_star_costate(
-                problem_params['f'],
-                problem_params['l'],
-                costate,
-                0.,  # t = 0
-                x,
-                problem_params['nx'],
-                problem_params['nu'],
-                problem_params['U_interval'],
-        )
+        # u_star = pontryagin_utils.u_star_costate(
+        #         problem_params['f'],
+        #         problem_params['l'],
+        #         costate,
+        #         0.,  # t = 0
+        #         x,
+        #         problem_params['nx'],
+        #         problem_params['nu'],
+        #         problem_params['U_interval'],
+        # )
+
+        # so easy so nice. yet untested but worked fine in data generation
+        u_star = pontryagin_utils.u_star_new(x, costate, problem_params)
 
         return u_star
 

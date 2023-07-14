@@ -328,11 +328,11 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     print(f'time for 1st jit run: {t1-t0:.4f}')
     print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
 
-    t0 = time.perf_counter()
-    outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
-    t1 = time.perf_counter()
-    print(f'time for 2nd jit run: {t1-t0:.4f}')
-    print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
+    # t0 = time.perf_counter()
+    # outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
+    # t1 = time.perf_counter()
+    # print(f'time for 2nd jit run: {t1-t0:.4f}')
+    # print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
 
     all_tcs = outputs['tc']
 
@@ -358,8 +358,6 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     np.save(f'datasets/last_lamTs_{sysname}.npy', subsampled_λTs)
     np.save(f'datasets/mcmc_complete/last_y0s_{sysname}.npy', outputs['y0'])
     np.save(f'datasets/mcmc_complete/last_lamTs_{sysname}.npy', outputs['tc'])
-
-    ipdb.set_trace()
 
     if algo_params['sampler_plot']:
 

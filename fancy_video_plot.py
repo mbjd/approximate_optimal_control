@@ -69,7 +69,7 @@ algo_params = {
         'sampler_dt': 1/64,
         'sampler_burn_in': 0,
         'sampler_N_chains': 4,  # with pmap this has to be 4
-        'sampler_samples': 2**8,  # actual samples = N_chains * samples
+        'samper_samples_per_chain': 2**8,  # actual samples = N_chains * samples
         'sampler_steps_per_sample': 4,
         'sampler_plot': True,
         'sampler_tqdm': False,

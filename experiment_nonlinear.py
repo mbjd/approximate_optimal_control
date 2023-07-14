@@ -88,7 +88,7 @@ if __name__ == '__main__':
             'sampler_dt': 1/64,
             'sampler_burn_in': 8,
             'sampler_N_chains': 64,  # with pmap this has to be 4
-            'sampler_samples': 2**6,  # actual samples = N_chains * samples
+            'samper_samples_per_chain': 2**6,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 4,
             'sampler_plot': False,
             'sampler_tqdm': False,

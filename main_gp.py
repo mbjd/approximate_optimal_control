@@ -263,7 +263,7 @@ if __name__ == '__main__':
             'sampler_dt': 1/128,
             'sampler_burn_in': 0,
             'sampler_N_chains': 4,  # with pmap this has to be 4
-            'sampler_samples': 2**13,  # actual samples = N_chains * samples
+            'samper_samples_per_chain': 2**13,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 1,
             'sampler_plot': True,
             'sampler_tqdm': True,

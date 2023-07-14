@@ -300,7 +300,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
     burn_in = algo_params['sampler_burn_in']
     steps_per_sample = algo_params['sampler_steps_per_sample']
-    samples = algo_params['sampler_samples']
+    samples = algo_params['samper_samples_per_chain']
 
     N_steps = burn_in + samples * steps_per_sample
 

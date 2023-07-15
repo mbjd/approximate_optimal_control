@@ -282,10 +282,9 @@ def experiment_baseline(problem_params, algo_params, key):
     # this works with jit hallelujah
     # now, does it give nice enough control inputs? specifically, smooth?
     # if not, maybe weight the data for lstsq according to # exp(-distance**2)?
-    def ustar_fct_alt(x):
+    def ustar_fct_alt(x, k):
         # find the k closest x0s in training data according to 2-norm
         # typical closeness length scale is about 0.05
-        k = 32
 
         diffs = y0s[:, 0:2] - x[None, :]
         sq_distances = np.square(diffs).sum(axis=1)
@@ -368,47 +367,61 @@ def experiment_baseline(problem_params, algo_params, key):
       repeat with smaller and smaller region
     - just apply adam to try and get them closer? maybe that followed by
       linear interpolation?
-    -
+    - the current linear fit approach, but instead of taking the n k
+      closest x0s and their lambdaTs which leads to discontinuity, instead:
+       - evaluate some kernel weight that is high when x is close to x0
+       - interpret those weights over lambda_T as a distribution
+       - find its mean and covariance
+       - take a normal sample of λTs with fixed key for that mean and cov
+       - propagate PMP from those λTs to find great data close to x0
+       - linear fit around that, predict λ0, get u*
     '''
 
-    # just the ones that cause problems
-    idx = np.array([4, 9, 26], dtype=np.int32) - 1
+    # # just the ones that cause problems
+    # idx = np.array([4, 9, 26], dtype=np.int32) - 1
 
-    for x0 in x0s[idx]:
-        # u_newton = ustar_fct(x0)
-        u_lstsq = ustar_fct_alt(x0)
+    # for x0 in x0s[idx]:
+    #     # u_newton = ustar_fct(x0)
+    #     u_lstsq = ustar_fct_alt(x0)
 
-        print(u_lstsq)
-        # print(f'u newton: {u_newton}         u lstsq: {u_lstsq}')
+    #     print(u_lstsq)
+    #     # print(f'u newton: {u_newton}         u lstsq: {u_lstsq}')
 
-    ustar_batched = jax.jit(jax.vmap(ustar_fct_alt))
-    for i in range(10):
 
-        print(i)
-        randvec = jax.random.normal(jax.random.PRNGKey(i), (2, ))
-        randvec = randvec / np.linalg.norm(randvec)
+    # ustar_batched = jax.jit(jax.vmap(ustar_fct_alt, in_axes=(0, None)), static_argnums=1)
 
-        xs = np.linspace(-1, 1, 201)[:, None] * randvec[None, :]
-        us = ustar_batched(xs)
+    # randvec = np.array([.3, -1])
 
-        pl.plot(np.linspace(-1, 1, 201), us, label=f'{randvec}', alpha=.5)
-    pl.legend()
-    pl.show()
-    ipdb.set_trace()
+    # for k in [4, 8, 16, 32, 64]:
 
-    i_test = 102
-    err = lamT_to_y0(lamTs[i_test]) - y0s[i_test]
-    print(f'error = {err}')
+    #     alphas = np.linspace(-.6, -.59, 501)
+    #     xs = alphas[:, None] * randvec[None, :]
+    #     us = ustar_batched(xs, k)
 
-    ipdb.set_trace()
-
-    # pl.show()
-
-    # pl.scatter(x0s[:, 0], x0s[:, 1])
+    #     pl.plot(alphas, us, label=f'k = {k}', alpha=.5)
+    # pl.legend()
     # pl.show()
     # ipdb.set_trace()
 
-    eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct_alt, x0s)
+
+    # i_test = 102
+    # err = lamT_to_y0(lamTs[i_test]) - y0s[i_test]
+    # print(f'error = {err}')
+
+    # ipdb.set_trace()
+
+    # # pl.show()
+
+    # # pl.scatter(x0s[:, 0], x0s[:, 1])
+    # # pl.show()
+    # # ipdb.set_trace()
+
+    # just to try something overnight
+    import time
+    print(time.time())
+    ustar_fct = lambda x: ustar_fct_alt(x, 16)
+    eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct, x0s)
+    print(time.time())
 
     # extract cost...
     cost_mean = all_sols.ys[:, -1, nx].mean()
@@ -419,6 +432,7 @@ def experiment_baseline(problem_params, algo_params, key):
     print(f'std. cost: {cost_std}')
 
     np.save(f'datasets/controlcost_bvp_meanstd_{sysname}.npy', mean_std)
+    print(time.time())
 
 
 

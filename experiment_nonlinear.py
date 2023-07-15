@@ -82,13 +82,13 @@ if __name__ == '__main__':
     # algo params copied from first resampling characteristics solvers
     # -> so some of them might not be relevant
     algo_params = {
-            'pontryagin_solver_dt': 1/64,
+            'pontryagin_solver_dt': 1/128,
             'pontryagin_solver_dense': False,
 
             'sampler_dt': 1/64,
             'sampler_burn_in': 8,
-            'sampler_N_chains': 16,  # with pmap this has to be 4
-            'samper_samples_per_chain': 2**10,  # actual samples = N_chains * samples
+            'sampler_N_chains': 32,  # with pmap this has to be 4
+            'samper_samples_per_chain': 2**12,  # actual samples = N_chains * samples
             'sampler_steps_per_sample': 16,
             'sampler_plot': True,
             'sampler_tqdm': False,

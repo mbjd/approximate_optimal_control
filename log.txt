@@ -1761,3 +1761,16 @@ clear up confusing notation
 look for remaining "todo"s
 whatever feedback comes from bhavya & lenart
 final pass for small corrections
+
+
+
+just had an idea -- maybe our proposal distributions are kind of dumb? atm,
+as long as we are in the uniform part of the distribution, the proposal is
+always centered at the current sample, to approximate langevin diffusion in
+x0. But in the λT domain, this neglects the varying jac-det leading to
+quite different densities in g(λT). Maybe we should switch to using the
+gradient of the logpdf in λT, but using some preconditioning and proposal
+covariance inspired by the state space geometry, through the jacobian
+dx0/dλT. that would probably lead to higher acceptance rates, better
+mixing, everything. but at this point it is probably too late. keep in mind
+in case we continue this in any form.

@@ -102,8 +102,8 @@ def experiment_baseline(problem_params, algo_params, key):
     '''
 
     # VERY weird - if we load this new here it works perfectly. whyyy
-    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
-    lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
+    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')[::8] # some subsampling
+    lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')[::8]
 
 
     # alternatively:
@@ -186,7 +186,7 @@ def experiment_baseline(problem_params, algo_params, key):
         assert x.shape == (2,)
 
         # find the k closest x0s in training data according to 2-norm
-        k = 16
+        k = 32
 
         diffs = y0s[:, 0:2] - x[None, :]
         sq_distances = np.square(diffs).sum(axis=1)
@@ -306,37 +306,15 @@ def experiment_baseline(problem_params, algo_params, key):
         # fit a linear function to those closest costates to hopefully
         # predict at x.
 
-        # this here was not linear function fitting, but instead some kind
-        # of accidental kernel method or something.  {{{
-
-        # new_sq_dists = np.linalg.norm(y0s_refined[:, 0:2] - x[None, :], axis=1)
-        # length scale for k=32. probably proportiaonal to k^(1/n) or # something
-        # penalty_diagonal = new_sq_dists / 0.02
-
-        # we want w such that: w.T @ xs_closest = x
-        # change the problem into l2 regularised regression to place
-        # emphasis on closer points.
-        # so we want: argmin w || A w - b ||_2^2 + || diag(penalty) @ w ||_2^2
-        # same if we expand A <- [A; diag(penalty) and b <- [b;  0]
+        # to weight the different samples, we just multiplie each *entry* of b and
+        # each *row* of A with some weight (= multiply a line of the LGS by a constant)
+        new_sq_dists = np.linalg.norm(y0s_refined[:, 0:2] - x[None, :], axis=1)
         # ipdb.set_trace()
-
-        # A = np.row_stack([y0s_refined[:, 0:2].T, np.diag(penalty_diagonal)])
-        # b = np.concatenate([x, np.zeros(k)])
-        # A = y0s_refined[:, 0:2].T
-        # b = x
-        # ws, _, _, _ = np.linalg.lstsq(A, b)
-        # lam_pred = ws @ y0s_refined[:, 2:4]
-        # print(f'ws: {ws}')
-
-        # is this even the right way of fitting a linear function??? why
-        # are we searching over 32 parameters??
-        # we want: lambda(x) = a + b x_0 + c x_1
-        # what we are doing is different...
-        # }}}
+        weights = np.exp(-new_sq_dists * 10)  # weights <= 1
 
         # proper linear regression. A @ w = costate, where A = [1s x0s x1s]
-        A = np.column_stack([np.ones(k), y0s_refined[:, 0:2]])
-        b = y0s_refined[:, 2:4]
+        A = np.column_stack([np.ones(k), y0s_refined[:, 0:2]]) * weights[:, None]
+        b = y0s_refined[:, 2:4] * weights[:, None]
         w, _, _, _ = np.linalg.lstsq(A, b)
 
         lam_pred = np.concatenate([np.ones(1), x]) @ w
@@ -382,26 +360,31 @@ def experiment_baseline(problem_params, algo_params, key):
 
     # for x0 in x0s[idx]:
     #     # u_newton = ustar_fct(x0)
-    #     u_lstsq = ustar_fct_alt(x0)
+    #     u_lstsq = ustar_fct_alt(x0, 32)
 
     #     print(u_lstsq)
     #     # print(f'u newton: {u_newton}         u lstsq: {u_lstsq}')
 
 
-    # ustar_batched = jax.jit(jax.vmap(ustar_fct_alt, in_axes=(0, None)), static_argnums=1)
+    ustar_batched = jax.jit(jax.vmap(ustar_fct_alt, in_axes=(0, None)), static_argnums=1)
 
-    # randvec = np.array([.3, -1])
+    randvec = np.array([.3, -1])
 
-    # for k in [4, 8, 16, 32, 64]:
 
-    #     alphas = np.linspace(-.6, -.59, 501)
-    #     xs = alphas[:, None] * randvec[None, :]
-    #     us = ustar_batched(xs, k)
+    k = 32
+    alphas = np.linspace(-.5, -.49, 501)
+    xs = alphas[:, None] * randvec[None, :]
+    us = ustar_batched(xs, k)
+    pl.plot(alphas, us, label=f'k = {k}', alpha=.5)
 
-    #     pl.plot(alphas, us, label=f'k = {k}', alpha=.5)
-    # pl.legend()
-    # pl.show()
-    # ipdb.set_trace()
+    alphas = np.linspace(-1, -1, 501)
+    xs = alphas[:, None] * randvec[None, :]
+    us = ustar_batched(xs, k)
+    pl.plot(alphas, us, label=f'k = {k}', alpha=.5)
+
+    pl.legend()
+    pl.show()
+    ipdb.set_trace()
 
 
     # i_test = 102

@@ -24,8 +24,9 @@ save=False
 
 def save_fig_wrapper(figname):
     if save:
-        pl.savefig(os.path.join('./figs/', figname), dpi=dpi)
-        print(f'saved fig: {figname}')
+        figpath = os.path.join('./figs/', figname)
+        pl.savefig(figpath, dpi=dpi)
+        print(f'saved fig: {figpath}')
         pl.close()
     else:
         pl.show()
@@ -78,12 +79,12 @@ def fig_train_data_big(sysname):
         y0s = all_y0s.reshape(-1, 5)
         lamTs = all_lamTs.reshape(-1, 2)
 
-    k = jax.random.PRNGKey(0)
+    k = jax.random.PRNGKey(1)
     print(f'total pts: {y0s.shape[0]}')
     if subsample:
         Nmax = 2048
         rand_idx = jax.random.choice(k, np.arange(y0s.shape[0]), shape=(Nmax,))
-        rand_idx = lamTs[:, 0] < -0.041  # override to plot just part of data
+        # rand_idx = lamTs[:, 0] < -0.041  # override to plot just part of data
 
         y0s = y0s[rand_idx, :]
         lamTs = lamTs[rand_idx, :]
@@ -95,7 +96,7 @@ def fig_train_data_big(sysname):
 
 
     cmap = 'viridis'
-    a = 0.1
+    a = 1
 
     fig, ax = pl.subplots(ncols=2, layout='compressed', figsize=(2*halfwidth, 2*halfwidth*.8))
     pl.subplot(221)
@@ -190,7 +191,8 @@ def fig_train_data_big(sysname):
 def fig_controlcost(sysname):
 
     # control cost/test loss/N training pts figure.
-    base2 = True  # sad but more readable for avg joe
+
+    base2 = True
     shaded_percentile = True
 
     def plot_data(xs, data, c, label_arr):
@@ -353,6 +355,7 @@ if __name__ == '__main__':
     # fig_train_data_big('double_integrator_linear_corrected')
     # fig_controlcost('double_integrator_linear_corrected')
     fig_train_data_big('double_integrator_corrected')
+    fig_controlcost('double_integrator_corrected')
 
 
 

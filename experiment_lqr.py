@@ -54,6 +54,8 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     # confirmed they are actually the same as the ones used in the experiment.
     # (if seed=0 in the main function)
     x0s = jax.random.choice(x0key, xs_eval, shape=(algo_params['sim_N'],))
+    print('x0s lqr:')
+    print(x0s)
 
 
     print('making comparison to closed form LQR solution')
@@ -427,11 +429,11 @@ algo_params = {
 algo_params['x_Q_S'] = np.linalg.inv(x_sample_cov) / algo_params['x_max_mahalanobis_dist']**2
 
 # generate data
-sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+# sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
 
 # fit NNs & evaluate controller performance for different amounts of data
 key = jax.random.PRNGKey(0)
-# experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)
+experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)
 # experiment_controlcost_vs_traindata(problem_params, algo_params, key)
 
 # ode_dt_sweep(problem_params, algo_params)

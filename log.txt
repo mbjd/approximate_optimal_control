@@ -1712,3 +1712,52 @@ controller when lstsq fitting the optimal inputs. if we instead go way up
 to dt=1 (making the whole MCMC loop for 16384 points after jit take 1
 sec!), thnen we find that the ratio betwen lqr and lstsq gains are now:
 [[1.00000002 1.00000001]]
+
+
+
+
+
+2023-07-15
+
+final todo list.
+
+=== results ===
+
+run control cost experiment nonlinear (running)
+make BVP solver baseline for nonlinear experiment
+ --> make figure, put in report
+
+=== writing ===
+
+title & abstract
+
+continuous time rl section in lit. rev
+
+hjb theory in problem statement?
+
+mpc stability proof: source, write, or remove
+
+2.1: cite source for "pmp gives hjb characteristics"
+
+go over explanation of evaluation (3.1)
+
+describe figures better
+    explain the way cost is normalised
+    shaded area
+
+describe gradient trick needed to sample from V sublevel set
+
+remove Q_s option entirely?
+
+small section about practicalities of the MCMC sampler, with autocorrelation plot or similar?
+
+describe new, better results at end of discussion
+
+write out 5.2 implementation aspects
+
+clear up confusing notation
+    super/subscripts for time, vector component index, training data index
+
+look for remaining "todo"s
+whatever feedback comes from bhavya & lenart
+final pass for small corrections

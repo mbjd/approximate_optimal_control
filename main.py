@@ -132,6 +132,11 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
     # x0s from test set.
     x0s = jax.random.choice(x0key, xs_eval, shape=(algo_params['sim_N'],))
 
+    print('x0s for actual experiment:')
+    print(x0s)
+    return
+
+
     point_Ns = 2**np.arange(3, int(1 + np.log2(N_max)))
     print(point_Ns)
     N_keys = 16

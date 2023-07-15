@@ -24,8 +24,9 @@ save=True
 
 def save_fig_wrapper(figname):
     if save:
-        pl.savefig(os.path.join('./figs/', figname), dpi=dpi)
-        print(f'saved fig: {figname}')
+        figpath = os.path.join('./figs/', figname)
+        pl.savefig(figpath, dpi=dpi)
+        print(f'saved fig: {figpath}')
         pl.close()
     else:
         pl.show()
@@ -71,12 +72,19 @@ def fig_train_data_big(sysname):
     y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
     lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
 
+    full = False
+    if full:
+        all_y0s = np.load(f'datasets/mcmc_complete/last_y0s_{sysname}.npy')
+        all_lamTs = np.load(f'datasets/mcmc_complete/last_lamTs_{sysname}.npy')
+        y0s = all_y0s.reshape(-1, 5)
+        lamTs = all_lamTs.reshape(-1, 2)
 
-    k = jax.random.PRNGKey(0)
+    k = jax.random.PRNGKey(1)
     print(f'total pts: {y0s.shape[0]}')
     if subsample:
         Nmax = 2048
         rand_idx = jax.random.choice(k, np.arange(y0s.shape[0]), shape=(Nmax,))
+        # rand_idx = lamTs[:, 0] < -0.041  # override to plot just part of data
 
         y0s = y0s[rand_idx, :]
         lamTs = lamTs[rand_idx, :]
@@ -88,16 +96,17 @@ def fig_train_data_big(sysname):
 
 
     cmap = 'viridis'
+    a = 1
 
     fig, ax = pl.subplots(ncols=2, layout='compressed', figsize=(2*halfwidth, 2*halfwidth*.8))
     pl.subplot(221)
-    pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=v0s)
+    pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, alpha=a, c=v0s)
     pl.xlabel(r'$x_0^{(0)}$')
     pl.ylabel(r'$x_0^{(1)}$')
     pl.gca().set_title(r'Sampled $x_0$, coloured by $V(x_0)$')
 
     pl.subplot(222)
-    sc = pl.scatter(*np.split(lamTs, [1], axis=1), cmap=cmap, c=v0s)
+    sc = pl.scatter(*np.split(lamTs, [1], axis=1), cmap=cmap, alpha=a, c=v0s)
     pl.xlabel(r'$λ_T^{(0)}$')
     pl.ylabel(r'$λ_T^{(1)}$')
     pl.gca().set_title(r'Sampled $\lambda_T$, coloured by $V(PMP(λ_T))$')
@@ -105,13 +114,13 @@ def fig_train_data_big(sysname):
     pl.colorbar(sc, label='Value $V(x_0)$')
 
     pl.subplot(223)
-    sc = pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=y0s[:, 2])
+    sc = pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, alpha=a, c=y0s[:, 2])
     pl.xlabel(r'$x_0^{(0)}$')
     pl.ylabel(r'$x_0^{(1)}$')
     pl.gca().set_title(r'Sampled $x_0$, coloured by $λ^{(0)}(x_0)$')
 
     pl.subplot(224)
-    sc = pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, c=y0s[:, 3])
+    sc = pl.scatter(*np.split(x0s, [1], axis=1), cmap=cmap, alpha=a, c=y0s[:, 3])
     pl.xlabel(r'$x_0^{(0)}$')
     pl.ylabel(r'$x_0^{(1)}$')
     pl.gca().set_title(r'Sampled $x_0$, coloured by $λ^{(1)}(x_0)$')
@@ -182,7 +191,8 @@ def fig_train_data_big(sysname):
 def fig_controlcost(sysname):
 
     # control cost/test loss/N training pts figure.
-    base2 = True  # sad but more readable for avg joe
+
+    base2 = True
     shaded_percentile = True
 
     def plot_data(xs, data, c, label_arr):
@@ -343,9 +353,9 @@ if __name__ == '__main__':
     # fig_mcmc('double_integrator_linear_corrected')
 
     # fig_train_data_big('double_integrator_linear_corrected')
-    fig_controlcost('double_integrator_linear_corrected')
-    # fig_train_data_big('double_integrator_corrected')
-
+    # fig_controlcost('double_integrator_linear_corrected')
+    fig_train_data_big('double_integrator_corrected')
+    fig_controlcost('double_integrator_corrected')
 
 
     # the two are literally the exact same

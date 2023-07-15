@@ -105,6 +105,15 @@ def experiment_baseline(problem_params, algo_params, key):
     y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
     lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
 
+
+    # alternatively:
+    complete = False
+    if complete:
+        all_y0s = np.load(f'datasets/mcmc_complete/last_y0s_{sysname}.npy')
+        all_lamTs = np.load(f'datasets/mcmc_complete/last_lamTs_{sysname}.npy')
+        y0s = all_y0s.reshape(-1, 5)
+        lamTs = all_lamTs.reshape(-1, 2)
+
     T = problem_params['T']
 
     # takes (yT, T, 0)
@@ -115,7 +124,7 @@ def experiment_baseline(problem_params, algo_params, key):
     # for better solutions :)
 
     algo_params_fancy = algo_params.copy()
-    algo_params_fancy['pontryagin_solver_dt'] = 1/512
+    algo_params_fancy['pontryagin_solver_dt'] = 1/1024
     solver_fancy = pontryagin_utils.make_single_pontryagin_solver(problem_params, algo_params_fancy)
     lamT_to_y0_fancy = lambda lamT: solver(np.concatenate([np.zeros(2), lamT, np.zeros(1)]), T, 0)[1]
 
@@ -184,29 +193,41 @@ def experiment_baseline(problem_params, algo_params, key):
         values, idx_of_closest = jax.lax.top_k(-sq_distances, k)
         lamTs_closest = lamTs[idx_of_closest]
 
+        # alternative:
+        # - find w such that w.T @ closest_x0s = x
+        # - then initialise with lamT = w.T @ closest_lamTs
+        x0s_closest = y0s[idx_of_closest, 0:2]
+        # w, residuals, rank, svals = np.linalg.lstsq(x0s_closest.T, x0)
+        # lamT_guess = w @ lamTs_closest
+
+        # # add some noise to it for different inits
+        # next_lamTs = lamT_guess[None, :] + 0.001 * jax.random.normal(jax.random.PRNGKey(0), (k, 2))
+
         # first, do batched newton iteration to get them all closer to x0
-        next_lamTs = lamTs_closest
-        all_lamTs = [lamTs_closest]
+        next_lamTs = lamTs_closest + 0.0001 * jax.random.normal(jax.random.PRNGKey(0), lamTs_closest.shape)
+        all_lamTs = [next_lamTs]
         all_y0s = []
 
 
-        for i in range(100):
-            next_lamTs, next_y0s = batch_newton_step(next_lamTs, x, .1)
-            # next_lamT, y0 = newton_step(next_lamT, x)
+        # # newton with smaller step size initially - seems to not help a lot
+        # for i in range(10):
+        #     next_lamTs, next_y0s = batch_newton_step(next_lamTs, x, .5)
+        #     # next_lamT, y0 = newton_step(next_lamT, x)
 
-            all_lamTs.append(next_lamTs)
-            all_y0s.append(next_y0s)
-            print(f'finished newton iter {i}')
+        #     all_lamTs.append(next_lamTs)
+        #     all_y0s.append(next_y0s)
+        #     print(f'finished newton iter {i}')
 
         for i in range(10):
-            next_lamTs, next_y0s = batch_newton_step(next_lamTs, x, 1.)
+
+            next_lamTs, next_y0s = batch_newton_step(next_lamTs, x, 1)
             # next_lamT, y0 = newton_step(next_lamT, x)
 
             all_lamTs.append(next_lamTs)
             all_y0s.append(next_y0s)
             print(f'finished newton iter {i}')
 
-        plot_newton_iter = True
+        plot_newton_iter = False
         if plot_newton_iter:
             all_lamTs = np.array(all_lamTs) # (N_steps,   k, nx)
             all_y0s = np.array(all_y0s)     # (N_steps-1, k, 2*nx+1)
@@ -219,8 +240,12 @@ def experiment_baseline(problem_params, algo_params, key):
             pl.semilogy(x0_errnorms, color='tab:blue', alpha=.3)
             pl.semilogy(lamT_updates_norms, color='tab:green', alpha=.3)
 
-            # pl.figure()
-            # pl.plot(all_y0s[:, :, 0], all_y0s[:, :, 1], color='tab:blue', alpha=.3)
+            pl.figure()
+            pl.plot(all_y0s[:, :, 0], all_y0s[:, :, 1], color='tab:blue', alpha=.1)
+            pl.scatter(x[0], x[1], c='tab:red')
+            for j in range(all_y0s.shape[0]):
+                pl.scatter(all_y0s[j, :, 0], all_y0s[j, :, 1], label=f'iteration {j}', alpha=.1)
+            pl.legend()
 
 
         # find the one that got closest.
@@ -252,22 +277,148 @@ def experiment_baseline(problem_params, algo_params, key):
 
         return ustar
 
+    fancy_batch_sol = jax.vmap(lamT_to_y0_fancy)
 
+    # this works with jit hallelujah
+    # now, does it give nice enough control inputs? specifically, smooth?
+    # if not, maybe weight the data for lstsq according to # exp(-distance**2)?
+    def ustar_fct_alt(x):
+        # find the k closest x0s in training data according to 2-norm
+        # typical closeness length scale is about 0.05
+        k = 32
+
+        diffs = y0s[:, 0:2] - x[None, :]
+        sq_distances = np.square(diffs).sum(axis=1)
+        values, idx_of_closest = jax.lax.top_k(-sq_distances, k)
+
+        lamTs_closest = lamTs[idx_of_closest]
+
+        y0s_closest = y0s[idx_of_closest, :]
+        lam0s_closest = y0s_closest[:, 2:4]
+
+        # some jitter, small but deterministic, to improve linear fit
+        lamTs_closest = lamTs_closest + .0001 * jax.random.normal(jax.random.PRNGKey(0), (k, 2))
+
+        # refine with fancy solver.
+        y0s_refined = fancy_batch_sol(lamTs_closest)
+
+        # print(lamT_to_y0_fancy)
+
+        # fit a linear function to those closest costates to hopefully
+        # predict at x.
+
+        # this here was not linear function fitting, but instead some kind
+        # of accidental kernel method or something.  {{{
+
+        # new_sq_dists = np.linalg.norm(y0s_refined[:, 0:2] - x[None, :], axis=1)
+        # length scale for k=32. probably proportiaonal to k^(1/n) or # something
+        # penalty_diagonal = new_sq_dists / 0.02
+
+        # we want w such that: w.T @ xs_closest = x
+        # change the problem into l2 regularised regression to place
+        # emphasis on closer points.
+        # so we want: argmin w || A w - b ||_2^2 + || diag(penalty) @ w ||_2^2
+        # same if we expand A <- [A; diag(penalty) and b <- [b;  0]
+        # ipdb.set_trace()
+
+        # A = np.row_stack([y0s_refined[:, 0:2].T, np.diag(penalty_diagonal)])
+        # b = np.concatenate([x, np.zeros(k)])
+        # A = y0s_refined[:, 0:2].T
+        # b = x
+        # ws, _, _, _ = np.linalg.lstsq(A, b)
+        # lam_pred = ws @ y0s_refined[:, 2:4]
+        # print(f'ws: {ws}')
+
+        # is this even the right way of fitting a linear function??? why
+        # are we searching over 32 parameters??
+        # we want: lambda(x) = a + b x_0 + c x_1
+        # what we are doing is different...
+        # }}}
+
+        # proper linear regression. A @ w = costate, where A = [1s x0s x1s]
+        A = np.column_stack([np.ones(k), y0s_refined[:, 0:2]])
+        b = y0s_refined[:, 2:4]
+        w, _, _, _ = np.linalg.lstsq(A, b)
+
+        lam_pred = np.concatenate([np.ones(1), x]) @ w
+
+        ustar = pontryagin_utils.u_star_new(x, lam_pred, problem_params)
+
+        plot=False # for jit set this false ofc
+        if plot:
+            fig = pl.figure()
+            ax1 = fig.add_subplot(121, projection='3d')
+            ax2 = fig.add_subplot(122, projection='3d')
+
+            ax1.scatter(y0s_refined[:, 0], y0s_refined[:, 1], y0s_refined[:, 2], c='tab:blue')
+            ax1.scatter(x[0], x[1], lam_pred[0], c='tab:red')
+
+            ax2.scatter(y0s_refined[:, 0], y0s_refined[:, 1], y0s_refined[:, 3], c='tab:blue')
+            ax2.scatter(x[0], x[1], lam_pred[1], c='tab:red')
+            pl.show()
+            # pl.scatter(x[0], x[1], c='tab:red')
+
+        return ustar
+
+
+    '''
+    ideas for more ustar fcts
+    - importance sampling style: find closest x0s, evaluate PMP at
+      corresponding lambdas, set IS weights to some gaussian centered at x,
+      repeat with smaller and smaller region
+    - just apply adam to try and get them closer? maybe that followed by
+      linear interpolation?
+    -
+    '''
+
+    # just the ones that cause problems
+    idx = np.array([4, 9, 26], dtype=np.int32) - 1
+
+    for x0 in x0s[idx]:
+        # u_newton = ustar_fct(x0)
+        u_lstsq = ustar_fct_alt(x0)
+
+        print(u_lstsq)
+        # print(f'u newton: {u_newton}         u lstsq: {u_lstsq}')
+
+    ustar_batched = jax.jit(jax.vmap(ustar_fct_alt))
+    for i in range(10):
+
+        print(i)
+        randvec = jax.random.normal(jax.random.PRNGKey(i), (2, ))
+        randvec = randvec / np.linalg.norm(randvec)
+
+        xs = np.linspace(-1, 1, 201)[:, None] * randvec[None, :]
+        us = ustar_batched(xs)
+
+        pl.plot(np.linspace(-1, 1, 201), us, label=f'{randvec}', alpha=.5)
+    pl.legend()
+    pl.show()
+    ipdb.set_trace()
 
     i_test = 102
     err = lamT_to_y0(lamTs[i_test]) - y0s[i_test]
     print(f'error = {err}')
 
-    # just the ones that cause problems
-    idx = np.array([4, 9, 26], dtype=np.int32) - 1
-
-    for x0 in x0s[0:10]:
-        print(x0)
-        u = ustar_fct(x0)
-        print(u)
-
-    pl.show()
     ipdb.set_trace()
+
+    # pl.show()
+
+    # pl.scatter(x0s[:, 0], x0s[:, 1])
+    # pl.show()
+    # ipdb.set_trace()
+
+    eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct_alt, x0s)
+
+    # extract cost...
+    cost_mean = all_sols.ys[:, -1, nx].mean()
+    cost_std = all_sols.ys[:, -1, nx].std()
+
+    mean_std = np.array([cost_mean, cost_std])
+    print(f'mean cost: {cost_mean}')
+    print(f'std. cost: {cost_std}')
+
+    np.save(f'datasets/controlcost_bvp_meanstd_{sysname}.npy', mean_std)
 
 
 

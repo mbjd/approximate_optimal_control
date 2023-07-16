@@ -420,7 +420,7 @@ def experiment_baseline(problem_params, algo_params, key):
     import time
     print(time.time())
     ustar_fct = lambda x: ustar_fct_alt(x, 16)
-    eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct, x0s)
+    all_sols = eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct, x0s)
     print(time.time())
 
     # extract cost...
@@ -433,6 +433,7 @@ def experiment_baseline(problem_params, algo_params, key):
 
     np.save(f'datasets/controlcost_bvp_meanstd_{sysname}.npy', mean_std)
     print(time.time())
+    ipdb.set_trace()
 
 
 

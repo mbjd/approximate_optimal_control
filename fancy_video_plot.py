@@ -45,7 +45,7 @@ def h(x):
 problem_params = {
         # 'system_name': 'double_integrator_unlimited',
         # 'system_name': 'double_integrator',
-        'system_name': 'double_integrator_tuning',  # data copied from double_integrator
+        'system_name': 'double_integrator_corrected',  # data copied from double_integrator
         'f': f,
         'l': l,
         'h': h,
@@ -63,8 +63,8 @@ x_sample_cov = x_sample_scale @ x_sample_scale.T
 # algo params copied from first resampling characteristics solvers
 # -> so some of them might not be relevant
 algo_params = {
-        'pontryagin_solver_dt': 1/64,
-        'pontryagin_solver_dense': False,
+        'pontryagin_solver_dt': 1/128,
+        'pontryagin_solver_dense': True,
 
         'sampler_dt': 1/64,
         'sampler_burn_in': 0,
@@ -107,8 +107,8 @@ lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
 N_subsample = 1024
 idx = np.arange(y0s.shape[0])
 idx_shuf = jax.random.permutation(jax.random.PRNGKey(0), idx)
-# idx_subsample = idx_shuf[0:N_subsample]
-idx_subsample = idx  # everything!
+idx_subsample = idx_shuf[0:N_subsample]
+# idx_subsample = idx  # everything!
 
 y0s_subsample = y0s[idx_subsample]
 lamTs_subsample = lamTs[idx_subsample]
@@ -138,6 +138,6 @@ for i in tqdm.tqdm(np.arange(sol_ys.shape[1])[::step]):
     pl.figure(figsize=(10, 6))
 
     pl.scatter(sol_ys[:, i, 0], sol_ys[:, i, 1], cmap='viridis', c=sol_ys[:, -1, 4], vmin=vmin, vmax=vmax, alpha=1/6)
-    pl.savefig(f'animation/{i:04d}.png', dpi=300)
+    pl.savefig(f'animation_1_128/{i:04d}.png', dpi=300)
     pl.close('all')
 

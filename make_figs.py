@@ -20,7 +20,7 @@ import scipy
 dpi = 400
 halfwidth = 5  # in
 subsample=True
-save=False
+save=True
 
 def save_fig_wrapper(figname):
     if save:
@@ -272,7 +272,7 @@ def fig_controlcost(sysname):
         # to grasp intuitively, it shows a lot more useful info
         # labels[0] = 'control cost / LQR cost'
         # pl.loglog(N_trainpts, (cost_mean.squeeze())/mean, c='tab:green', marker='.', alpha=a, label=labels)
-        # pl.gca().set_ylim([1e-2, 1e3])
+        pl.gca().set_ylim([1e-6, 3e-1])
         # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
 
 
@@ -356,7 +356,6 @@ if __name__ == '__main__':
     # fig_controlcost('double_integrator_linear_corrected')
     fig_train_data_big('double_integrator_corrected')
     fig_controlcost('double_integrator_corrected')
-
 
 
     # the two are literally the exact same

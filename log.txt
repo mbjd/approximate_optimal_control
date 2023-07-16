@@ -1692,6 +1692,9 @@ on the other hand, if u is scalar, then
       = 2 R u + A
 so u = -A/(2R), the same as we would have gotten with the matrix solver.
 
+
+for \dot λ:
+
 so, in conclusion: the error cannot be there. by changing the above line we
 instead *introduced* a new error which seems to compensate for a previous
 error.  instead, we probably used the function the wrong way from

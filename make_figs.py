@@ -276,7 +276,21 @@ def fig_controlcost(sysname):
         # pl.loglog(N_trainpts, mean * np.ones_like(N_trainpts), c='black', alpha=2*a, linestyle='--', label='LQR cost')
 
 
+    elif sysname in ('double_integrator_corrected'):
+        mean, std = np.load(f'datasets/controlcost_bvp_meanstd_{sysname}.npy')
+
+        print('hi')
+        if mean > cost_mean.min():
+            print('baseline must be wrong. using wrong value just for tuning figure settings')
+            mean = cost_mean.min() - 0.01
+
+        labels[0] = '(control cost - BVP solver cost) / BVP solver cost'
+        plot_data(N_trainpts, (cost_mean.squeeze()-mean)/mean, 'tab:green', labels)
+        if base2:
+            pl.gca().set_xscale('log', base=2)
+            pl.gca().xaxis.set_minor_formatter(mticker.ScalarFormatter())
     else:
+
 
         labels[0] = 'control cost'
         plot_data(N_trainpts, cost_mean.squeeze(), 'tab:green', labels)
@@ -354,7 +368,7 @@ if __name__ == '__main__':
 
     # fig_train_data_big('double_integrator_linear_corrected')
     # fig_controlcost('double_integrator_linear_corrected')
-    fig_train_data_big('double_integrator_corrected')
+    # fig_train_data_big('double_integrator_corrected')
     fig_controlcost('double_integrator_corrected')
 
 

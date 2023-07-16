@@ -186,7 +186,7 @@ def experiment_baseline(problem_params, algo_params, key):
         assert x.shape == (2,)
 
         # find the k closest x0s in training data according to 2-norm
-        k = 32
+        k = 16
 
         diffs = y0s[:, 0:2] - x[None, :]
         sq_distances = np.square(diffs).sum(axis=1)
@@ -227,7 +227,7 @@ def experiment_baseline(problem_params, algo_params, key):
             all_y0s.append(next_y0s)
             print(f'finished newton iter {i}')
 
-        plot_newton_iter = False
+        plot_newton_iter = True
         if plot_newton_iter:
             all_lamTs = np.array(all_lamTs) # (N_steps,   k, nx)
             all_y0s = np.array(all_y0s)     # (N_steps-1, k, 2*nx+1)
@@ -257,7 +257,7 @@ def experiment_baseline(problem_params, algo_params, key):
         best_lam0 = next_y0s[best_sol_idx][2:4]
         ustar = pontryagin_utils.u_star_new(x, best_lam0, problem_params)
 
-        print(f'x0 err: {x0_errs[best_sol_idx]}')
+        # print(f'x0 err: {x0_errs[best_sol_idx]}')
 
 
         '''
@@ -282,44 +282,40 @@ def experiment_baseline(problem_params, algo_params, key):
     # this works with jit hallelujah
     # now, does it give nice enough control inputs? specifically, smooth?
     # if not, maybe weight the data for lstsq according to # exp(-distance**2)?
-    def ustar_fct_alt(x, k):
-        # find the k closest x0s in training data according to 2-norm
-        # typical closeness length scale is about 0.05
+    def ustar_fct_alt(x):
+        k = 64
 
         diffs = y0s[:, 0:2] - x[None, :]
         sq_distances = np.square(diffs).sum(axis=1)
         values, idx_of_closest = jax.lax.top_k(-sq_distances, k)
-
         lamTs_closest = lamTs[idx_of_closest]
 
-        y0s_closest = y0s[idx_of_closest, :]
-        lam0s_closest = y0s_closest[:, 2:4]
+        y0s_closest = y0s[idx_of_closest]
+        x0s_closest = y0s[idx_of_closest, 0:2]
+
+        # first, do batched newton iteration to get them all closer to x0
+
+        # now, calculate lstsq solution in case newton solution is shitty.
 
         # some jitter, small but deterministic, to improve linear fit
-        lamTs_closest = lamTs_closest + .0001 * jax.random.normal(jax.random.PRNGKey(0), (k, 2))
+        lamTs_closest = lamTs_closest + .00001 * jax.random.normal(jax.random.PRNGKey(0), (k, 2))
 
-        # refine with fancy solver.
-        y0s_refined = fancy_batch_sol(lamTs_closest)
-
-        # print(lamT_to_y0_fancy)
-
-        # fit a linear function to those closest costates to hopefully
-        # predict at x.
+        y0s_refined = y0s_closest  # refining not worth it
 
         # to weight the different samples, we just multiplie each *entry* of b and
         # each *row* of A with some weight (= multiply a line of the LGS by a constant)
         new_sq_dists = np.linalg.norm(y0s_refined[:, 0:2] - x[None, :], axis=1)
         # ipdb.set_trace()
-        weights = np.exp(-new_sq_dists * 10)  # weights <= 1
+        rbf_r = 0.25
+        weights = np.exp(-new_sq_dists/rbf_r**2)  # weights <= 1
+
 
         # proper linear regression. A @ w = costate, where A = [1s x0s x1s]
         A = np.column_stack([np.ones(k), y0s_refined[:, 0:2]]) * weights[:, None]
         b = y0s_refined[:, 2:4] * weights[:, None]
         w, _, _, _ = np.linalg.lstsq(A, b)
 
-        lam_pred = np.concatenate([np.ones(1), x]) @ w
-
-        ustar = pontryagin_utils.u_star_new(x, lam_pred, problem_params)
+        lam0_lstsq = np.concatenate([np.ones(1), x]) @ w
 
         plot=False # for jit set this false ofc
         if plot:
@@ -335,7 +331,104 @@ def experiment_baseline(problem_params, algo_params, key):
             pl.show()
             # pl.scatter(x[0], x[1], c='tab:red')
 
+        ustar = pontryagin_utils.u_star_new(x, lam0_lstsq, problem_params)
         return ustar
+
+    # @jax.jit
+    def ustar_combined(x):
+
+        # first do batched newton iteration.
+        # then, if we have good solution, return that, if not,
+        # do the lstsq pro move
+
+        # use more for lstsq than newton
+        k = 64
+        k_newton = 16
+
+        diffs = y0s[:, 0:2] - x[None, :]
+        sq_distances = np.square(diffs).sum(axis=1)
+        values, idx_of_closest = jax.lax.top_k(-sq_distances, k)
+        lamTs_closest = lamTs[idx_of_closest]
+
+        y0s_closest = y0s[idx_of_closest]
+        x0s_closest = y0s[idx_of_closest, 0:2]
+
+        # first, do batched newton iteration to get them all closer to x0
+        lamTs_closest_newton = lamTs_closest[0:k_newton]
+        init_lamTs = lamTs_closest_newton  + 0.000001 * jax.random.normal(jax.random.PRNGKey(0), lamTs_closest_newton.shape)
+
+        # simple wrapper for newton step.
+        def scan_fct(carry, inp):
+
+            lamTs = carry
+            steplen = inp
+
+            next_lamTs, next_y0s = batch_newton_step(lamTs, x, 1)
+
+            carry = next_lamTs
+            oup = (carry, next_y0s)
+
+            return carry, oup
+
+        # here we can make a less aggressive stepsize schedule in principle
+        # stepsizes = np.concatenate([.5 * np.ones(5), np.ones(5)])
+        stepsizes = np.concatenate([np.ones(8)])
+        init_carry = init_lamTs
+        last_carry, oups = jax.lax.scan(scan_fct, init_carry, stepsizes)
+
+        newton_lamTs, newton_y0s = oups
+
+        errs = np.linalg.norm(newton_y0s[:, :, 0:2] - x[None, None, :], axis=2)
+        # pl.figure(); pl.plot(errs);
+        # pl.show()
+
+        # find the one that lead to smallest error.
+        min_idx = np.unravel_index(np.nanargmin(errs), errs.shape)
+        min_err = errs[min_idx]
+
+        # lamTs are one earliner
+        # min_idx_lamT = (min_idx[0] - 1, min_idx[1])
+        # certified that PMP(newton_lamTs[min_idx_lamT]) gives the same error.
+
+        y0_best = newton_y0s[min_idx]
+        lam0_newton = y0_best[2:4]  # 2:4 NOT 0:2...
+
+        # decide if we want the solution
+        newton_usable = min_err < 1e-8
+
+
+
+        # now, calculate lstsq solution in case newton solution is shitty.
+
+        # some jitter, small but deterministic, to improve linear fit
+        lamTs_closest = lamTs_closest + .00001 * jax.random.normal(jax.random.PRNGKey(0), (k, 2))
+
+        y0s_refined = y0s_closest  # refining not worth it
+
+        # to weight the different samples, we just multiplie each *entry* of b and
+        # each *row* of A with some weight (= multiply a line of the LGS by a constant)
+        new_sq_dists = np.linalg.norm(y0s_refined[:, 0:2] - x[None, :], axis=1)
+        # ipdb.set_trace()
+        rbf_r = 0.25
+        weights = np.exp(-new_sq_dists/rbf_r**2)  # weights <= 1
+
+
+        # proper linear regression. A @ w = costate, where A = [1s x0s x1s]
+        A = np.column_stack([np.ones(k), y0s_refined[:, 0:2]]) * weights[:, None]
+        b = y0s_refined[:, 2:4] * weights[:, None]
+        w, _, _, _ = np.linalg.lstsq(A, b)
+
+        lam0_lstsq = np.concatenate([np.ones(1), x]) @ w
+
+
+
+
+
+        lam0_final = newton_usable * lam0_newton + (1-newton_usable) * lam0_lstsq
+        ustar = pontryagin_utils.u_star_new(x, lam0_final, problem_params)
+        return ustar, errs
+
+
 
 
     '''
@@ -355,36 +448,46 @@ def experiment_baseline(problem_params, algo_params, key):
        - linear fit around that, predict λ0, get u*
     '''
 
-    # # just the ones that cause problems
+    # just the ones that cause problems
     # idx = np.array([4, 9, 26], dtype=np.int32) - 1
 
     # for x0 in x0s[idx]:
     #     # u_newton = ustar_fct(x0)
-    #     u_lstsq = ustar_fct_alt(x0, 32)
+    #     u_lstsq = ustar_fct_alt(x0, 32, 0.1)
 
     #     print(u_lstsq)
     #     # print(f'u newton: {u_newton}         u lstsq: {u_lstsq}')
 
+    # print(ustar_combined(x0s[2]))
+    # print(ustar_combined(x0s[3]))
+    # print(ustar_combined(x0s[4]))
 
-    ustar_batched = jax.jit(jax.vmap(ustar_fct_alt, in_axes=(0, None)), static_argnums=1)
+    # print(ustar_fct(x0s[1]))
+    # print(ustar_combined(x0s[1]))
+    # print(ustar_fct(x0s[1]))
+    # pl.show()
 
-    randvec = np.array([.3, -1])
-
-
-    k = 32
-    alphas = np.linspace(-.5, -.49, 501)
-    xs = alphas[:, None] * randvec[None, :]
-    us = ustar_batched(xs, k)
-    pl.plot(alphas, us, label=f'k = {k}', alpha=.5)
-
-    alphas = np.linspace(-1, -1, 501)
-    xs = alphas[:, None] * randvec[None, :]
-    us = ustar_batched(xs, k)
-    pl.plot(alphas, us, label=f'k = {k}', alpha=.5)
-
-    pl.legend()
-    pl.show()
+    u, errs = ustar_combined(x0s[1])
     ipdb.set_trace()
+    # ustar_batched = jax.jit(jax.vmap(ustar_fct_alt, in_axes=(0, None, None)), static_argnums=(1, 2))
+    ustar_combined_batched = jax.jit(jax.vmap(ustar_combined))
+
+    # go from problematic state to 0.
+    alphas = np.linspace(0, 1, 101)[:, None]
+    xs = (1-alphas) * x0s[4][None, :] + alphas*np.zeros(2)[None, :]
+
+
+    us, errs_s = ustar_combined_batched(xs)
+    min_errs = np.nanmin(errs_s, axis=(1, 2))
+    pl.plot(min_errs); pl.show()
+    ipdb.set_trace()
+    pl.plot(alphas, us[0], alpha=.5, label=f'newton')
+    pl.plot(alphas, us[1], alpha=.5, label=f'lstsq')
+    pl.show()
+
+    # pl.legend()
+    # pl.show()
+    # ipdb.set_trace()
 
 
     # i_test = 102
@@ -399,11 +502,10 @@ def experiment_baseline(problem_params, algo_params, key):
     # # pl.show()
     # # ipdb.set_trace()
 
-    # just to try something overnight
+    return
     import time
     print(time.time())
-    ustar_fct = lambda x: ustar_fct_alt(x, 16)
-    all_sols = eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_fct, x0s)
+    all_sols = eval_utils.closed_loop_eval_general(problem_params, algo_params, ustar_combined, x0s)
     print(time.time())
 
     # extract cost...

@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     pontryagin_solver = pontryagin_utils.make_pontryagin_solver(problem_params, algo_params)
 
-    # for resting the inner min_u H(u). i think it works now. 
+    # for resting the inner min_u H(u). i think it works now.
     # pontryagin_utils.u_star_2d(np.zeros(6), np.zeros(6), problem_params)
     # pontryagin_utils.u_star_2d(np.zeros(6), np.array([0, 0, 0, 0, 10, 100]), problem_params)
 
@@ -90,14 +90,21 @@ if __name__ == '__main__':
     #     pontryagin_utils.u_star_2d(np.zeros(6), a * np.array([0, 0, 0, 0, 0, 1]), problem_params)
 
 
-    sol, _ = pontryagin_solver(np.zeros((1, 13)), 4, 0)
+    N_trajs = 128
+    lamTs = jax.random.normal(jax.random.PRNGKey(0), shape=(N_trajs, 6)) @ np.diag(np.array([0.05, 1, 0.05, 1, 0.01, 0.001]))
 
-    pl.subplot(211)
-    pl.plot(sol.ts[0], sol.ys[0, :, 0:6], label=('x', 'y', 'vx', 'vy', 'Phi', 'omega'))
-    pl.legend()
-    pl.subplot(212)
-    pl.plot(sol.ts[0], sol.ys[0, :, 6:12], label=('lam x', 'lam y', 'lam vx', 'lam vy', 'lam Phi', 'lam omega'))
-    pl.legend()
+    sol, _ = pontryagin_solver(np.column_stack([0*lamTs, lamTs, np.zeros((N_trajs))]), 1, 0)
+
+    names = ('x', 'y', 'vx', 'vy', 'Phi', 'omega')
+    for i in range(6):
+        pl.subplot(611 + i)
+        pl.plot(sol.ts.T, sol.ys[:, :, i].T, color='black', alpha=0.1)
+        pl.ylabel(names[i])
+
+    pl.figure()
+
+    pl.plot(sol.ys[:, :, 0].T, sol.ys[:, :, 1].T, alpha=0.2, color='black')
     pl.show()
+    print('hi')
 
 

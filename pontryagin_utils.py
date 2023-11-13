@@ -150,8 +150,9 @@ def u_star_2d(x, costate, problem_params):
 
     # if the unconstrained solution is outside of the constraints, make its cost +Inf.
     # TODO for not axis-aligned constraints, change this. could probably make this automatically with vertex repr
-    is_inside = (lowerbounds <= u_star_unconstrained).all() and (u_star_unconstrained <= upperbounds).all()
-    is_outside = not is_inside
+    # is_inside = (lowerbounds <= u_star_unconstrained).all() and (u_star_unconstrained <= upperbounds).all()
+    is_inside = np.maximum(np.max(lowerbounds - u_star_unconstrained), np.max(u_star_unconstrained - upperbounds)) > 0
+    is_outside = np.logical_not(is_inside)
     penalty = is_outside * np.inf  # this actually works. 0 if False, inf if True
     all_Hs_adjusted = all_Hs + np.array([penalty, 0, 0, 0, 0])  # what if not 4 constraints?
 

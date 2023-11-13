@@ -1777,3 +1777,76 @@ covariance inspired by the state space geometry, through the jacobian
 dx0/dλT. that would probably lead to higher acceptance rates, better
 mixing, everything. but at this point it is probably too late. keep in mind
 in case we continue this in any form.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+on it again! trying to publish to l4dc.
+
+
+
+meeting notes 2023-11-08
+
+- more interesting system to do experiment
+
+  with significant nonlinearity, ~6D
+
+  compare w/ PRACTICAL ALGO as baseline (not bruteforce optimal sol)
+  other baseline: ppo implementation from brax, apparently pretty easy
+  myriad has many test systems & algorithms: https://arxiv.org/pdf/2202.10600.pdf
+  recommended by lenart&bhavya: rocket landing/2d quadrotor type stuff.
+  other sims: mujoco, lenart's papers.
+
+  this guy apparently has similar stuff to the 'different local solutions' problem
+  https://arxiv.org/pdf/2203.03432.pdf
+  http://proceedings.mlr.press/v139/mora21a/mora21a.pdf
+  -> just hack our way around it for this time
+
+- related work
+  more, especially on similar methods, not big picture
+  start big, narrow down
+  categorise into like 3 different things (pmp/characteristics, pinn, ???)
+
+eth computer permission again :) euler still same.
+
+submit to l4dc by 1 dec. but if not ready (time is a bit tight):
+- submit as workshop paper, not actual publication, but discussion with
+  others, a bit less serious
+- there are other conferences which might be interesting.
+
+
+
+
+concrete plan.
+new example, 2d quad?
+
+
+
+2023-11-13
+
+udpdated hamiltonian minimisation for 2d case according to notes from last
+week sometime. seems to work for simple box constraints. needs both
+halfspace and vertex representation.
+
+also, quad has really high torque authority, would rocket landing be more
+interestintg? but there we would have to think a bit more because the
+standard input parameterisation (thrust force + nozzle angle) is not
+control affine :( so, just take thrust force in x and y direction and make
+constraints to limit angle to like 10 deg? should work just fine
+probably...
+
+
+
+

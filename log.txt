@@ -1795,8 +1795,6 @@ in case we continue this in any form.
 
 on it again! trying to publish to l4dc.
 
-
-
 meeting notes 2023-11-08
 
 - more interesting system to do experiment
@@ -1847,6 +1845,50 @@ control affine :( so, just take thrust force in x and y direction and make
 constraints to limit angle to like 10 deg? should work just fine
 probably...
 
+(also switched to adaptive ode integrator, was really easy with diffrax,
+seems to alleviate especially situation where active constraints change)
 
 
 
+2023-11-14
+
+plan:
+
+run sampler
+find way to plot trajectories, similar to twingtec SA maybe?
+
+plotting is actually really easy, attitude arrows with quiver :)
+
+having problems with sampler though. seems to always reject new sample.
+on a debugging spree now. not much initially, it seems that the accept
+probability H in the sampler is always like 1e-4 or 1e-5. BUT when starting
+the sampler at the first nonzero sample it works, though with low accept
+rates even for very small dt
+
+
+2023-11-15
+
+wanted to update the sampler implementation to be a preconditioned langevin
+diffusion over λT instead of the in-between thing we made before. noticed
+that we need second order gradients of PMP for that, which diffrax does not
+support at least atm. is this worth it? we get:
+
+RuntimeError: `checkpointed_while_loop` is only first-order autodifferentiable
+
+can we somehow squeeze out the necessary info regardless?
+we need dx0/dlamT to even define the pdf we want to sample from, p(lamT)
+we also need dp(lamT)/dlamT if we want ot even use a gradient based
+sampler. seems pretty unavoidable that we properly calculate both those
+gradients...
+
+could also hand-roll the adjoint ODEs and solve them simultaneously to the
+rest, while using jax to get the 2nd grad... but that would be a huge
+hassle.
+
+could also try to estimate the gradient dlogpdf/dtc from previous iterates.
+only works if they are kind of close though. might work but opens huge can
+of worms theoretically
+
+conclusion, probably for the time being it is smartest to stick with the
+old way and get some examples ready for l4dc. later we can worry about
+improving fundamentally.

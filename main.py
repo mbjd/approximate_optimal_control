@@ -213,9 +213,9 @@ def experiment_controlcost_vs_traindata(problem_params, algo_params, key):
 
 def sample_uniform(problem_params, algo_params, key):
 
-    reward_fct = lambda y: -10 * np.maximum(0, y[0:nx].T @ Q_S @ y[0:nx] - 1)  # S = some ellipse
-
+    nx = problem_params['nx']
     Vmax = problem_params['V_max']
+    # reward_fct = lambda y: -10 * np.maximum(0, y[0:nx].T @ Q_S @ y[0:nx] - 1)  # S = some ellipse
 
     reward_fct = lambda y: -10 * np.maximum(0, y[-1] - Vmax)  # S = value sublevel set
 

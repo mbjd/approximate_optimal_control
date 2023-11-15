@@ -77,6 +77,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
             # hope that aside from calling this twice* we don't have to
             # do much of anything
             # *could be optimised to once per iteration by passing the previous result..?
+            # **done :)
 
             # returns:
             # mean, cov:    parameterisation of the transition density
@@ -107,13 +108,14 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
             # if reward_fct depends both on x0 and v0 we cannot do it this simply.
             # dlogpdf_dx0 = jax.jacobian(logpdf_x0)(x0)
-            jacobian_logpdf_y0 = jax.jacobian(logpdf_y0)(y0).reshape(1, 2*nx+1)
+            jacobian_logpdf_y0 = jax.jacobian(logpdf_y0)(y0).reshape(1, 2 * nx + 1)
 
             dlogpdf_dx0_partial = jacobian_logpdf_y0[:, 0:nx]
             dlogpdf_dv0_partial = jacobian_logpdf_y0[:, -1:]
 
             # instead, reverse the computation graph between x0 and λT:
             # (which is possible because we assumed that PMP: λT -> x0 is bijective)
+            # (i am pretty sure this is possible in some much much easier way with jax)
 
             #        <--- x0 <---
             # logpdf              λT
@@ -128,17 +130,22 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
             # then, simply use the sum rule to get:
 
             dlogpdf_dx0 = (dlogpdf_dx0_partial + dlogpdf_dv0_partial @ dv0_dtc @ dtc_dx0).reshape(nx)
+            dlogpdf_dtc = dlogpdf_dx0 @ dx0_dtc
+            # jax.debug.print('dlogpdf_tc manual = {x}', x=dlogpdf_dtc)
+            # confirmed that these two are the same.
+            # dlogpdf_dtc_auto = jax.jacobian(lambda tc: logpdf_y0(full_integrate_fct_reshaped(tc)))(tc)
+            # jax.debug.print('dlogpdf_dtc auto = {x}\n\n\n', x=dlogpdf_dtc_auto)
 
             # propose a jump in x0, then transform it to λT.
+            # this is kind of sketchy...
             x0_jump_mean = dt * dlogpdf_dx0 * jump_sizes
 
             # as before, scale down the jump if very large.
             max_x0_jump_norm = 0.5
-            correction = np.maximum(1, np.linalg.norm(x0_jump_mean)/max_x0_jump_norm)
+            correction = np.maximum(1, np.linalg.norm(x0_jump_mean) / max_x0_jump_norm)
             x0_jump_mean = x0_jump_mean / correction
 
             tc_jump_mean = dtc_dx0 @ x0_jump_mean
-
             new_tc_mean = tc + tc_jump_mean
 
             # covariances change under linear maps like this;
@@ -146,6 +153,13 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
             x0_jump_cov = np.diag(2 * dt * jump_sizes**2) # = (sqrt(2dt) jump_sizes)**2
             tc_jump_cov = dtc_dx0 @ x0_jump_cov @ dtc_dx0.T
             new_tc_cov = tc_jump_cov  # bc. cov(tc) = 0
+
+            # dx0_normalised_dtc = np.diag(1 / jump_sizes) @ dx0_dtc
+            # dtc_normalised_x0 = np.linalg.inv(dx0_normalised_dtc)
+            # # cov(Ax) = A.T cov(x) A
+            # # could also store sqrtm(cov) for more efficient implementation but probably peanuts
+            # new_tc_cov = np.sqrt(2 * dt) * (dtc_normalised_x0.T @ dtc_normalised_x0)
+            # new_tc_mean = 0.5 * new_tc_cov @ dlogpdf_dtc
 
             # as for the logpdf: we know (from pdf change of variable, see report):
             #   g(λT) = p(PMP(λT)) * abs(det(dPMP(λT)/dλT))
@@ -182,6 +196,70 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
             # + small number to avoid gradients of log(0)
             # but if PMP is invertible as assumed then abs(detjac) > 0 anyways
             logpdf_value = logpdf_value_y0 + np.log(1e-9 + np.abs(detjac))
+
+            # this is all wrong!!! we calculate the correct logpdf value only here
+            # for later use in the MCMC accept/reject step. BUT we should already be
+            # calculating it within here, for calculating the relevant gradient.
+            # the detjac also changes with x! and should be used to inform the proposal.
+            # i am pretty sure this is the fundamental reason we are suffering low accept rate.
+
+            return new_tc_mean, new_tc_cov, logpdf_value, y0
+
+        def mala_transition_info_new(tc, dt):
+            # this function does most of the heavy lifting here, we
+            # hope that aside from calling this twice* we don't have to
+            # do much of anything
+            # *could be optimised to once per iteration by passing the previous result..?
+            # **done :)
+
+            # returns:
+            # mean, cov:    parameterisation of the transition density
+            #               p(tc' | tc) =  N(mean, cov)
+            # logpdf_value: the unnormalised log probability density of tc
+            #               this is calculated *with* the jacobian
+            #               correction, i.e. the actual logpdf we want
+            #               to sample λ (aka tc) from.
+
+            # nuke everything and start from scratch, previous version was shit
+            # this time we want the proper pre-conditioned langevin diffusion:
+            # dx(t) = .5 A nabla log p(x) dt + A^(1/2) dB_t
+
+            # does this mean we calculate a gradient of gradient?
+            # logpdf clearly depends on the jacobian dx0_dtc.
+            # and we need the gradient dlogpdf/dtc.
+            # obviously the algorithm i wrote in the paper kind of needs that.
+
+            # dont care for the moment, hope that jax optimises it to a bearable state..
+            # could we somehow pull some hessian out of stuff we already calculated?
+            # and then use that to make an even better proposal distribution?
+
+            # or probably we could also estimate one of the components from previous iterates...
+
+            def y0_and_logpdf(tc):
+                y0 = full_integrate_fct_reshaped(tc)
+                logpdf_value_y0 = logpdf_y0(y0)
+
+                dy0_dtc = jax.jacobian(full_integrate_fct_reshaped)(tc)
+                dx0_dtc = dy0_dtc[0:nx, :]
+                # dv0_dtc = dy0_dtc[-1:, :]
+
+                detjac = np.linalg.det(dx0_dtc)
+
+                # correct for the volume change due to PMP function
+                logpdf_value_tc = logpdf_value_y0 + np.log(1e-9 + np.abs(detjac))
+                return y0, logpdf_value_tc
+
+            y0, logpdf_value = y0_and_logpdf(tc)
+
+            dy0_dtc, dlogpdf_dtc = jax.jacobian(y0_and_logpdf)(tc)
+
+            # calculate the noise covariance = gradient preconditioner
+            dx0_dtc = dy0_dtc[0:nx, :]  # also calculated twice but \o/
+            dx0_dnormalised_tc = np.diag(1 / jump_sizes) @ dx0_dtc
+            dnormalised_tc_dx0 = np.linalg.inv(dx0_dnormalised_tc)
+
+            new_tc_cov = np.sqrt(2 * dt) * (dnormalised_tc_dx0.T @ dnormalised_tc_dx0)
+            new_tc_mean = tc + dt * new_tc_cov @ dlogpdf_dtc
 
             return new_tc_mean, new_tc_cov, logpdf_value, y0
 
@@ -221,6 +299,12 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
             H = np.exp(tc_next_logpdf - tc_logpdf + b_transition_logdensity - f_transition_logdensity)
 
+            jax.debug.print('logpdf at proposal: {tc_next_logpdf}', tc_next_logpdf=tc_next_logpdf)
+            jax.debug.print('logpdf at current: {tc_logpdf}', tc_logpdf=tc_logpdf)
+            jax.debug.print('back transition log density: {b_transition_logdensity}', b_transition_logdensity=b_transition_logdensity)
+            jax.debug.print('fwd transition log density: {f_transition_logdensity}', f_transition_logdensity=f_transition_logdensity)
+            jax.debug.print('accept prob: {H}\n\n', H=H)
+
             # but how does this make sense? the backwards transition is
             # always going to be much less likely than the forward
             # transition as long as the gradient is not very small...
@@ -245,16 +329,13 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
             # looooots of outputs for debugging
             output = {
-                    # 'key': key,
-                    # 'noise': noise,
-                    # 'jac_value': jac_value,
-                    # 'grad_logpdf_now': grad_logpdf_now,
-                    # 'x0_jump_desired': x0_jump_desired,
-                    # 'proposed_x0_desired': proposed_x0_desired,
-                    # 'proposed_x0': proposed_x0,
-                    # 'next_tc': next_tc,
-                    # 'H': H,
-                    # 'u': u,
+                    'key': key,
+                    'tc': tc,
+                    'tc_proposed': tc_proposed,
+                    'current_transition_info': current_transition_info,
+                    'b_transition_info': b_transition_info,
+                    'H': H,
+                    'u': u,
                     'tc': tc,
                     'y0': y0_current,
                     'do_accept': do_accept,
@@ -279,24 +360,20 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
         return outputs
 
 
-    # test run:
-    # test_tc, test_x0, test_accept = run_single_chain(key, np.array([0.001, 0.001]), np.ones(2), 100)
-    # ipdb.set_trace()
-
     # import sys; sys.exit()
-
 
     # vectorise & speed up :)
     run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
-    run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
+    # run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
     run_multiple_chains_nojit = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
 
     N_chains = algo_params['sampler_N_chains']
     keys = jax.random.split(key, N_chains)
-    inits = 0.0 * jax.random.normal(key, shape=(N_chains, nx))
 
-    # try to initialise at some weird point
-    # inits = np.kron(np.array([-14.8, 15.8]), np.ones((N_chains, 1)))
+    # starting exactly at 0 seems to mess stuff up...
+    inits = 1e-3 * jax.random.normal(key, shape=(N_chains, nx))
+    # basically accept the first proposal instead...?
+    inits = np.array([-0.038, -0.047,  0.012,  0.016,  0.021,  0.002]).reshape(1, -1)
 
     burn_in = algo_params['sampler_burn_in']
     steps_per_sample = algo_params['sampler_steps_per_sample']
@@ -305,11 +382,43 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     N_steps = burn_in + samples * steps_per_sample
 
     # heuristically found to represent the problem dimensions nicely
-    jumpsizes = np.diag(np.sqrt(algo_params['x_sample_cov']) * algo_params['x_max_mahalanobis_dist']) * np.sqrt(problem_params['V_max']/10)
-    jumpsizes = np.array([4, 8])
+    jumpsizes = np.diag(np.sqrt(algo_params['x_sample_cov'])) # * algo_params['x_max_mahalanobis_dist']) * np.sqrt(problem_params['V_max']/10)
+
+    # test run:
+    # test_outputs = run_single_chain(key, inits[0, :], jumpsizes, 1024)
+    # print('test run done')
+
+    # visualise.
+    def plot_trajectories(ts, ys, color='green', alpha=.1):
+
+        # plot trajectories.
+        pl.plot(ys[:, :, 0].T, ys[:, :, 1].T, color=color, alpha=alpha)
+
+        # sols.ys.shape = (N_trajectories, N_ts, 2*nx+1)
+        # plot attitude with quiver.
+        arrow_x = ys[:, :, 0].reshape(-1)
+        arrow_y = ys[:, :, 1].reshape(-1)
+        attitudes = ys[:, :, 4].reshape(-1)
+        arrow_len = 0.5
+        u = np.sin(-attitudes) * arrow_len
+        v = np.cos(attitudes) * arrow_len
+
+        pl.quiver(arrow_x, arrow_y, u, v, color=color, alpha=alpha)
+
+    # wrapped_pontryagin_solver = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
+    # sol_p, y0s_p = wrapped_pontryagin_solver(test_outputs['tc_proposed'])
+    # pl.subplot(211)
+    # plot_trajectories(sol_p.ts, sol_p.ys, color='red')
+    # pl.xlabel('proposed trajectories')
+    #
+    # sol_p, y0s_p = wrapped_pontryagin_solver(test_outputs['tc'])
+    # pl.subplot(212)
+    # plot_trajectories(sol_p.ts, sol_p.ys)
+    # pl.xlabel('accepted trajectories')
+    # pl.show()
+
+
     print(f'sampler: jumpsizes = {jumpsizes}')
-    pont_dt = algo_params['pontryagin_solver_dt']
-    print(f'sampler: pontryagin solver dt = {pont_dt}')
     print(f'sampler will generate')
     print(f'    {N_steps*N_chains} samples = {N_chains} chains * ({burn_in} burn in + {samples} usable samples/chain * {steps_per_sample} subsampling)')
     print(f'and return a total of ')
@@ -325,6 +434,9 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     t0 = time.perf_counter()
     outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
     t1 = time.perf_counter()
+
+    print(f'accept rate: {outputs["do_accept"].mean():.3f}')
+
     print(f'time for 1st jit run: {t1-t0:.4f}')
     print(f'time per sample     : {(t1-t0)/(samples*N_chains):.4f}')
 
@@ -437,6 +549,8 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
 
 if __name__ == '__main__':
+
+    raise NotImplementedError('this code too old')
 
     # minimal example of how to use the sampler.
     # explanation in docstring of pontryagin_sampler.

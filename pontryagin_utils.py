@@ -305,10 +305,14 @@ def make_pontryagin_solver(problem_params, algo_params):
             # make a pid controller
             # hope we end up using fewer steps thatn with constant stepsize...
             saveat = diffrax.SaveAt(steps=True, dense=True)
-            step_ctrl = diffrax.PIDController(rtol=1e-7, atol=1e-6)
+            step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+            adjoint = diffrax.adjoint.RecursiveCheckpointAdjoint()  # autodiff through solver naively
+            # adjoint = diffrax.adjoint.BacksolveAdjoint()  # solve adjoint eq's with extra ode solve pass
             solution = diffrax.diffeqsolve(
                     term, solver, t0=t0, t1=t1, dt0=dt, y0=y0,
-                    stepsize_controller=step_ctrl, saveat=saveat, max_steps=max_steps,
+                    stepsize_controller=step_ctrl, saveat=saveat,
+                    max_steps=algo_params['pontryagin_solver_maxsteps'],
+                    adjoint=adjoint
             )
 
             return solution, solution.evaluate(0)

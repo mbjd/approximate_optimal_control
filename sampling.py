@@ -203,6 +203,8 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
             # the detjac also changes with x! and should be used to inform the proposal.
             # i am pretty sure this is the fundamental reason we are suffering low accept rate.
 
+
+
             return new_tc_mean, new_tc_cov, logpdf_value, y0
 
         def mala_transition_info_new(tc, dt):
@@ -299,10 +301,10 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
             H = np.exp(tc_next_logpdf - tc_logpdf + b_transition_logdensity - f_transition_logdensity)
 
-            jax.debug.print('logpdf at proposal: {tc_next_logpdf}', tc_next_logpdf=tc_next_logpdf)
-            jax.debug.print('logpdf at current: {tc_logpdf}', tc_logpdf=tc_logpdf)
-            jax.debug.print('back transition log density: {b_transition_logdensity}', b_transition_logdensity=b_transition_logdensity)
-            jax.debug.print('fwd transition log density: {f_transition_logdensity}', f_transition_logdensity=f_transition_logdensity)
+            # jax.debug.print('logpdf at proposal: {tc_next_logpdf}', tc_next_logpdf=tc_next_logpdf)
+            # jax.debug.print('logpdf at current: {tc_logpdf}', tc_logpdf=tc_logpdf)
+            # jax.debug.print('back transition log density: {b_transition_logdensity}', b_transition_logdensity=b_transition_logdensity)
+            # jax.debug.print('fwd transition log density: {f_transition_logdensity}', f_transition_logdensity=f_transition_logdensity)
             jax.debug.print('accept prob: {H}\n\n', H=H)
 
             # but how does this make sense? the backwards transition is

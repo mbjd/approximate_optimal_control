@@ -1875,20 +1875,39 @@ support at least atm. is this worth it? we get:
 
 RuntimeError: `checkpointed_while_loop` is only first-order autodifferentiable
 
-can we somehow squeeze out the necessary info regardless?
+options to address this:
+
+1. can we somehow squeeze out the necessary info regardless?
 we need dx0/dlamT to even define the pdf we want to sample from, p(lamT)
 we also need dp(lamT)/dlamT if we want ot even use a gradient based
 sampler. seems pretty unavoidable that we properly calculate both those
 gradients...
 
-could also hand-roll the adjoint ODEs and solve them simultaneously to the
+2. could also hand-roll the adjoint ODEs and solve them simultaneously to the
 rest, while using jax to get the 2nd grad... but that would be a huge
 hassle.
 
-could also try to estimate the gradient dlogpdf/dtc from previous iterates.
+2.5. since we only really need the volume change |dx0/dlT|, could we
+calculate that by adding the volume change to the state and giving it the
+dynamics from https://arxiv.org/abs/1806.07366, thm 1?
+
+i am thinking that this is actually the most practical option. we have to
+add one state to the extended dynamics. the rhs for that state is
+-tr(df/dz), where f is the extended dynamics in x and lambda (don't think
+we need V...), and z=(x, λ).
+
+
+3. could also try to estimate the gradient dlogpdf/dtc from previous iterates.
 only works if they are kind of close though. might work but opens huge can
 of worms theoretically
+
+4. other alternative: multiple try MCMC. at each step make N proposals. for
+each we calculate logpdf as normally. then, we can fit a linear function to
+the obtained log p(λT) and use that as a gradient estimate of dlogpdf/dλT.
+but wait we need that for the proposals... so carry this to the next
+iteration? all pretty messy...
 
 conclusion, probably for the time being it is smartest to stick with the
 old way and get some examples ready for l4dc. later we can worry about
 improving fundamentally.
+

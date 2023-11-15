@@ -91,8 +91,8 @@ if __name__ == '__main__':
             'sampler_dt': 1 / 512,
             'sampler_burn_in': 8,
             'sampler_N_chains': 1,  # with pmap this has to be 4
-            'samper_samples_per_chain': 2 ** 15,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 1,
+            'samper_samples_per_chain': 2 ** 14,  # actual samples = N_chains * samples
+            'sampler_steps_per_sample': 32,
             'sampler_plot': False,
             'sampler_tqdm': True,
 

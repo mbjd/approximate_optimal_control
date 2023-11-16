@@ -328,46 +328,12 @@ def make_pontryagin_solver(problem_params, algo_params):
 
     # vmap = gangster!
     # vmap only across first argument.
-    batch_pontryagin_backward_solver = jax.jit(jax.vmap(
+    batch_pontryagin_backward_solver = jax.vmap(
         pontryagin_backward_solver, in_axes=(0, None, None)
-    ))
+    )
 
     return batch_pontryagin_backward_solver
 
-#
-# def make_single_pontryagin_solver(problem_params, algo_params):
-#
-#     f_forward = define_extended_dynamics(problem_params)
-#
-#     # solve pontryagin backwards, for vampping later.
-#     # slightly differently parameterised than in other version.
-#     def pontryagin_backward_solver(y0, t0, t):
-#
-#         # setup ODE solver
-#         term = diffrax.ODETerm(f_forward)
-#         solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
-#
-#         # negative if t1 < t0, backward integration just works
-#         assert algo_params['pontryagin_solver_dt'] > 0
-#         dt = algo_params['pontryagin_solver_dt'] * np.sign(t1 - t0)
-#
-#         # what if we accept that we could create NaNs?
-#         max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
-#
-#         # maybe easier to control the timing intervals like this?
-#         saveat = diffrax.SaveAt(steps=True, dense=True)  # dense=True for debugging
-#
-#         # and solve :)
-#         solution = diffrax.diffeqsolve(
-#                 term, solver, t0=t0, t1=t1, dt0=dt, y0=y0,
-#                 saveat=saveat, max_steps=max_steps,
-#         )
-#
-#         # this should return the last calculated (= non-inf) solution.
-#         return solution, solution.ys[solution.stats['num_accepted_steps']-1]
-#
-#     return pontryagin_backward_solver
-#
 
 def make_pontryagin_solver_wrapped(problem_params, algo_params):
 

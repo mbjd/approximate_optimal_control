@@ -305,7 +305,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
             # jax.debug.print('logpdf at current: {tc_logpdf}', tc_logpdf=tc_logpdf)
             # jax.debug.print('back transition log density: {b_transition_logdensity}', b_transition_logdensity=b_transition_logdensity)
             # jax.debug.print('fwd transition log density: {f_transition_logdensity}', f_transition_logdensity=f_transition_logdensity)
-            jax.debug.print('accept prob: {H}\n\n', H=H)
+            # jax.debug.print('accept prob: {H}\n\n', H=H)
 
             # but how does this make sense? the backwards transition is
             # always going to be much less likely than the forward
@@ -354,11 +354,20 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
         if algo_params['sampler_tqdm']:
             # but why does it not work this time? even when just calling run_single_chain
             # without outer jit/vamp/pmap... :(
-            scan_fct = jax_tqdm.scan_tqdm(n=chain_length)(scan_fct)
+
+            print('sampler_tqdm enabled. does this mwe run?')
+            # wtf man this works perfectly. why not the other one???
+            # minimal working example
+            n=10
+            @jax_tqdm.scan_tqdm(n=n)
+            def f(state, inp):
+                return state+1, state+1
+
+            final, oups = jax.lax.scan(f, 0, np.arange(n))
 
         # ipdb.set_trace()
         final_state, outputs = jax.lax.scan(scan_fct, init_state, dts)
-        # return outputs['tc'], outputs['x0'], outputs['do_accept']
+
         return outputs
 
 
@@ -367,7 +376,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     # vectorise & speed up :)
     run_multiple_chains = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
     # run_multiple_chains = jax.jit(run_multiple_chains, static_argnums=(3,))
-    run_multiple_chains_nojit = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
+    # run_multiple_chains_nojit = jax.vmap(run_single_chain, in_axes=(0, 0, None, None))
 
     N_chains = algo_params['sampler_N_chains']
     keys = jax.random.split(key, N_chains)
@@ -434,6 +443,7 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
     # print(f'time no-jit run: {t1-t0:.4f}')
 
     t0 = time.perf_counter()
+    outputs_single = run_single_chain(key, inits.squeeze(), jumpsizes, N_steps)
     outputs = run_multiple_chains(keys, inits, jumpsizes, N_steps)
     t1 = time.perf_counter()
 
@@ -475,72 +485,105 @@ def geometric_mala_2(integrate_fct, reward_fct_y0, problem_params, algo_params, 
 
     if algo_params['sampler_plot']:
 
-        pl.figure('V(x) and V(x(λ))')
-        pl.subplot(121)
-        extent = 1.2 * np.max(np.abs(subsampled_x0s))
-        # plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
+        from tqdm import tqdm
+        y0s = outputs['y0']  # adjust shape?
 
-        pl.subplot(122)
-        extent = 1.2 * np.max(np.abs(subsampled_λTs))
-        plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)), (-extent, extent), (-extent, extent))
+        pl.figure('sampler time series')
+        for i in tqdm(range(problem_params['nx']+1)):
+            pl.subplot(711 + i)
+            if i < problem_params['nx']:
+                pl.plot(y0s[:, i])
+            else:
+                pl.plot(y0s[:, -1])  # the value at time 0
 
+        @jax.jit
+        def autocorr(xs, ns):
+            assert len(xs.shape) == 1
 
-        # make the normal plot
+            def get_corr_n(n):
+                return np.mean(xs * np.roll(xs, n))
 
-        trajectory_alpha = .2
-        scatter_alpha = .2
+            return jax.vmap(get_corr_n)(ns)
 
-        # here we plot the samples and desirability function over x(0)
-        pl.subplot(121)
-        for x0 in all_x0s:
-            pl.plot(x0[burn_in:, 0], x0[burn_in:, 1], color='grey', alpha=trajectory_alpha)
+        pl.figure('variable-wise autocorrelations')
+        nmax = 1000
+        if nmax >= y0s.shape[0]:
+            print('autocorrelation longer than time series, plots are likely to be shit')
+        ns = np.arange(0, nmax, 50)
 
-        # plot ellipse.
-        plotting_utils.plot_ellipse(algo_params['x_Q_S'])
-
-        # pl.scatter(subsampled_x0s[:, 0], subsampled_x0s[:, 1], color='red', alpha=scatter_alpha)
-
-        # and here as a function of λ(T)
-        pl.subplot(122)
-
-        for tc in all_tcs:
-            pl.plot(tc[burn_in:, 0], tc[burn_in:, 1], color='grey', alpha=trajectory_alpha)
-
-        # pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
-
-        # again basically the same plot but as a coloured scatterplot.
-
-
-        plotting_utils.value_lambda_scatterplot(subsampled_x0s, subsampled_v0s, subsampled_λTs)
-
-
-        pl.figure('acceptance probabilities (for each chain)')
-        pl.hist(accept.mean(axis=1))
-
-
-        # make mcmc diagnostics plot.
-
-        # time series
-        pl.figure()
-
-        # all_x0s.shape == (N_chains, N_samples, nx)
-        for x0 in all_x0s:
-            pl.subplot(211)
-            pl.plot(x0[:, 0], alpha=.3)
-            pl.subplot(212)
-            pl.plot(x0[:, 1], alpha=.3)
-
-
-        '''
-        this takes AGES
-        for x0 in all_x0s:
-            N_pts = x0.shape[0]
-            corrmat = x0 @ x0.T
-            autocorrs = np.array([np.diagonal(corrmat, offset).mean() for offset in range(N_pts)])
-            pl.plot(autocorrs/autocorrs[0], color='black', alpha=0.2)
-        '''
+        for i in tqdm(range(6)):
+            pl.subplot(611 + i)
+            pl.plot(ns, autocorr(y0s[:, i], ns), alpha=0.3, color='green')
 
         pl.show()
+
+        # old plots, mostly for 2D state space.
+        # pl.figure('V(x) and V(x(λ))')
+        # pl.subplot(121)
+        # extent = 1.2 * np.max(np.abs(subsampled_x0s))
+        # # plotting_utils.plot_fct(lambda x: np.exp(reward_fct_x0(x)), (-extent, extent), (-extent, extent))
+        #
+        # pl.subplot(122)
+        # extent = 1.2 * np.max(np.abs(subsampled_λTs))
+        # plotting_utils.plot_fct(lambda λ: np.exp(logpdf(λ)), (-extent, extent), (-extent, extent))
+        #
+        #
+        # # make the normal plot
+        #
+        # trajectory_alpha = .2
+        # scatter_alpha = .2
+        #
+        # # here we plot the samples and desirability function over x(0)
+        # pl.subplot(121)
+        # for x0 in all_x0s:
+        #     pl.plot(x0[burn_in:, 0], x0[burn_in:, 1], color='grey', alpha=trajectory_alpha)
+        #
+        # # plot ellipse.
+        # plotting_utils.plot_ellipse(algo_params['x_Q_S'])
+        #
+        # # pl.scatter(subsampled_x0s[:, 0], subsampled_x0s[:, 1], color='red', alpha=scatter_alpha)
+        #
+        # # and here as a function of λ(T)
+        # pl.subplot(122)
+        #
+        # for tc in all_tcs:
+        #     pl.plot(tc[burn_in:, 0], tc[burn_in:, 1], color='grey', alpha=trajectory_alpha)
+        #
+        # # pl.scatter(all_tcs_flat[:, 0], all_tcs_flat[:, 1], color='red', alpha=scatter_alpha)
+        #
+        # # again basically the same plot but as a coloured scatterplot.
+        #
+        #
+        # plotting_utils.value_lambda_scatterplot(subsampled_x0s, subsampled_v0s, subsampled_λTs)
+        #
+        #
+        # pl.figure('acceptance probabilities (for each chain)')
+        # pl.hist(accept.mean(axis=1))
+        #
+        #
+        # # make mcmc diagnostics plot.
+        #
+        # # time series
+        # pl.figure()
+        #
+        # # all_x0s.shape == (N_chains, N_samples, nx)
+        # for x0 in all_x0s:
+        #     pl.subplot(211)
+        #     pl.plot(x0[:, 0], alpha=.3)
+        #     pl.subplot(212)
+        #     pl.plot(x0[:, 1], alpha=.3)
+        #
+        #
+        # '''
+        # this takes AGES
+        # for x0 in all_x0s:
+        #     N_pts = x0.shape[0]
+        #     corrmat = x0 @ x0.T
+        #     autocorrs = np.array([np.diagonal(corrmat, offset).mean() for offset in range(N_pts)])
+        #     pl.plot(autocorrs/autocorrs[0], color='black', alpha=0.2)
+        # '''
+        #
+        # pl.show()
 
 
     return subsampled_y0s, subsampled_λTs

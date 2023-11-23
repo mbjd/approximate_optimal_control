@@ -79,7 +79,7 @@ if __name__ == '__main__':
     }
 
     algo_params = algo_params = {
-            'pontryagin_solver_dt': 1/64,
+            'pontryagin_solver_dt': 1/1024,
             'pontryagin_solver_adaptive': True,
             'pontryagin_solver_rtol': 1e-6,
             'pontryagin_solver_atol': 1e-4,
@@ -167,7 +167,7 @@ if __name__ == '__main__':
 
     pl.figure()
     # plot all v(t)'s
-    pl.plot(sols.ts[:, :], sols.ys[:, :, -1], alpha=.1, color='blue')
+    pl.plot(sols.ts[:, :].T, sols.ys[:, :, -1].T, alpha=.1, color='blue')
     pl.show()
 
 

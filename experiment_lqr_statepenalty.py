@@ -25,8 +25,6 @@ from jax.config import config
 
 
 def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key):
-
-
     sysname = problem_params['system_name']
 
     assert sysname.startswith('double_integrator_linear'), 'otherwise lqr comparison makes no sense'
@@ -47,7 +45,7 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     # data to evaluate the nn on
     eval_set, y0s = np.split(y0s, [256], axis=0)
-    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2*nx], axis=1)
+    xs_eval, gradients_eval, v_eval = np.split(eval_set, [nx, 2 * nx], axis=1)
 
     # x0s from test set.
     # confirmed they are actually the same as the ones used in the experiment.
@@ -55,7 +53,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     x0s = jax.random.choice(x0key, xs_eval, shape=(algo_params['sim_N'],))
     print('x0s lqr:')
     print(x0s)
-
 
     print('making comparison to closed form LQR solution')
     # too lazy to properly extract these from the problem description...
@@ -68,9 +65,9 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     # define matrix ricatti diff. eq.
     def P_dot(t, P, args=None):
-        return -( A.T @ P + P @ A - (P @ B + N) @ invR @ (B.T @ P + N.T) + Q )
+        return -(A.T @ P + P @ A - (P @ B + N) @ invR @ (B.T @ P + N.T) + Q)
 
-    def get_P0(P_T, dt=1/128):
+    def get_P0(P_T, dt=1 / 128):
         term = diffrax.ODETerm(P_dot)
         solver = diffrax.Tsit5()
 
@@ -83,33 +80,33 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
         # and solve :)
         solution = diffrax.diffeqsolve(
-                term, solver, t0=problem_params['T'], t1=0., dt0=dt, y0=P_T,
-                saveat=saveat, max_steps=max_steps,
+            term, solver, t0=problem_params['T'], t1=0., dt0=dt, y0=P_T,
+            saveat=saveat, max_steps=max_steps,
         )
 
         return solution
 
     # even smaller dt, and large P_T
-    P_sol = get_P0(10000 * np.eye(2), dt=2**(-18))
+    P_sol = get_P0(10000 * np.eye(2), dt=2 ** (-18))
 
     P0 = P_sol.ys[-1]
     K0 = invR @ (B.T @ P0 + N.T)
 
     # compare with inf-horizon solution
     # from http://www.mwm.im/lqr-controllers-with-python/
-    def lqr(A,B,Q,R):
+    def lqr(A, B, Q, R):
         """Solve the continuous time lqr controller.
 
         dx/dt = A x + B u
 
         cost = integral x.T*Q*x + u.T*R*u
         """
-        #ref Bertsekas, p.151
-        #first, try to solve the ricatti equation
+        # ref Bertsekas, p.151
+        # first, try to solve the ricatti equation
         X = onp.matrix(scipy.linalg.solve_continuous_are(A, B, Q, R))
-        #compute the LQR gain
-        K = onp.matrix(scipy.linalg.inv(R)*(B.T*X))
-        eigVals, eigVecs = scipy.linalg.eig(A-B*K)
+        # compute the LQR gain
+        K = onp.matrix(scipy.linalg.inv(R) * (B.T * X))
+        eigVals, eigVecs = scipy.linalg.eig(A - B * K)
         return K, X, eigVals
 
     K0_inf, P0_inf, eigvals = lqr(A, B, Q, R)
@@ -140,13 +137,12 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     # sanity check - compare w/ dataset itself
     # y0s = np.load('datasets/last_y0s_double_integrator_linear.npy')
     # y0s_smaller_dt = np.load('datasets/last_y0s_double_integrator_linear_pontryagintest.npy')
-    x0s, lam0s, v0s      = np.split(y0s, [2, 4], axis=1)
+    x0s, lam0s, v0s = np.split(y0s, [2, 4], axis=1)
     # x0s_smaller_dt, _, v0s_smaller_dt = np.split(y0s_smaller_dt, [2, 4], axis=1)
 
     # get_lam_v = jax.vmap(lambda x0: np.concatenate([(2 * x0.T @ P0).reshape(2,), (x0.T @ P0 @ x0).reshape(1,)]))
     # lqr_lam_v_base = get_lam_v(x0s)
     # lqr_lam_v_smalldt = get_lam_v(x0s_smaller_dt)
-
 
     # mean_errs_base = np.mean(((lqr_lam_v_base - y0s[:, 2:])/(1+np.abs(lqr_lam_v_base)))**2, axis=0)
     # mean_errs_smalldt = np.mean(((lqr_lam_v_smalldt - y0s_smaller_dt[:, 2:])/(1+np.abs(lqr_lam_v_smalldt)))**2, axis=0)
@@ -171,7 +167,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     # # pl.colorbar(sc, label='λ0 error (LQR-PMP)')
     # pl.show()
 
-
     f = problem_params['f']
     l = problem_params['l']
     nx, nu = 2, 1
@@ -191,8 +186,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     print(K_pmp.T / K0)
     # very good fit with max error norm 1e-15...
 
-
-
     ### compare trajectories found by PMP with value/costate info from LQR sol.
 
     solver = pontryagin_utils.make_single_pontryagin_solver(problem_params, algo_params)
@@ -201,10 +194,9 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     sol, y0 = solver(yT, problem_params['T'], 0.)
 
-
     # V(x) = x.T P x, λ(x) = grad_x V(x) = 2 x.T P
     lqr_costate_fct = lambda P, x: 2 * x.T @ P
-    lqr_V_fct = lambda P, x:  x.T @ P @ x
+    lqr_V_fct = lambda P, x: x.T @ P @ x
 
     # subsample P solution for lighter plotting.
     step = 1024
@@ -217,11 +209,10 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     lqr_costates_along_pmp_traj = jax.vmap(lqr_costate_fct, in_axes=(0, 0))(P_sol_ys, xs_for_Psol)
     lqr_values_along_pmp_traj = jax.vmap(lqr_V_fct, in_axes=(0, 0))(P_sol_ys, xs_for_Psol)
 
-
     def plot_var(ts, ys, comment):
         labels = ['x0', 'x1', 'λ0', 'λ1', 'v']
         for i in range(5):
-            pl.subplot(5, 1, i+1)
+            pl.subplot(5, 1, i + 1)
             pl.plot(ts, ys[:, i], label=labels[i] + ' ' + comment)
             pl.legend()
             pl.subplots_adjust(hspace=0)
@@ -262,7 +253,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     # pl.plot(sol.ts, sol.ys[:, 2], label='λ0 (PMP solver)')
     # pl.plot(P_sol_ts, lqr_costates_along_pmp_traj[:, 0], label='λ0 (from LQR sol, along PMP traj)')
 
-
     # pl.legend()
 
     # pl.subplot(312)
@@ -277,16 +267,12 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     # pl.legend()
 
-
-
-
     # next sanity check - see if the gradient of V w.r.t. x is really the costate...
 
     x0 = y0[0:2]
 
     # maps λT to y0 (whole vector!)
     pmp_fct = lambda λT: solver(np.concatenate([np.zeros(2), λT, np.zeros(1)]), problem_params['T'], 0.)[1]
-
 
     dydlam = jax.jacobian(pmp_fct)(lamT)
 
@@ -297,8 +283,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     # we want: dvdx, to see if it is equal to the costate
     # dvdx = dvdlam @ dlamdx = dvdlam @ (dxdlam)^-1
-
-
 
     dvdx = dvdlam @ np.linalg.inv(dxdlam)
     print(f'dv/dx calculated with autodiff:  {dvdx}')
@@ -313,7 +297,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
 
     all_ustars = jax.vmap(pontryagin_utils.u_star_new, in_axes=(0, 0, None))(xs, λs, problem_params)
     all_H_vals = jax.vmap(H)(xs, all_ustars, λs)
-
 
     xtest = xs[4]
     lamtest = λs[4]
@@ -337,10 +320,6 @@ def experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_para
     ipdb.set_trace()
 
 
-
-
-
-
 # simple control system. double integrator with friction term.
 def f(t, x, u):
     # p' = v
@@ -349,13 +328,16 @@ def f(t, x, u):
 
     return np.array([[0, 1], [0, 0]]) @ x + np.array([[0, 1]]).T @ (u)
 
+
 def l(t, x, u):
     Q = np.eye(2)
     R = np.eye(1)
-    a = 10       # penalty function steepness parameter. --> 0 step, --> +inf flat
-    z = 1 - x[1]  # z >= 0
-    state_penalty = .5 * (np.sqrt(1 + (z/a)**2) - z/a)
+    a = .01  # penalty function steepness parameter. --> 0 step, --> +inf flat
+    z = x[1] - 1  # x[1] <= 10   -->   z <= 0
+    # state_penalty = .5 * (np.sqrt(1 + (z/a)**2) - z/a)
+    state_penalty = np.maximum(0, z)**2 / a
     return x.T @ Q @ x + u.T @ R @ u + state_penalty
+
 
 def h(x):
     Qf = 1 * np.eye(2)
@@ -363,16 +345,16 @@ def h(x):
 
 
 problem_params = {
-        'system_name': 'double_integrator_linear_statepenalty',
-        'f': f,
-        'l': l,
-        'h': h,
-        'T': 8,
-        'nx': 2,
-        'nu': 1,
-        'U_interval': [-np.inf, np.inf],
-        'terminal_constraint': True,  # not tested with False for a long time
-        'V_max': 16,
+    'system_name': 'double_integrator_linear_statepenalty',
+    'f': f,
+    'l': l,
+    'h': h,
+    'T': 8,
+    'nx': 2,
+    'nu': 1,
+    'U_interval': [-np.inf, np.inf],
+    'terminal_constraint': True,  # not tested with False for a long time
+    'V_max': 16,
 }
 
 x_sample_scale = np.diag(np.array([1, 3]))
@@ -381,61 +363,144 @@ x_sample_cov = x_sample_scale @ x_sample_scale.T
 # algo params copied from first resampling characteristics solvers
 # -> so some of them might not be relevant
 algo_params = {
-        'pontryagin_solver_dt': 1/16,
-        'pontryagin_solver_adaptive': True,
-        'pontryagin_solver_dense': False,
+    'pontryagin_solver_dt': 1 / 16,
+    'pontryagin_solver_adaptive': True,
+    'pontryagin_solver_dense': False,
+    'pontryagin_solver_rtol': 1e-6,
+    'pontryagin_solver_atol': 1e-4,
+    'pontryagin_solver_maxsteps': 1024,
 
-        # 'pontryagin_sampler_n_trajectories': 32,
-        # 'pontryagin_sampler_n_iters': 8,
-        # 'pontryagin_sampler_n_extrarounds': 2,
-        # 'pontryagin_sampler_strategy': 'importance',
-        # 'pontryagin_sampler_deterministic': False,
-        # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
-        # 'pontryagin_sampler_returns': 'functions',
+    # 'pontryagin_sampler_n_trajectories': 32,
+    # 'pontryagin_sampler_n_iters': 8,
+    # 'pontryagin_sampler_n_extrarounds': 2,
+    # 'pontryagin_sampler_strategy': 'importance',
+    # 'pontryagin_sampler_deterministic': False,
+    # 'pontryagin_sampler_plot': False,  # plotting takes like 1000x longer than the computation
+    # 'pontryagin_sampler_returns': 'functions',
 
-        'sampler_dt': 1/64,
-        'sampler_burn_in': 8,
-        'sampler_N_chains': 16,  # with pmap this has to be 4
-        'samper_samples_per_chain': 2**6,  # actual samples = N_chains * samples
-        'sampler_steps_per_sample': 4,
-        'sampler_plot': False,
-        'sampler_tqdm': False,
+    'sampler_dt': 1 / 64,
+    'sampler_burn_in': 8,
+    'sampler_N_chains': 16,  # with pmap this has to be 4
+    'samper_samples_per_chain': 2 ** 6,  # actual samples = N_chains * samples
+    'sampler_steps_per_sample': 4,
+    'sampler_plot': False,
+    'sampler_tqdm': False,
 
-        'x_sample_cov': x_sample_cov,
-        'x_max_mahalanobis_dist': 2,
+    'x_sample_cov': x_sample_cov,
+    'x_max_mahalanobis_dist': 2,
 
-        'load_last': True,
+    'load_last': True,
 
-        'nn_layersizes': [64, 64, 64],
-        'nn_V_gradient_penalty': 50,
-        'nn_batchsize': 128,
-        'nn_N_max': 8192,
-        'nn_N_epochs': 10,
-        'nn_progressbar': True,
-        'nn_testset_fraction': 0.1,
-        'nn_ensemble_size': 16,
-        'lr_staircase': False,
-        'lr_staircase_steps': 4,
-        'lr_init': 0.05,
-        'lr_final': 0.005,
+    'nn_layersizes': [64, 64, 64],
+    'nn_V_gradient_penalty': 50,
+    'nn_batchsize': 128,
+    'nn_N_max': 8192,
+    'nn_N_epochs': 10,
+    'nn_progressbar': True,
+    'nn_testset_fraction': 0.1,
+    'nn_ensemble_size': 16,
+    'lr_staircase': False,
+    'lr_staircase_steps': 4,
+    'lr_init': 0.05,
+    'lr_final': 0.005,
 
-        'sim_T': 16,
-        'sim_dt': 1/16,
-        'sim_N': 32,
+    'sim_T': 16,
+    'sim_dt': 1 / 16,
+    'sim_N': 32,
 }
 
-# the matrix used to define the relevant state space subset in the paper
-#   sqrt(x.T @ Σ_inv @ x) - max_dist
-# = max_dist * sqrt((x.T @ Σ_inv/max_dist**2 @ x) - 1)
-# so we can set Q_S = Σ_inv/max_dist and just get a different scaling factor
-algo_params['x_Q_S'] = np.linalg.inv(x_sample_cov) / algo_params['x_max_mahalanobis_dist']**2
 
-# generate data
-sample_uniform(problem_params, algo_params, key=jax.random.PRNGKey(0))
+# try this pro move, very mockup like, probably wrong
+# integrate along value axis, that is, with value as independent axis
+# this is achieved by dividing the whole vector field from the hamiltonian dynamics by -l(x, u) = dv/dt
+# then assume quadratic lqr value function on some small subset
+# and integrate "up" the value axis starting from points on a small value level set.
+# see what happens \o/
 
-# fit NNs & evaluate controller performance for different amounts of data
-key = jax.random.PRNGKey(0)
-# experiment_controlcost_vs_traindata_lqr_comparison(problem_params, algo_params, key)
-# experiment_controlcost_vs_traindata(problem_params, algo_params, key)
+# basically it works, BUT we see that when approximating state constraints with smooth penalty functions,
+# the sensitivity issue becomes MUCH more pronounced. just to visualise a kind of iterative search procedure
+# here, that just resamples more closely around the point that reached the smallest x[0].
+pontryagin_solver = pontryagin_utils.make_pontryagin_solver_reparam(problem_params, algo_params)
 
-# ode_dt_sweep(problem_params, algo_params)
+
+# from http://www.mwm.im/lqr-controllers-with-python/
+def lqr(A, B, Q, R):
+    """Solve the continuous time lqr controller.
+
+    dx/dt = A x + B u
+
+    cost = integral x.T*Q*x + u.T*R*u
+    """
+    # ref Bertsekas, p.151
+    # first, try to solve the ricatti equation
+    X = onp.matrix(scipy.linalg.solve_continuous_are(A, B, Q, R))
+    # compute the LQR gain
+    K = onp.matrix(scipy.linalg.inv(R) * (B.T * X))
+    eigVals, eigVecs = scipy.linalg.eig(A - B * K)
+    return K, X, eigVals
+
+
+# terminal lqr controller for inf horizon approximation
+A = jax.jacobian(problem_params['f'], argnums=1)(0, np.zeros(2), np.zeros(1))
+B = jax.jacobian(problem_params['f'], argnums=2)(0, np.zeros(2), np.zeros(1))
+Q = np.eye(2)  # these are only almost correct bc. of the state penalty.
+R = np.eye(1)
+
+K0_inf, P0_inf, eigvals = lqr(A, B, Q, R)
+
+thetas = np.linspace(0, 2 * np.pi, 128)[:-1]
+circle_xs = np.row_stack([np.sin(thetas), np.cos(thetas)])
+x0s = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ circle_xs  # sqrtm "covariance" maps circle to ellipse.
+
+v0 = x0s[:, 0] @ P0_inf @ x0s[:, 0]
+v1 = 20
+
+
+def x0_to_vs_ys(x0):
+    lam0 = jax.jacobian(lambda x: x.T @ P0_inf @ x)(x0)
+    y0 = np.concatenate([x0, lam0])
+    sol = pontryagin_solver(y0, v0, v1)
+    return sol.ts, sol.ys
+
+
+dynamics = pontryagin_utils.define_extended_dynamics_reparam(problem_params)
+
+x0s_to_vs_ys = jax.vmap(x0_to_vs_ys)
+
+vs, ys = x0s_to_vs_ys(x0s.T)
+
+fig = pl.figure()
+ax = fig.add_subplot(111)
+# ax3d = fig.add_subplot(212, projection='3d')
+
+ax.plot(ys[:, :, 0].T, ys[:, :, 1].T, marker='o', color='green', alpha=0.2)
+# why will this not work/??
+# ax3d.plot(ys[:, :, 0].reshape(-1), ys[:, :, 1].reshape(-1), vs[:, :].reshape(-1), color='green', alpha=0.2)
+
+
+# find the one that got furthest left & sample more there.
+# this really illustrates how the sensitivity issue is really quite bad.
+colors = ('blue', 'red', 'yellow', 'black')
+all_ys = [ys]
+all_vs = [vs]
+for i in range(4):
+    print(i)
+    min_idx = np.argmin(ys[:, :, 0].min(axis=1))
+    thetas = np.linspace(thetas[min_idx-1], thetas[min_idx+1], thetas.shape[0])
+    circle_xs = np.row_stack([np.sin(thetas), np.cos(thetas)])
+    x0s = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ circle_xs  # sqrtm "covariance" maps circle to ellipse.
+
+    vs, ys = x0s_to_vs_ys(x0s.T)
+    ax.plot(ys[:, :, 0].T, ys[:, :, 1].T, marker='o', color=colors[i], alpha=0.2)
+    all_ys.append(ys)
+    all_vs.append(vs)
+    # ax3d.plot(ys[:, :, 0].T, ys[:, :, 1].T, vs[:, :].T, color=colors[i], alpha=0.2)
+
+
+ax = pl.figure().add_subplot(projection='3d')
+for ys, vs in zip(all_ys, all_vs):
+    ax.plot(ys[:, :, 0].reshape(-1), ys[:, :, 1].reshape(-1), vs[:, :].reshape(-1), color='green', alpha=.5)
+pl.show()
+
+
+print('done')

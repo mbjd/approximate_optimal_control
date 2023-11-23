@@ -276,6 +276,101 @@ def define_extended_dynamics(problem_params):
     return f_forward
 
 
+def define_extended_dynamics_reparam(problem_params):
+
+    # version where time axis is reparameterised -- now value is the independent variable
+    # basically by scaling the whole vector field with dv/dt.
+    # we ditch the t since the relevant problems are mostly infinite horizon.
+
+    f  = problem_params['f' ]
+    l  = problem_params['l' ]
+    h  = problem_params['h' ]
+    T  = problem_params['T' ]
+    nx = problem_params['nx']
+    nu = problem_params['nu']
+
+    def f_extended(t, y, args=None):
+
+        # unpack. english names to distinguish from function arguments...
+        state   = y[0:nx]
+        costate = y[nx:2*nx]
+
+        # define ze hamiltonian for that time.
+        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
+
+        # U = problem_params['U_interval']
+        # u_star = u_star_costate(f, l, costate, t, state, nx, nu, U)
+        if problem_params['nu'] == 1:
+            u_star = u_star_new(state, costate, problem_params)
+        else:
+            u_star = u_star_2d(state, costate, problem_params)
+
+        # the first line is just a restatement of the dynamics
+        # but doesn't it look cool with those partial derivatives??
+        # the jacobian has shape (1, 1, nx, 1)? wtf?
+        state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
+        costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
+        value_dot   = -l(t, state, u_star).reshape(1)
+
+        y_dot = np.concatenate([state_dot, costate_dot]) / value_dot
+
+        return y_dot
+
+    return f_extended
+
+
+
+def make_pontryagin_solver_reparam(problem_params, algo_params):
+
+    # with value as independent variable.
+    f_forward = define_extended_dynamics_reparam(problem_params)
+
+    # solve pontryagin backwards, for vampping later.
+    # slightly differently parameterised than in other version.
+    def pontryagin_solver(y0, v0, v1):
+
+        # setup ODE solver
+        term = diffrax.ODETerm(f_forward)
+        solver = diffrax.Tsit5()  # recommended over usual RK4/5 in docs
+
+        # negative if t1 < t0, backward integration just works
+        assert algo_params['pontryagin_solver_dt'] > 0
+        dt = algo_params['pontryagin_solver_dt']
+
+        # what if we accept that we could create NaNs?
+        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
+
+        saveat = diffrax.SaveAt(steps=True)
+
+        if algo_params['pontryagin_solver_dense']:
+            saveat = diffrax.SaveAt(steps=True, dense=True)
+
+        if algo_params['pontryagin_solver_adaptive']:
+            # make a pid controller
+            # hope we end up using fewer steps thatn with constant stepsize...
+            saveat = diffrax.SaveAt(steps=True, dense=True)
+            step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+            adjoint = diffrax.adjoint.RecursiveCheckpointAdjoint()  # autodiff through solver naively
+            # adjoint = diffrax.adjoint.BacksolveAdjoint()  # solve adjoint eq's with extra ode solve pass
+            solution = diffrax.diffeqsolve(
+                    term, solver, t0=v0, t1=v1, dt0=dt, y0=y0,
+                    stepsize_controller=step_ctrl, saveat=saveat,
+                    max_steps=algo_params['pontryagin_solver_maxsteps'],
+                    adjoint=adjoint
+            )
+
+            return solution  # only the object here! different from other version.
+        else:
+            # and solve :)
+            solution = diffrax.diffeqsolve(
+                    term, solver, t0=v0, t1=v1, dt0=dt, y0=y0,
+                    saveat=saveat, max_steps=max_steps,
+            )
+
+            # this should return the last calculated (= non-inf) solution.
+            return solution
+
+    return pontryagin_solver
 
 
 def make_pontryagin_solver(problem_params, algo_params):

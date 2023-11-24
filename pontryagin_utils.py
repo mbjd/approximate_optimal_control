@@ -338,7 +338,8 @@ def make_pontryagin_solver_reparam(problem_params, algo_params):
         dt = algo_params['pontryagin_solver_dt']
 
         # what if we accept that we could create NaNs?
-        max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
+        # max_steps = int(1 + problem_params['T'] / algo_params['pontryagin_solver_dt'])
+        max_steps = algo_params['pontryagin_solver_maxsteps']
 
         saveat = diffrax.SaveAt(steps=True)
 

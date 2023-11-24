@@ -328,11 +328,10 @@ def f(t, x, u):
 
     return np.array([[0, 1], [0, 0]]) @ x + np.array([[0, 1]]).T @ (u)
 
-
 def l(t, x, u):
     Q = np.eye(2)
     R = np.eye(1)
-    a = .01  # penalty function steepness parameter. --> 0 step, --> +inf flat
+    a = 1  # penalty function steepness parameter. --> 0 step, --> +inf flat
     z = x[1] - 1  # x[1] <= 10   -->   z <= 0
     # state_penalty = .5 * (np.sqrt(1 + (z/a)**2) - z/a)
     state_penalty = np.maximum(0, z)**2 / a
@@ -352,7 +351,8 @@ problem_params = {
     'T': 8,
     'nx': 2,
     'nu': 1,
-    'U_interval': [-np.inf, np.inf],
+    # 'U_interval': [-np.inf, np.inf],
+    'U_interval': [-1, 1],
     'terminal_constraint': True,  # not tested with False for a long time
     'V_max': 16,
 }
@@ -452,16 +452,33 @@ thetas = np.linspace(0, 2 * np.pi, 128)[:-1]
 circle_xs = np.row_stack([np.sin(thetas), np.cos(thetas)])
 x0s = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ circle_xs  # sqrtm "covariance" maps circle to ellipse.
 
+x0 = x0s[:, 0]
 v0 = x0s[:, 0] @ P0_inf @ x0s[:, 0]
-v1 = 20
+v1 = 50
 
+lam0 = jax.jacobian(lambda x: x.T @ P0_inf @ x)(x0)
+y0 = np.concatenate([x0, lam0])
+sol = pontryagin_solver(y0, v0, v1)
+ipdb.set_trace()
 
+@jax.jit
 def x0_to_vs_ys(x0):
     lam0 = jax.jacobian(lambda x: x.T @ P0_inf @ x)(x0)
     y0 = np.concatenate([x0, lam0])
     sol = pontryagin_solver(y0, v0, v1)
+
+    # vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 201)**2
+    # ys = jax.vmap(sol.evaluate)(vs)
+    # return vs, ys
     return sol.ts, sol.ys
 
+
+
+x0 = x0s[:, 0].T
+lam0 = jax.jacobian(lambda x: x.T @ P0_inf @ x)(x0)
+y0 = np.concatenate([x0, lam0])
+sol = pontryagin_solver(y0, v0, v1)
+# ipdb.set_trace()
 
 dynamics = pontryagin_utils.define_extended_dynamics_reparam(problem_params)
 
@@ -473,25 +490,31 @@ fig = pl.figure()
 ax = fig.add_subplot(111)
 # ax3d = fig.add_subplot(212, projection='3d')
 
-ax.plot(ys[:, :, 0].T, ys[:, :, 1].T, marker='o', color='green', alpha=0.2)
+ax.plot(ys[:, :, 0].T, ys[:, :, 1].T, color='green', alpha=0.2)
 # why will this not work/??
 # ax3d.plot(ys[:, :, 0].reshape(-1), ys[:, :, 1].reshape(-1), vs[:, :].reshape(-1), color='green', alpha=0.2)
 
 
 # find the one that got furthest left & sample more there.
 # this really illustrates how the sensitivity issue is really quite bad.
-colors = ('blue', 'red', 'yellow', 'black')
 all_ys = [ys]
 all_vs = [vs]
-for i in range(4):
-    print(i)
+for i in range(12):
+    print(f're-sampling iteration {i}')
     min_idx = np.argmin(ys[:, :, 0].min(axis=1))
-    thetas = np.linspace(thetas[min_idx-1], thetas[min_idx+1], thetas.shape[0])
+    print(f'min idx = {min_idx}')
+    l, u = thetas[min_idx-1], thetas[min_idx+1]
+    if u < l:
+        l, u = u, l
+    print(f'l, u = {l}, {u}')
+    thetas = np.linspace(l, u, thetas.shape[0])
+    print(f'thetas ∈ [{thetas[0]}, {thetas[-1]}]')
+    print(f'theta interval size = {thetas[-1] - thetas[0]}')
     circle_xs = np.row_stack([np.sin(thetas), np.cos(thetas)])
     x0s = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ circle_xs  # sqrtm "covariance" maps circle to ellipse.
 
     vs, ys = x0s_to_vs_ys(x0s.T)
-    ax.plot(ys[:, :, 0].T, ys[:, :, 1].T, marker='o', color=colors[i], alpha=0.2)
+    ax.plot(ys[:, :, 0].T, ys[:, :, 1].T, color='green', alpha=0.2)
     all_ys.append(ys)
     all_vs.append(vs)
     # ax3d.plot(ys[:, :, 0].T, ys[:, :, 1].T, vs[:, :].T, color=colors[i], alpha=0.2)

@@ -6,3 +6,4 @@ __pycache__/
 V_grad_penalty_plots/
 animation*
 .idea/
+*.npy

@@ -39,7 +39,8 @@ def l(t, x, u):
     a = .01  # penalty function steepness parameter. --> 0 steep, --> +inf flat
     z = x[1] - 1  # x[1] <= 10   -->   z <= 0
     # state_penalty = .5 * (np.sqrt(1 + (z/a)**2) - z/a)
-    state_penalty = np.maximum(0, z)**2 / a + np.maximum(0, x[0]-1)**2 / a
+    # state_penalty = np.maximum(0, z)**2 / a + np.maximum(0, x[0]-1)**2 / a
+    state_penalty = np.maximum(0, z) / a
     return x.T @ Q @ x + u.T @ R @ u + state_penalty
 
 
@@ -182,8 +183,8 @@ all_thetas = []
 cmap = matplotlib.colormaps['viridis']
 # cmap = matplotlib.colormaps['jet']
 
-t_alpha = .8
-v_alpha = .4
+t_alpha = .2
+v_alpha = .1
 
 i=0
 while theta < 2*np.pi:
@@ -198,7 +199,7 @@ while theta < 2*np.pi:
 
     # ax.plot(ys[:, 0].reshape(-1), ys[:, 1].reshape(-1), vs.reshape(-1), color='green', alpha=.1)
 
-    if i % 10 == 0:
+    if i % 1 == 0:
         ax2d.plot(ys[:, 0], ys[:, 1], color='black', alpha=t_alpha)
         ax.plot(ys[:, 0], ys[:, 1], vs, color='black', alpha=t_alpha)
 

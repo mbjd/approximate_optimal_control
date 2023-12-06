@@ -7,6 +7,7 @@ from jax_tqdm import scan_tqdm
 from nn_utils import nn_wrapper
 import pontryagin_utils
 
+import matplotlib.pyplot as pl
 import numpy as onp
 import scipy
 
@@ -94,17 +95,17 @@ algo_params = {
     'nn_layersizes': (32, 32, 32),
     'N_collocationpts': 1024,
 
-    'lr_staircase': False,
-    'lr_staircase_steps': 4,
-    'lr_init': 0.05,
-    'lr_final': 0.005,
+    'lr_staircase': True,
+    'lr_staircase_steps': 6,
+    'lr_init': 0.0005,
+    'lr_final': 0.0001,
 }
 
 
 key = jax.random.PRNGKey(0)
 
 
-@partial(jax.jit, static_argnums=(1,))
+# @partial(jax.jit, static_argnums=(1,))
 def stationary_hjb_loss(pt, V_nn, nn_params, eps, vmin, vmax):
 
     # pt: single point of shape (nx,) to evaluate loss
@@ -145,8 +146,12 @@ def stationary_hjb_loss(pt, V_nn, nn_params, eps, vmin, vmax):
     loss_hjb = np.square(hamiltonian - viscosity_term)
 
     # maybe smooth version of this?
-    α = (V_lqr > vmin).astype(float)
-    total_loss = (1-α) * loss_lqr + α * loss_hjb
+    # if V_lqr is below vmin, use lqr loss fct
+    α = (V_lqr < vmin).astype(float)
+    total_loss = (α) * loss_lqr + (1-α) * loss_hjb
+
+    # just a small test
+    # total_loss = loss_lqr
 
     # if V larger than max, ignore.
     return (total_loss * (V_nn_val < vmax)).reshape()
@@ -195,7 +200,7 @@ N_lr_steps = algo_params['lr_staircase_steps']
 total_decay = algo_params['lr_final'] / algo_params['lr_init']
 
 # not algo params :o
-total_iters = 1000
+total_iters = 200000
 
 
 lr_schedule = optax.exponential_decay(
@@ -210,45 +215,110 @@ optim = optax.adam(learning_rate=lr_schedule)
 opt_state = optim.init(nn_params)
 
 
-@scan_tqdm(total_iters)
-def f_scan(carry, input_slice):
+# test this shit
+
+epss = np.ones(total_iters) * 10
+# at the start, train with vmin=vmax to only fit terminal LQR value.
+# then, start increasing vmax.
+vboundary = np.linspace(0, 5, total_iters)
+vmins = np.ones(total_iters) * 0.5
+vmaxs = np.maximum(vmins, vboundary)
+
+@scan_tqdm(total_iters, print_rate=10)
+def step(carry, n):
+
     # unpack the 'carry' state
     nn_params, opt_state = carry
 
-    # input controls scheduling of all this stuff for now.
-    # pts, eps, vmin, vmax = input_slice
-    eps, vmin, vmax = input_slice
+    # apparently jax-tqdm only works when step n is the input.
+    # so we get our actual inputs like this:
+    eps = epss[n]
+    vmin = vmins[n]
+    vmax = vmaxs[n]
 
+    # new set of points every time
+    pts = jax.random.uniform(
+        jax.random.PRNGKey(n),
+        shape=(64, problem_params['nx']),
+        minval=-2, maxval=2,
+    )
 
     # calculate loss gradient :)
     loss, grad = loss_val_grad(pts, V_nn, nn_params, eps, vmin, vmax)
 
+    # do optimisation step
     updates, opt_state_new = optim.update(grad, opt_state)
     nn_params_new = optax.apply_updates(nn_params, updates)
 
-
-    aux_output = {
+    output = {
             'lr': lr_schedule(opt_state[0].count),
             'loss': loss,
+            'params': nn_params_new,
     }
 
     new_carry = (nn_params_new, opt_state_new)
 
-    return new_carry, aux_output
+    return new_carry, output
 
-# the training loop!
+
 init_carry = (nn_params, opt_state)
 
-# keep viscosity term constant
-epss = np.ones(total_iters) * 0.01
+# the training loop!
+final_carry, oups = jax.lax.scan(step, init_carry, np.arange(total_iters))
 
-# at the start, train with vmin=vmax to only fit terminal LQR value.
-# then, start increasing vmax.
-vboundary = np.linspace(0, 5, total_iters)
-vmins = np.ones(total_iters) * 0.05
-vmaxs = np.maximum(vmins, vboundary)
-
-final_carry, outputs = jax.lax.scan(f_scan, init_carry, (epss, vmins, vmaxs))
 nn_params, _ = final_carry
+
+
+# plot EVERYTHING
+
+pl.figure('training pts')
+pl.scatter(pts[:, 0], pts[:, 1])
+
+pl.figure('domain scheduling')
+pl.plot(epss, label='eps')
+pl.plot(vmins, label='vmin')
+pl.plot(vmaxs, label='vmax')
+pl.legend()
+
+pl.figure('training stuff')
+pl.semilogy(oups['loss'], label='loss')
+pl.semilogy(oups['lr'], label='lr')
+pl.legend()
+
+pl.figure('random selection of nn params')
+pl.plot(oups['params']['params']['Dense_2']['kernel'].reshape(1000, -1), color='black', alpha=.05)
+
+
+# plot loss on test points.
+data_key, key = jax.random.split(key, 2)
+testpts = jax.random.uniform(
+    data_key,
+    shape=(128, problem_params['nx']),
+    minval=-2, maxval=2,
+)
+
+# def stationary_hjb_loss(pt, V_nn, nn_params, eps, vmin, vmax):
+
+# batch testpts
+
+# insert V_nn fixed
+loss_Vnn_partial = lambda pt, nn_params, eps, vmin, vmax: stationary_hjb_loss(pt, V_nn, nn_params, eps, vmin, vmax)
+value_Vnn_partial = lambda pt, nn_params: stationary_hjb_loss(pt, V_nn, nn_params, .0, .0, 1000.)
+
+losses_batch = jax.vmap(loss_Vnn_partial, in_axes=(0, None, None, None, None))
+value_batch = jax.vmap(value_Vnn_partial, in_axes=(0, None))
+# vmap over everything concerned with the (optimisaion steps) time axis
+losses_batch_params = jax.vmap(losses_batch, in_axes=(None, 0, 0, 0, 0))
+value_batch_params = jax.vmap(value_batch, in_axes=(None, 0))
+
+# all_losses = losses_batch_params(testpts, oups['params'], epss, vmins, vmaxs)
+# all_vs = value_batch_params(testpts, oups['params'])
+#
+# pl.figure('losses')
+# pl.plot(all_losses, color='black', alpha=.1)
+#
+# pl.figure('values')
+# pl.plot(all_vs, color='black', alpha=.1)
+pl.show()
 
 ipdb.set_trace()

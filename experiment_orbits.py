@@ -96,7 +96,8 @@ problem_params = {
         'nu': 1,
         'U_interval': [-.2, .2],
         'terminal_constraint': False,
-        'V_max': 3.8,
+        # 'V_max': 3.8,
+        'V_max': 8,
         }
 
 algo_params = {
@@ -138,16 +139,11 @@ lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
 y0 = np.concatenate([x0, lam0])
 # sol = pontryagin_solver(y0, v0, v1)
 
-def get_sol(theta):
-    direction = np.array([np.sin(theta), np.cos(theta)])
-    x0 = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ direction + xf
-    lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
-    y0 = np.concatenate([x0, lam0])
-    sol = pontryagin_solver(y0, v0, v1)
-    return sol
-
 @jax.jit
 def sol_single_and_dxdtheta(theta):
+
+
+    vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 101)**2
 
     def get_sol(theta):
         direction = np.array([np.sin(theta), np.cos(theta)])
@@ -156,20 +152,21 @@ def sol_single_and_dxdtheta(theta):
         lam0 = 2 * P0_inf @ (x0-xf)
         y0 = np.concatenate([x0, lam0])
         sol = pontryagin_solver(y0, v0, v1)
-        return sol
 
-    get_dsol = jax.jacobian(get_sol)
+        ys = jax.vmap(sol.evaluate)(vs)
 
-    # finite difference = bad they said
-    dtheta = .00001
+        return ys
+
+    get_dsol = jax.jacfwd(lambda theta: get_sol(theta)[-2, 0:2])
+
+    # okay maybe doing this with nice autodiff still doesnt work.
+    # other, finite-diff implementation still in lqr_statepenalty example
     sol = get_sol(theta)
-    solp = get_sol(theta + dtheta)
+    dsol_final = get_dsol(theta)
 
-    dsol_final = (solp.evaluate(v1) - sol.evaluate(v1))/dtheta
+    # dsol_final = (solp.evaluate(v1) - sol.evaluate(v1))/dtheta
 
-    vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 201)**2
-    ys = jax.vmap(sol.evaluate)(vs)
-    return vs, ys, dsol_final
+    return vs, sol, dsol_final
 
 sol_single_and_dxdtheta(.1)
 
@@ -179,9 +176,10 @@ ax2d.axis('equal')
     # ax.plot(ys[:, :, 0].reshape(-1), ys[:, :, 1].reshape(-1), vs[:, :].reshape(-1), color='green', alpha=.5)
 
 theta = 0
-target_x_steplen = .05
+target_x_steplen = .02
 all_vs = []
 all_ys = []
+all_thetas = []
 
 # cmap = matplotlib.colormaps['hsv']
 cmap = matplotlib.colormaps['viridis']
@@ -194,6 +192,7 @@ i=0
 while theta < 2*np.pi:
     i = i+1
     print(theta, end='\r')
+    all_thetas.append(theta)
     ts, ys, dfinaldtheta = sol_single_and_dxdtheta(theta)
 
     all_vs.append(ts)
@@ -214,23 +213,29 @@ print('')
 
 all_ys = np.array(all_ys)
 all_vs = np.array(all_vs)
-ipdb.set_trace()
+
+pl.figure()
 
 # make basically the same plot, but with the data transposed, so we plot value level sets
 # instead of trajectories.
 # ax = pl.figure().add_subplot(projection='3d')
 # for each value level set:
-for vlevel in range(all_vs.shape[1]):
+for vlevel in tqdm.tqdm(range(all_vs.shape[1])):
     try:
         vvec = all_vs[:, vlevel]
         x0vec = all_ys[:, vlevel, 0]
         x1vec = all_ys[:, vlevel, 1]
 
-        ax2d.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
-        ax.plot(x0vec, x1vec, vvec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+        pl.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+
+        # ax2d.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+        # ax.plot(x0vec, x1vec, vvec, color=cmap(vvec[0]/v1), alpha=v_alpha)
     except:
         # sometimes the last entries are NaN. Don't care
         pass
+
+    # ipdb.set_trace()
+    pl.savefig(f'animation_figs/orbits_{vlevel:05d}.png', dpi=400)
 
 thetas = np.linspace(0, 2*np.pi, 501)
 ax2d.plot(np.sin(thetas), np.cos(thetas), color='black')

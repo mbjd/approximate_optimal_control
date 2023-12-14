@@ -197,6 +197,89 @@ def u_star_2d(x, costate, problem_params):
     return ustar_overall
 
 
+def u_star_general_activeset(x, costate, problem_params):
+
+    raise NotImplementedError('not finished')
+
+    # TODO
+    # - adapt constraint description to standard A x <= l
+    # - write brute force "enumeration of active set" solver
+    # - maybe depending on each problem we can already "prune" some impossible active sets
+    #   e.g. when constraints are triangular (and strictly feasible point exists), not all can be active at once.
+
+    # NEW constraint description -- be sure to update all problem_params:
+    #     G u <= l
+    # the other u_star_2d only handles box constraints.
+
+    # convert old to new: lb <= x  <=> -I @ x <= lb
+    # lowerbounds = problem_params['U_interval'][0]
+    # upperbounds = problem_params['U_interval'][1]
+    G = np.vstack([-np.eye(2), np.eye(2)])
+    l = np.concatenate(problem_params['U_interval'])
+
+    # we have only time invariant problems. if not change this.
+    t = 0
+    zero_u = np.zeros(problem_params['nu'])
+
+    # represent H(u) with its second order taylor poly -- by assumption they are equal :)
+    # does jax really "cache" this stuff when jitting everything?
+    # or does it "stupidly" evaluate the jacobian and hessian every time?
+    H_fct = lambda u: problem_params['l'](t, x, u) + costate.T @ problem_params['f'](t, x, u)
+    H0 = H_fct(zero_u)  # never needed this...
+    H_u = jax.jacobian(H_fct)(zero_u)
+    H_uu = jax.hessian(H_fct)(zero_u)
+
+    # so, H(u) - H(0) = 1/2 u^T H_uu u + H_u u, which is the function we try to minimise.
+
+    # solve linear system: 0 = dH/du = d/du (H0 + H_u u + u.T H_uu/2 u) = H_u + H_uu u
+    # u_star_unconstrained = np.linalg.solve(H_uu, -H_u)
+
+    # enumerate all possible active sets.
+    # this is thanks to chatgpt completely: make array with
+    N_bits = l.shape[0]  # number of inequality constraints
+    int_array = np.arange(2 ** N_bits)
+
+    # this has shape (2**N_bits, N_bits) and contains the binary representation of each number in its rows :)
+    # much better than crooked itertools
+    active_sets = ((integers_array[:, None] & (1 << np.arange(num_bits))) > 0).astype(bool)
+    n_constraints_active = active_sets.sum(axis=1)
+
+    # maybe in the future here throw out some impossible active sets.
+    # actually, don't we kind of have to do this, since for parallel constraints
+    # in the same active sets the KKT system will be unsolvable?
+    # also, any active set with more than nu constraints is nonsensical (overdetermined)
+
+    def solve_kkt_system(active_set):
+        # from here: https://www.numerical.rl.ac.uk/people/nimg/course/lectures/parts/part4.2.pdf
+
+        # active_set a bool vector of shape (n_constraints,)
+        # maybe instead of this, just multiply the corresponding rows by zero?
+        # for nice vmapping later...
+        n_active = np.sum(active_set)
+        G_active = G[active_set]
+        l_active = l[active_set]
+
+        kkt_matrix = np.vstack([
+            np.hstack([H_uu, G_active.T]),
+            np.hstack([G_active, np.zeros((n_active, n_active))])
+        ])
+
+        kkt_rhs = np.concatenate([-H_u.T, l_active])
+
+        kkt_sol = np.linalg.solve(kkt_matrix, kkt_rhs)
+        u, neg_y = np.split(kkt_sol, [problem_params['nu']])
+
+        return u
+
+    # then:
+    # - solve kkt system for all active sets (or only ones where G_active has full rank?)
+    # - find the lowest-cost solution that does not violate any constraints up to some tol.
+    # - return it.
+
+
+
+
+
 
 def u_star_new(x, costate, problem_params):
 

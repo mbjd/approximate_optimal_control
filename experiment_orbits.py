@@ -97,7 +97,7 @@ problem_params = {
         'U_interval': [-.2, .2],
         'terminal_constraint': False,
         # 'V_max': 3.8,
-        'V_max': 8,
+        'V_max': 4,
         }
 
 algo_params = {

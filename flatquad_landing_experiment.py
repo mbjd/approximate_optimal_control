@@ -1,9 +1,13 @@
+#!/usr/bin/env python
+
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as pl
 
 import main
 import pontryagin_utils
+
+import ipdb
 
 if __name__ == '__main__':
 
@@ -18,14 +22,14 @@ if __name__ == '__main__':
 
         # unpack for easier names
         Fl, Fr = u
-        posx, posy, vx, vy, Phi, omega = x
+        posx, posy, Phi, vx, vy, omega = x
 
         xdot = np.array([
             vx,
             vy,
+            omega,
             -np.sin(Phi) * (Fl + Fr) / m,
             np.cos(Phi) * (Fl + Fr) / m - g,
-            omega,
             (Fr-Fl) * r / I,
         ])
 
@@ -33,9 +37,9 @@ if __name__ == '__main__':
 
     def l(t, x, u):
         Fl, Fr = u
-        posx, posy, vx, vy, Phi, omega = x
+        posx, posy, Phi, vx, vy, omega = x
 
-        state_length_scales = np.array([1, 1, 1, 1, np.deg2rad(10), np.deg2rad(45)])
+        state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
         Q = np.diag(1/state_length_scales**2)
         state_cost = x.T @ Q @ x
 
@@ -78,67 +82,78 @@ if __name__ == '__main__':
         'V_max': 2,
     }
 
-    algo_params = algo_params = {
-            'pontryagin_solver_dt': 1/1024,
+
+    algo_params = {
+            'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
-            'pontryagin_solver_rtol': 1e-6,
             'pontryagin_solver_atol': 1e-4,
-            'pontryagin_solver_dense': False,
+            'pontryagin_solver_rtol': 1e-4,
             'pontryagin_solver_maxsteps': 1024,
-
-            'sampler_plot': True,
-
-            'sampler_dt': 1 / 64,
-            'sampler_burn_in': 8,
-            'sampler_N_chains': 1,  # with pmap this has to be 4
-            'samper_samples_per_chain': 2 ** 8,  # actual samples = N_chains * samples
-            'sampler_steps_per_sample': 32,
-            'sampler_plot': False,
-            'sampler_tqdm': True,
-
-            'x_sample_cov': x_sample_cov/2,
+            'pontryagin_solver_dense': False,
     }
 
-    # pontryagin_solver = pontryagin_utils.make_pontryagin_solver(problem_params, algo_params)
-    wrapped_pontryagin_solver = pontryagin_utils.make_pontryagin_solver_wrapped(problem_params, algo_params)
-    # for resting the inner min_u H(u). i think it works now.
-    # pontryagin_utils.u_star_2d(np.zeros(6), np.zeros(6), problem_params)
-    # pontryagin_utils.u_star_2d(np.zeros(6), np.array([0, 0, 0, 0, 10, 100]), problem_params)
-    #
-    # for a in np.linspace(0, 120, 121):
-    #     pontryagin_utils.u_star_2d(np.zeros(6), a * np.array([0, 0, 0, 0, 0, 1]), problem_params)
+    # similar to orbits example: find local lqr value function
 
 
-    # to test the pontryagin solver.
-    # N_trajs = 128
-    # lamTs = jax.random.normal(jax.random.PRNGKey(0), shape=(N_trajs, 6)) @ np.diag(10*np.array([0.05, 1, 0.05, 1, 0.01, 0.001]))
-    #
-    # sol, _ = pontryagin_solver(np.column_stack([0*lamTs, lamTs, np.zeros((N_trajs))]), 1, 0)
-    #
-    # names = ('x', 'y', 'vx', 'vy', 'Phi', 'omega')
-    # for i in range(6):
-    #     pl.subplot(611 + i)
-    #     pl.plot(sol.ts.T, sol.ys[:, :, i].T, color='black', alpha=0.1)
-    #     pl.ylabel(names[i])
-    #
-    # pl.figure()
-    #
-    # pl.plot(sol.ys[:, :, 0].T, sol.ys[:, :, 1].T, alpha=0.2, color='black')
-    # pl.show()
+    # important to linearise about equilibrium, not zero!
+    # that linearisation would be uncontrollable in this case.
+    # equilibrium in y direction:
+    #   0 = np.cos(Phi) * (Fl + Fr) / m - g,
+    #   0 =               (Fl + Fr) / m - g,
+    #   Fl + Fr = mg
+    # so, to also have no torque, we need: Fl = Fr = mg/2
 
-    # lamTs = np.linspace(np.zeros(6), np.array([0, 0, 0, 0, 0.1, 0]), 11)
-    # lamTs = jax.random.normal(jax.random.PRNGKey(0), shape=(512, 6)) @ np.diag(np.array([1, 1, 1, 1, 0.01, 0.001]))
+    u_eq = np.ones(problem_params['nu']) * m * g / 2
 
-    # y0s, lamTs = main.sample_uniform(problem_params, algo_params, jax.random.PRNGKey(1))
+    x_eq = np.zeros(problem_params['nx'])
+    A = jax.jacobian(f, argnums=1)(0., x_eq, u_eq)
+    B = jax.jacobian(f, argnums=2)(0., x_eq, u_eq).reshape((problem_params['nx'], problem_params['nu']))
+    Q = jax.hessian(l, argnums=1)(0., x_eq, u_eq)
+    R = jax.hessian(l, argnums=2)(0., x_eq, u_eq)
 
-    sysname = problem_params['system_name']
-    lamTs = np.load(f'datasets/last_lamTs_{sysname}.npy')
-    y0s = np.load(f'datasets/last_y0s_{sysname}.npy')
+    # cheeky controllability test
+    ctrb =  np.hstack([np.linalg.matrix_power(A, j) @ B for j in range(problem_params['nx'])])
+    if np.linalg.matrix_rank(ctrb) < problem_params['nx']:
+        raise ValueError('linearisation not controllable aaaaah what did you do idiot')
 
-    print((np.diff(y0s[:, 0]) != 0).mean())
-    lamTs_chosen = jax.random.choice(jax.random.PRNGKey(1), lamTs, (500,), axis=0)
-    sols, y0s = wrapped_pontryagin_solver(lamTs_chosen)
-    # dy0_dlamT = jax.jit(jax.jacobian(lambda lamT: wrapped_pontryagin_solver(lamT.reshape(1, -1))[1].squeeze()[0:problem_params['nx']]))
+    K0_inf, P0_inf, eigvals = pontryagin_utils.lqr(A, B, Q, R)
+
+    # compute sqrtm of P, the value function matrix.
+    # this is to later map points x from a small unit sphere to points Phalf x which are on a small value level set.
+    P_eigv, P_eigvec = np.linalg.eigh(P0_inf)
+    Phalf = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
+
+    assert np.allclose(Phalf @ Phalf, P0_inf), 'sqrtm(P) calculation failed or inaccurate'
+
+    N_trajectories = 1024
+
+    # find N points on the unit sphere.
+    # well known approach: find N standard normal points, divide by norm.
+    key = jax.random.PRNGKey(0)
+    normal_pts = jax.random.normal(key, shape=(N_trajectories, problem_params['nx']))
+    unitsphere_pts = normal_pts /  np.sqrt((normal_pts ** 2).sum(axis=1))[:, None]
+
+    # warning, row vectors
+    xTs = unitsphere_pts @ np.linalg.inv(Phalf) * 0.01
+    # test if it worked
+    vTs =  jax.vmap(lambda x: x @ P0_inf @ x.T)(xTs)
+    assert np.allclose(vTs, vTs[0]), 'terminal values shitty'
+
+    vT = vTs[0]
+
+    # gradient of V(x) = x.T P x is 2P x, but here they are row vectors.
+    lamTs = jax.vmap(lambda x: x @ P0_inf * 2)(xTs)
+
+    yTs = np.hstack([xTs, lamTs])
+
+
+    pontryagin_solver = pontryagin_utils.make_pontryagin_solver_reparam(problem_params, algo_params)
+
+    # sols = jax.vmap(pontryagin_solver)
+    sol = pontryagin_solver(yTs[0], vTs[0], 10)
+    sols = jax.vmap(pontryagin_solver, in_axes=(0, None, None))(yTs, vTs[0], 100)
+
+
 
     # having lots of trouble using sols.evaluate or sols.interpolation.evaluate in any way. thus, just use sol.ts \o/
     def plot_trajectories(ts, ys, color='green', alpha='.1'):
@@ -157,22 +172,8 @@ if __name__ == '__main__':
 
         pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-    # plot_trajectories(sols.ts, sols.ys)
-
-    # pl.figure()
-    # v0s = sols.ys[:, :, -1].reshape(-1)
-    # v0s = np.nan_to_num(v0s, posinf=-1)
-    # pl.hist(v0s, bins=20)
-    # # pl.show()
-
-    pl.figure()
-    # plot all v(t)'s
-    pl.plot(sols.ts[:, :].T, sols.ys[:, :, -1].T, alpha=.1, color='blue')
+    plot_trajectories(sols.ts, sols.ys)
     pl.show()
 
-
-
-
-    print('hi')
-
+    ipdb.set_trace()
 

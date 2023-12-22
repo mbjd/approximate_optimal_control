@@ -4,6 +4,9 @@ import ipdb
 
 import diffrax
 
+import numpy as onp
+import scipy
+
 # we want to find the value function V.
 # for that we want to approximately satisfy the hjb equation:
 #
@@ -556,3 +559,25 @@ def make_pontryagin_solver_wrapped(problem_params, algo_params):
     wrapped_solver = lambda λT: batch_pontryagin_backward_solver(x_to_y_vmap(λT), T, 0)
 
     return wrapped_solver
+
+
+
+def lqr(A, B, Q, R):
+    """Solve the continuous time lqr controller
+    (without the weird onp and * matrix multiplication stuff)
+
+    dx/dt = A x + B u
+
+    cost = integral x.T*Q*x + u.T*R*u
+    """
+    # ref Bertsekas, p.151
+    # first, try to solve the ricatti equation
+    X = scipy.linalg.solve_continuous_are(A, B, Q, R)
+    # compute the LQR gain
+    K = np.linalg.inv(R) @ (B.T @ X)
+    eigVals = np.linalg.eigvals(A - B @ K)
+
+    if not (eigVals.real < 0).all():
+        raise ValueError('LQR closed loop not stable...')
+
+    return K, X, eigVals

@@ -139,34 +139,61 @@ lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
 y0 = np.concatenate([x0, lam0])
 # sol = pontryagin_solver(y0, v0, v1)
 
+# @jax.jit
+# def sol_single_and_dxdtheta(theta):
+#
+#
+#     vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 101)**2
+#
+#     def get_sol(theta):
+#         direction = np.array([np.sin(theta), np.cos(theta)])
+#         x0 = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ direction + xf
+#         # lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
+#         lam0 = 2 * P0_inf @ (x0-xf)
+#         y0 = np.concatenate([x0, lam0])
+#         sol = pontryagin_solver(y0, v0, v1)
+#
+#         ys = jax.vmap(sol.evaluate)(vs)
+#
+#         return ys
+#
+#     get_dsol = jax.jacfwd(lambda theta: get_sol(theta)[-2, 0:2])
+#
+#     # okay maybe doing this with nice autodiff still doesnt work.
+#     # other, finite-diff implementation still in lqr_statepenalty example
+#     sol = get_sol(theta)
+#     dsol_final = get_dsol(theta)
+#
+#     # dsol_final = (solp.evaluate(v1) - sol.evaluate(v1))/dtheta
+#
+#     return vs, sol, dsol_final
+
+
 @jax.jit
 def sol_single_and_dxdtheta(theta):
 
-
-    vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 101)**2
-
-    def get_sol(theta):
+    def get_vs_ys(theta):
         direction = np.array([np.sin(theta), np.cos(theta)])
         x0 = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ direction + xf
         # lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
         lam0 = 2 * P0_inf @ (x0-xf)
         y0 = np.concatenate([x0, lam0])
         sol = pontryagin_solver(y0, v0, v1)
-
+        vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 101)**2
         ys = jax.vmap(sol.evaluate)(vs)
+        return vs, ys
 
-        return ys
+    def get_final_x(theta):
+        vs, ys = get_vs_ys(theta)
+        return ys[-1, 0:2]
 
-    get_dsol = jax.jacfwd(lambda theta: get_sol(theta)[-2, 0:2])
 
-    # okay maybe doing this with nice autodiff still doesnt work.
-    # other, finite-diff implementation still in lqr_statepenalty example
-    sol = get_sol(theta)
-    dsol_final = get_dsol(theta)
+    # finite difference = bad they said
+    vs, ys = get_vs_ys(theta)
+    # # dvs, dys = jax.jacfwd(get_vs_ys)(theta)
+    dsol_final = jax.jacobian(get_final_x)(theta)
 
-    # dsol_final = (solp.evaluate(v1) - sol.evaluate(v1))/dtheta
-
-    return vs, sol, dsol_final
+    return vs, ys, dsol_final
 
 sol_single_and_dxdtheta(.1)
 
@@ -175,8 +202,8 @@ ax2d = pl.figure().add_subplot()
 ax2d.axis('equal')
     # ax.plot(ys[:, :, 0].reshape(-1), ys[:, :, 1].reshape(-1), vs[:, :].reshape(-1), color='green', alpha=.5)
 
-theta = 0
-target_x_steplen = .02
+theta = 0.  # important to be a float otherwise wrong types in jit
+target_x_steplen = .05
 all_vs = []
 all_ys = []
 all_thetas = []
@@ -200,7 +227,7 @@ while theta < 2*np.pi:
 
     # ax.plot(ys[:, 0].reshape(-1), ys[:, 1].reshape(-1), ts.reshape(-1), color='green', alpha=.1)
 
-    if i % 100 == 0:
+    if i % 25 == 0:
         ax2d.plot(ys[:, 0], ys[:, 1], color='black', alpha=t_alpha)
         ax.plot(ys[:, 0], ys[:, 1], ts, color='black', alpha=t_alpha)
 
@@ -214,7 +241,7 @@ print('')
 all_ys = np.array(all_ys)
 all_vs = np.array(all_vs)
 
-pl.figure()
+# pl.figure()
 
 # make basically the same plot, but with the data transposed, so we plot value level sets
 # instead of trajectories.
@@ -226,16 +253,16 @@ for vlevel in tqdm.tqdm(range(all_vs.shape[1])):
         x0vec = all_ys[:, vlevel, 0]
         x1vec = all_ys[:, vlevel, 1]
 
-        pl.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+        # pl.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
 
-        # ax2d.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
-        # ax.plot(x0vec, x1vec, vvec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+        ax2d.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+        ax.plot(x0vec, x1vec, vvec, color=cmap(vvec[0]/v1), alpha=v_alpha)
     except:
         # sometimes the last entries are NaN. Don't care
         pass
 
     # ipdb.set_trace()
-    pl.savefig(f'animation_figs/orbits_{vlevel:05d}.png', dpi=400)
+    # pl.savefig(f'animation_figs/orbits_{vlevel:05d}.png', dpi=400)
 
 thetas = np.linspace(0, 2*np.pi, 501)
 ax2d.plot(np.sin(thetas), np.cos(thetas), color='black')

@@ -39,8 +39,8 @@ def l(t, x, u):
     a = .01  # penalty function steepness parameter. --> 0 steep, --> +inf flat
     z = x[1] - 1  # x[1] <= 10   -->   z <= 0
     # state_penalty = .5 * (np.sqrt(1 + (z/a)**2) - z/a)
-    # state_penalty = np.maximum(0, z)**2 / a + np.maximum(0, x[0]-1)**2 / a
-    state_penalty = np.maximum(0, z) / a
+    state_penalty = np.maximum(0, z)**2 / a + np.maximum(0, x[0]-1)**2 / a
+    # state_penalty = np.maximum(0, z) / a
     return x.T @ Q @ x + u.T @ R @ u + state_penalty
 
 

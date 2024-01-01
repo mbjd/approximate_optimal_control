@@ -366,7 +366,7 @@ def define_extended_dynamics_reparam(problem_params):
 
     # version where time axis is reparameterised -- now value is the independent variable
     # basically by scaling the whole vector field with dv/dt.
-    # we ditch the t since the relevant problems are mostly infinite horizon.
+    # t is appended to the end of the ode state, so we have (x, λ, t) of shape (2*nx+1,).
 
     f  = problem_params['f' ]
     l  = problem_params['l' ]
@@ -397,8 +397,9 @@ def define_extended_dynamics_reparam(problem_params):
         state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
         costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
         value_dot   = -l(t, state, u_star).reshape(1)
+        t_dot       =  np.ones_like(value_dot)  # so it has some shape...?
 
-        y_dot = np.concatenate([state_dot, costate_dot]) / value_dot
+        y_dot = np.concatenate([state_dot, costate_dot, t_dot]) / value_dot
 
         return y_dot
 

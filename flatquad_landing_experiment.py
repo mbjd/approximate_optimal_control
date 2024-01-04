@@ -8,10 +8,12 @@ import pontryagin_utils
 
 import ipdb
 import time
+import numpy as onp
 
 if __name__ == '__main__':
 
     # classic 2D quad type thing. 6D state.
+
     m = 20  # kg
     g = 9.81 # m/s^2
     r = 0.5 # m
@@ -184,6 +186,7 @@ if __name__ == '__main__':
          - find a sensible way to plot a 'swarm' of multiple trajectories at once
          - force arrows to show input
          - do some 3d thing :)
+         - separate this functionality into its nice own file
         '''
 
         # strip out the trailing (now leading bc. reversed back to physical time) infs
@@ -220,12 +223,15 @@ if __name__ == '__main__':
 
         arrow_length = .25
         vis['box/cyl_left_frame/cyl_left'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
+        vis['box/cyl_left_frame/cyl_left'].set_transform(onp.eye(4))
         vis['box/cyl_left_frame'].set_transform(tf.concatenate_matrices(
             tf.translation_matrix([0, -box_width/2, arrow_length/2]),
             tf.rotation_matrix(np.pi/2, [1, 0, 0]),
         ))
 
         vis['box/cyl_right_frame/cyl_right'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
+        vis['box/cyl_right_frame/cyl_right'].set_transform(onp.eye(4))
+
         vis['box/cyl_right_frame'].set_transform(tf.concatenate_matrices(
             tf.translation_matrix([0, box_width/2, arrow_length/2]),
             tf.rotation_matrix(np.pi/2, [1, 0, 0]),
@@ -234,9 +240,26 @@ if __name__ == '__main__':
 
         # scale force cylinder length like this:
         # vis['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(0.1, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
-        ipdb.set_trace()
 
         anim = meshcat.animation.Animation()
+
+        # somehow though even when we put it into its own function it works perfectly when 
+        # applied to the original visualiser but the force "arrows" are wrong when using frame
+        def show_quad(vis, y):
+            # vis = instance of meshcat visualiser, or frame in case of animation
+            # y = extended system state with state, costate, time. 
+            # names hardcoded ugly i know
+            t = y[-1]
+            T = tf.translation_matrix([0,y[0], y[1]])
+            R = tf.rotation_matrix(y[2], np.array([1, 0, 0]))
+
+            transform = tf.concatenate_matrices(T, R)
+            vis['box'].set_transform(transform)
+
+            nx = problem_params['nx']
+            ustar = pontryagin_utils.u_star_2d(y[0:nx], y[nx:2*nx], problem_params)
+            vis['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
+            vis['box/cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
 
         # 'ts' is value here. we would like to go down the value.
         # actual t is y[-1] after x and λ.
@@ -245,28 +268,17 @@ if __name__ == '__main__':
         for (i, v) in enumerate(ts):
             y = ys[i]
             t = y[-1]
-            T = tf.translation_matrix([0,y[0], y[1]])
-            R = tf.rotation_matrix(y[2], np.array([1, 0, 0]))
             anim_t = 25*float(t - minT)
-            print(f'i={i}, v={v}, t={t}, anim_t={anim_t}')
+
             with anim.at_frame(vis, anim_t) as frame:
-
-                # set rigid body position from rotation and translation.
-                transform = tf.concatenate_matrices(T, R)
-                frame['box'].set_transform(transform)
-
-                # and show the force 'arrows'
-                # why does this result in weird stuff even though if we do the same thing by hand in ipdb, before anim=..., it does exactly the right thing???
-                nx = problem_params['nx']
-                ustar = pontryagin_utils.u_star_2d(y[0:nx], y[nx:2*nx], problem_params)
-                print(ustar/umax)
-                frame['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
-                frame['box/cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
+                show_quad(frame, y)
 
         vis.set_animation(anim, repetitions=np.inf)
 
         if new_vis:
-            vis.open()
+            # vis.open()
+            # print(f'visualiser available at: {vis.url()}')
+            pass
 
         return vis
 

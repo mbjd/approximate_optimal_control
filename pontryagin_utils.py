@@ -436,7 +436,8 @@ def make_pontryagin_solver_reparam(problem_params, algo_params):
         if algo_params['pontryagin_solver_adaptive']:
             # make a pid controller
             # hope we end up using fewer steps thatn with constant stepsize...
-            saveat = diffrax.SaveAt(steps=True, dense=True)
+            # save initial condition for easier bookkeeping later
+            saveat = diffrax.SaveAt(t0=True, t1=True, steps=True, dense=True)
             step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
             adjoint = diffrax.adjoint.RecursiveCheckpointAdjoint()  # autodiff through solver naively
             # adjoint = diffrax.adjoint.BacksolveAdjoint()  # solve adjoint eq's with extra ode solve pass

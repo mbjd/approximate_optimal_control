@@ -9,6 +9,7 @@ import pontryagin_utils
 import ipdb
 import time
 import numpy as onp
+import tqdm
 
 if __name__ == '__main__':
 
@@ -202,50 +203,53 @@ if __name__ == '__main__':
             vis = meshcat.Visualizer()
             new_vis = True
 
-        box_width = 1
-        box_aspect = .1
-        box = g.Box([box_width*box_aspect, box_width, box_width*box_aspect**2])
-
-        # show "quadrotor" as a flat-ish long box
         vis.delete()
-        vis['box'].set_object(box)
-
-        # also have two lines representing the rotor forces.
-        # here they are of fixed length, we will animate their length
-        # by setting a correspondingly scaling transform.
-        # verts_l = np.array([[0, box_width/2, 0], [0, box_width/2, 1]]).T
-        # vis['box']['arrow_l'].set_object(g.Line(g.PointsGeometry(verts_l), g.MeshBasicMaterial(color=0xff0000)))
-        # verts_r = np.array([[0, -box_width/2, 0], [0, -box_width/2, 1]]).T
-        # vis['box']['arrow_r'].set_object(g.Line(g.PointsGeometry(verts_r), g.MeshBasicMaterial(color=0xff0000)))
-
-        # or, do them as cylinders to get thicker.
-        # the cylinder is in a "cylinder frame" which moves the cylinder accordingly.
-
-        arrow_length = .25
-        vis['box/cyl_left_frame/cyl_left'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
-        vis['box/cyl_left_frame/cyl_left'].set_transform(onp.eye(4))
-        vis['box/cyl_left_frame'].set_transform(tf.concatenate_matrices(
-            tf.translation_matrix([0, -box_width/2, arrow_length/2]),
-            tf.rotation_matrix(np.pi/2, [1, 0, 0]),
-        ))
-
-        vis['box/cyl_right_frame/cyl_right'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
-        vis['box/cyl_right_frame/cyl_right'].set_transform(onp.eye(4))
-
-        vis['box/cyl_right_frame'].set_transform(tf.concatenate_matrices(
-            tf.translation_matrix([0, box_width/2, arrow_length/2]),
-            tf.rotation_matrix(np.pi/2, [1, 0, 0]),
-        ))
 
 
         # scale force cylinder length like this:
         # vis['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(0.1, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
 
-        anim = meshcat.animation.Animation()
+        arrow_length = .25
+
+        def make_quad(vis, basepath):
+            box_width = 1
+            box_aspect = .1
+            box = g.Box([box_width*box_aspect, box_width, box_width*box_aspect**2])
+
+            # show "quadrotor" as a flat-ish long box
+            vis[basepath].set_object(box)
+
+            # also have two lines representing the rotor forces.
+            # here they are of fixed length, we will animate their length
+            # by setting a correspondingly scaling transform.
+            # verts_l = np.array([[0, box_width/2, 0], [0, box_width/2, 1]]).T
+            # vis['box']['arrow_l'].set_object(g.Line(g.PointsGeometry(verts_l), g.MeshBasicMaterial(color=0xff0000)))
+            # verts_r = np.array([[0, -box_width/2, 0], [0, -box_width/2, 1]]).T
+            # vis['box']['arrow_r'].set_object(g.Line(g.PointsGeometry(verts_r), g.MeshBasicMaterial(color=0xff0000)))
+
+            # or, do them as cylinders to get thicker.
+            # the cylinder is in a "cylinder frame" which moves the cylinder accordingly.
+
+            vis[basepath]['cyl_left_frame/cyl_left'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
+            vis[basepath]['cyl_left_frame/cyl_left'].set_transform(onp.eye(4))
+            vis[basepath]['cyl_left_frame'].set_transform(tf.concatenate_matrices(
+                tf.translation_matrix([0, -box_width/2, arrow_length/2]),
+                tf.rotation_matrix(np.pi/2, [1, 0, 0]),
+            ))
+
+            vis[basepath]['cyl_right_frame/cyl_right'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
+            vis[basepath]['cyl_right_frame/cyl_right'].set_transform(onp.eye(4))
+
+            vis[basepath]['cyl_right_frame'].set_transform(tf.concatenate_matrices(
+                tf.translation_matrix([0, box_width/2, arrow_length/2]),
+                tf.rotation_matrix(np.pi/2, [1, 0, 0]),
+            ))
+
+        make_quad(vis, 'quad0')
 
         # somehow though even when we put it into its own function it works perfectly when 
         # applied to the original visualiser but the force "arrows" are wrong when using frame
-        def show_quad(vis, y):
+        def move_quad(vis, basepath, y):
             # vis = instance of meshcat visualiser, or frame in case of animation
             # y = extended system state with state, costate, time. 
             # names hardcoded ugly i know
@@ -254,24 +258,26 @@ if __name__ == '__main__':
             R = tf.rotation_matrix(y[2], np.array([1, 0, 0]))
 
             transform = tf.concatenate_matrices(T, R)
-            vis['box'].set_transform(transform)
+            vis[basepath].set_transform(transform)
 
             nx = problem_params['nx']
             ustar = pontryagin_utils.u_star_2d(y[0:nx], y[nx:2*nx], problem_params)
-            vis['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
-            vis['box/cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
+            vis[basepath]['cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
+            vis[basepath]['cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
 
-        # 'ts' is value here. we would like to go down the value.
-        # actual t is y[-1] after x and λ.
-        # minT = ts.min()
+        
+        anim = meshcat.animation.Animation()
         minT = ys[:, -1].min()
-        for (i, v) in enumerate(ts):
-            y = ys[i]
+
+        for y in tqdm.tqdm(ys):
+
             t = y[-1]
+
+            # some sensible scaling & shifting so t>0
             anim_t = 25*float(t - minT)
 
             with anim.at_frame(vis, anim_t) as frame:
-                show_quad(frame, y)
+                move_quad(frame, 'quad0', y)
 
         vis.set_animation(anim, repetitions=np.inf)
 

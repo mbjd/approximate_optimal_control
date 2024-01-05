@@ -44,7 +44,7 @@ if __name__ == '__main__':
 
         state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
         Q = np.diag(1/state_length_scales**2)
-        state_cost = x.T @ Q @ x
+        state_cost = x.T @ Q @ x + np.maximum(-posy, 0)**2  # state penalty? 
 
         # can we just set an input penalty that is zero at hover?
         # penalise x acc, y acc, angular acc here.
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     maxdiff = np.abs(Phalf @ Phalf - P0_inf).max()
     assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
 
-    N_trajectories = 10
+    N_trajectories = 128
 
     # find N points on the unit sphere.
     # well known approach: find N standard normal points, divide by norm.
@@ -176,7 +176,7 @@ if __name__ == '__main__':
 
         pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-    def plot_trajectories_meshcat(ts, ys, vis=None):
+    def plot_trajectories_meshcat(sols, vis=None, arrows=False):
 
         '''
         tiny first draft of meshcat visualisation :o
@@ -190,21 +190,13 @@ if __name__ == '__main__':
          - separate this functionality into its nice own file
         '''
 
-        # strip out the trailing (now leading bc. reversed back to physical time) infs
-        ys = ys[ys[:, 0] < np.inf]
-        ts = ts[ts < np.inf]
+        # we now have the whole sols object. what do we do with it? 
 
         import meshcat
         import meshcat.geometry as g
         import meshcat.transformations as tf
 
-        new_vis = False
-        if vis is None:
-            vis = meshcat.Visualizer()
-            new_vis = True
-
-        vis.delete()
-
+        vis = meshcat.Visualizer()
 
         # scale force cylinder length like this:
         # vis['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(0.1, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
@@ -217,7 +209,7 @@ if __name__ == '__main__':
             box = g.Box([box_width*box_aspect, box_width, box_width*box_aspect**2])
 
             # show "quadrotor" as a flat-ish long box
-            vis[basepath].set_object(box)
+            vis[basepath].set_object(box, g.MeshLambertMaterial(opacity=1/3))
 
             # also have two lines representing the rotor forces.
             # here they are of fixed length, we will animate their length
@@ -230,22 +222,21 @@ if __name__ == '__main__':
             # or, do them as cylinders to get thicker.
             # the cylinder is in a "cylinder frame" which moves the cylinder accordingly.
 
-            vis[basepath]['cyl_left_frame/cyl_left'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
-            vis[basepath]['cyl_left_frame/cyl_left'].set_transform(onp.eye(4))
-            vis[basepath]['cyl_left_frame'].set_transform(tf.concatenate_matrices(
-                tf.translation_matrix([0, -box_width/2, arrow_length/2]),
-                tf.rotation_matrix(np.pi/2, [1, 0, 0]),
-            ))
+            if arrows:
+                vis[basepath]['cyl_left_frame/cyl_left'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
+                vis[basepath]['cyl_left_frame/cyl_left'].set_transform(onp.eye(4))
+                vis[basepath]['cyl_left_frame'].set_transform(tf.concatenate_matrices(
+                    tf.translation_matrix([0, -box_width/2, arrow_length/2]),
+                    tf.rotation_matrix(np.pi/2, [1, 0, 0]),
+                ))
 
-            vis[basepath]['cyl_right_frame/cyl_right'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
-            vis[basepath]['cyl_right_frame/cyl_right'].set_transform(onp.eye(4))
+                vis[basepath]['cyl_right_frame/cyl_right'].set_object(g.Cylinder(arrow_length, .01), g.MeshLambertMaterial(color=0xff0000))
+                vis[basepath]['cyl_right_frame/cyl_right'].set_transform(onp.eye(4))
 
-            vis[basepath]['cyl_right_frame'].set_transform(tf.concatenate_matrices(
-                tf.translation_matrix([0, box_width/2, arrow_length/2]),
-                tf.rotation_matrix(np.pi/2, [1, 0, 0]),
-            ))
-
-        make_quad(vis, 'quad0')
+                vis[basepath]['cyl_right_frame'].set_transform(tf.concatenate_matrices(
+                    tf.translation_matrix([0, box_width/2, arrow_length/2]),
+                    tf.rotation_matrix(np.pi/2, [1, 0, 0]),
+                ))
 
         # somehow though even when we put it into its own function it works perfectly when 
         # applied to the original visualiser but the force "arrows" are wrong when using frame
@@ -260,41 +251,43 @@ if __name__ == '__main__':
             transform = tf.concatenate_matrices(T, R)
             vis[basepath].set_transform(transform)
 
-            nx = problem_params['nx']
-            ustar = pontryagin_utils.u_star_2d(y[0:nx], y[nx:2*nx], problem_params)
-            vis[basepath]['cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
-            vis[basepath]['cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
+            if arrows:
+                nx = problem_params['nx']
+                ustar = pontryagin_utils.u_star_2d(y[0:nx], y[nx:2*nx], problem_params)
+                vis[basepath]['cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
+                vis[basepath]['cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
 
         
+        N_sols = sols.ys.shape[0]
+
+        
+
         anim = meshcat.animation.Animation()
-        minT = ys[:, -1].min()
 
-        for y in tqdm.tqdm(ys):
+        for sol_i in tqdm.tqdm(range(N_sols)):
+            quad_name = f'quad_{sol_i}'
+            make_quad(vis, quad_name)
 
-            t = y[-1]
+            min_t = sols.ys[sol_i, :, -1].min()
+            for y in sols.ys[sol_i]:
+                
+                # inf = no more data 
+                if np.any(y == np.inf):
+                    break
 
-            # some sensible scaling & shifting so t>0
-            anim_t = 25*float(t - minT)
+                t = y[-1]
+                anim_t = 25*float(t - min_t)
 
-            with anim.at_frame(vis, anim_t) as frame:
-                move_quad(frame, 'quad0', y)
+                with anim.at_frame(vis, anim_t) as frame:
+                    move_quad(frame, quad_name, y)
+
 
         vis.set_animation(anim, repetitions=np.inf)
-
-        if new_vis:
-            # vis.open()
-            # print(f'visualiser available at: {vis.url()}')
-            pass
-
-        return vis
 
     # just one trajectory atm
     # ts = np.linspace
 
-    vis = None
-    for j in range(N_trajectories):
-        vis = plot_trajectories_meshcat(sols.ts[j], sols.ys[j], vis)
-        ipdb.set_trace()
+    plot_trajectories_meshcat(sols)
 
     # plot_trajectories(sols.ts, sols.ys)
 

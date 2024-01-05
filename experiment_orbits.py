@@ -3,13 +3,7 @@ import jax
 import jax.numpy as np
 import diffrax
 
-import sampling
 import pontryagin_utils
-import plotting_utils
-import nn_utils
-import eval_utils
-
-from main import sample_uniform, experiment_controlcost_vs_traindata, ode_dt_sweep
 
 import ipdb
 import scipy
@@ -173,11 +167,16 @@ y0 = np.concatenate([x0, lam0])
 def sol_single_and_dxdtheta(theta):
 
     def get_vs_ys(theta):
+        
         direction = np.array([np.sin(theta), np.cos(theta)])
         x0 = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ direction + xf
         # lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
         lam0 = 2 * P0_inf @ (x0-xf)
         y0 = np.concatenate([x0, lam0])
+
+        # this causes it to fail atm.
+        # made a breaking change in pontryagin_utils of adding t to the state. 
+
         sol = pontryagin_solver(y0, v0, v1)
         vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 101)**2
         ys = jax.vmap(sol.evaluate)(vs)

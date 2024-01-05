@@ -38,6 +38,7 @@ six==1.16.0
 stack-data==0.6.3
 tomli==2.0.1
 tornado==6.4
+tqdm==4.66.1
 traitlets==5.14.1
 typeguard==2.13.3
 typing_extensions==4.9.0

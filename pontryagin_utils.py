@@ -499,8 +499,10 @@ def make_pontryagin_solver(problem_params, algo_params):
                     adjoint=adjoint
             )
 
-            return solution, solution.evaluate(0)
+            return solution
         else:
+            raise NotImplementedError('this has not been tested for ages')
+
             # and solve :)
             solution = diffrax.diffeqsolve(
                     term, solver, t0=t0, t1=t1, dt0=dt, y0=y0,

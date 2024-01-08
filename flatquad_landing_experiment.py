@@ -141,17 +141,20 @@ if __name__ == '__main__':
     # warning, row vectors
     xTs = unitsphere_pts @ np.linalg.inv(Phalf) * 0.01
     # test if it worked
-    vTs =  jax.vmap(lambda x: x @ P0_inf @ x.T)(xTs)
+    xf_to_Vf = lambda x: x @ P0_inf @ x.T
+    vTs =  jax.vmap(xf_to_Vf)(xTs)
     assert np.allclose(vTs, vTs[0]), 'terminal values shitty'
 
     vT = vTs[0]
 
     # gradient of V(x) = x.T P x is 2P x, but here they are row vectors.
-    lamTs = jax.vmap(lambda x: x @ P0_inf * 2)(xTs)
+    xf_to_lamf = lambda x: x @ P0_inf * 2
+    lamTs = jax.vmap(xf_to_lamf)(xTs)
 
     yTs = np.hstack([xTs, lamTs, np.zeros((N_trajectories, 1))])
 
     pontryagin_solver = pontryagin_utils.make_pontryagin_solver_reparam(problem_params, algo_params)
+    # pontryagin_solver = pontryagin_utils.make_pontryagin_solver(problem_params, algo_params)
 
     # sols = jax.vmap(pontryagin_solver)
     sol = pontryagin_solver(yTs[0], vTs[0], 10)
@@ -159,8 +162,86 @@ if __name__ == '__main__':
     
     all_sol_ys = sols.ys
 
-    # for i in range(10):
-    if True:
+    def find_new_xf(all_sol_ys, new_state):
+        # propose a new terminal state xT which starts a trajectory hopefully coming close to our point. 
+        # with new_state.shape == (nx,)
+
+        k = 8
+        # find distance to all other trajectories.
+        # just w.r.t. euclidean distance and only at saved points, not interpolated.
+        # first we find the closest point on each trajectory, then the k closest trajectories. 
+        state_diffs = all_sol_ys[:, :, 0:6] - new_state   # (N_traj, N_timesteps, nx)
+        state_dists = np.linalg.norm(state_diffs, axis=2) # (N_traj, N_timesteps)
+        shortest_traj_dists = state_dists.min(axis=1)
+
+        neg_dists, indices = jax.lax.top_k(-shortest_traj_dists, k)
+
+        # softmax only outputs valid convex combination weights. (x>0, 1.T x = 1)
+        # even more basic approach -- just 1/n (equal weights?)
+        cvx_combination_weights = jax.nn.softmax(neg_dists)
+
+        # this also produces a costate and value but taking it from the terminal V fct
+        # is definitely better, so we discard the interpolated values here. 
+        proposed_yf = cvx_combination_weights @ all_sol_ys[indices, 0, :]
+        proposed_xf = proposed_yf[0:problem_params['nx']]
+
+        return proposed_xf
+
+    def adjust_xf(xf):
+
+        # for some xf that is inside the set Xf, evolve the optimally controlled 
+        # system backwards in time until we hit the boundary of Xf. 
+        # this is separate from the other diffrax solver because it doesn't like
+        # different integration regions. 
+
+        v0 = xf_to_Vf(xf)
+        v1 = vT  # defined somewhere above. maybe put this in algo params? 
+
+        # optimally controlled system: x' = (A - BK) x
+        # this is dx/dt though. to get dx/dv, multiply by dt/dv = inv(dv/dt). 
+        # dv/dt = -l(x, u*) = -l(x, -Kx), 
+        # and because we are in the linear domain, l(x, u) = x' Q x + u' R u. so:
+        # dv/dt = -x' Q x - (-Kx)' R (-Kx) = -x' Q x - x' K' R K x
+        #       = -x' (Q + K'RK) x
+
+        Acl = A - B @ K0_inf
+
+        dxdt = lambda x: Acl @ x
+        dvdt = lambda x: -x.T @ (Q + K0_inf.T @ R @ K0_inf) @ x
+
+        dxdv = lambda x: dxdt(x) / dvdt(x)
+
+        # now, solve the ODE: dx/dv = dxdv(x); x(v=v0) = xf, up to v=v1.
+        # this is forward (low v to high v) like usual. 
+
+        # do a RK4 step? 
+        h = v1-v0
+        f = dxdv
+        k1 = f(xf + v0)
+        k2 = f(xf + v0 + k1 * h/2)
+        k3 = f(xf + v0 + k2 * h/2)
+        k4 = f(xf + v0 + k3 * h)
+        xnew = (k1 + 2*k2 + 2*k3 + k4) / 6
+
+        # we get some huge numbers, probably this is not too smart...
+        # probably this is also not the smartest idea to do.
+        # diffrax readme says that region of integration *is* also vmappable! 
+        # was I just doing it wrong? 
+        # TODO tomorrow, if that is correct, do this in the sampling loop just below: 
+        # - suggest new xf inside Xf like now
+        # - solve each ODE from Vf(xf) to Vmax
+        # - make sure that the state at Xf boundary is saved somewhere. 
+        #   with SaveAt? use interpolation and store in main solution array? 
+        #   store all solution *objects* and always blindly evaluate(vT)? 
+        # this will be finally something not horrendous. 
+        assert np.abs(xf_to_Vf(xnew) - vT) < 1e-4, 'numerical weirdness'
+        ipdb.set_trace()
+
+        return xnew
+
+
+
+    for i in range(10):
 
         # first mockup of sampling procedure, always starting at boundary of Xf
 
@@ -169,25 +250,36 @@ if __name__ == '__main__':
         # multiply by scale matrix from right bc it's a matrix of stacked row state vectors
         scale = np.diag(np.array([5, 5, np.pi, 5, 5, np.pi]))  # just guessed sth..
 
-        key = jax.random.PRNGKey(1) 
-        new_states_desired = jax.random.normal(key, shape=(N_trajectories, problem_params['nx'])) @ scale
+        key = jax.random.PRNGKey(i) 
+        normal_pts = jax.random.normal(key, shape=(N_trajectories, problem_params['nx'])) 
+        new_states_desired = normal_pts @ scale  # "at scale" -> hackernews salivating
+
+        new_xfs = jax.vmap(find_new_xf, in_axes=(None, 0))(all_sol_ys, new_states_desired)
+        new_lamfs = jax.vmap(xf_to_lamf)(new_xfs)
+        new_Vfs = jax.vmap(xf_to_Vf)(new_xfs)
+
+        print(new_xfs[0])
+        print(adjust_xf(new_xfs[0]))
+
+        # new_yfs = jax.cocatenate those three 
+        new_yfs = np.hstack([xTs, lamTs, np.zeros((N_trajectories, 1))])
+
+
+        print(i)
+        ipdb.set_trace()
+        print(i)
         
-        # b) for each of those points, find the closest k trajectories.
-        # here as a mockup just for the first interesting point. 
-        # this has shape (N_trajectories, N_timesteps, nx)
-        state_diffs = all_sol_ys[:, :, 0:6] - new_states_desired[1]
-
-        # just euclidean norm here. trying other matrix norms = linearly transforming space. 
-        # shaped (N_trajectories, N_timesteps)
-        state_dists = np.linalg.norm(state_diffs, axis=2)
-
-        k = 8
+        # here a long list of considerations about the sampling method
         # we want: the k trajectories which come closest to our point
         # for that, first find the closest point on each trajectory
-        shortest_traj_dists = state_dists.min(axis=1)
-        neg_dists, indices = jax.lax.top_k(-shortest_traj_dists, k)
 
-        # propose a new terminal state xT which starts a trajectory hopefully coming close to our point. 
+        # ALSO this does not consider at all what happens when conflicting local solutions are 
+        # among the closest. then, the convex combination of terminal conditions is probably
+        # meaningless. instead, we might have to do one/several of those things:
+        # - select only the "best" trajectories from the cloesest ones to start the next one
+        # - perform some k-means thing on (x, λ) to find the different local solutions
+        # - come up with some other smart thing
+
         # assuming the trajectories are already "kind of" close, there should exist a 
         # linear (or convex?) combination of them that goes thorugh our point. how do we find it?
         # is it simpler if we assume the trajectories have been sampled at the same value levels? 
@@ -209,11 +301,9 @@ if __name__ == '__main__':
         # regardless of irregular sampling of the closest points. 
 
         # softmax is a natural first guess
-        cvx_combination_weights = jax.nn.softmax(neg_dists)
 
         # 0 for initial condition. 
-        proposed_yf = cvx_combination_weights @ all_sol_ys[indices, 0, :]
-
+        # TODO make sure this is always on boundary of Xf with post processing
 
         # now, this yf will probably not be exactly on the boundary of Xf. 
         # I'm pretty sure there is some 'correct' way of projecting it onto Xf, along
@@ -260,77 +350,25 @@ if __name__ == '__main__':
         # system error, select small Xf to avoid problems. 
         # - after finding solution, replace the first state of the trajectory 
         # with the interpolation from diffrax for the correct value level. 
-
-        '''
-        Acl = A - B @ K0_inf
-        x0 = proposed_yf[0:6]
-
-        def vtau(tau): 
-            xtau = jax.scipy.linalg.expm(Acl * tau) @ x0
-            vtau = xtau.T @ P0_inf @ xtau
-            return vtau
-
-        # we want: vtau(tau) - vT = 0. 
-        # we know: solution tau < 0. (because we must integrate the optimally
-        # controlled system backwards to go from inside Xf to its boundary)
         
-        print('branching out...')
-        vtau_guess = -1e-4
-        while vtau(vtau_guess) - vT < 0: 
-            vtau_guess = vtau_guess * 2
-            print(vtau_guess)
+        # HOWEVER this will be slightly uglier with diffrax, as the vmapped solver at the moment
+        # does not support having different times. is this a problem though? 
 
-        # now we know: vtau_guess <= tau <= vtau_guess/2
-        lower = vtau_guess; upper = vtau_guess/2
-        vlower = vtau(lower); vupper = vtau(upper)
-        err = 1000
-        print('honing in...')
-        while err > 1e-10: 
-            # propose a new point where the linear interpolation is 0. 
-            # i.e. new point = a * lower + (1-a) * upper, with a such that: 
-            # a * vlower + (1-a) * vupper = 0. 
-            # a * vlower + vupper - a vupper = 0. 
-            # a (vlower-vupper) + vupper = 0. 
-            # a (vlower-vupper) = -vupper
-            # a = -vupper/(vlower-vupper).
-            # a = -vupper/(vlower-vupper)
+        # let's be precise here. the 'ts' (independent variable of the ode) currently is the 
+        # value function (up to different better local solutions). the last variable of the
+        # extended state (x, λ, t) is the physical time til reaching Xf (negative). 
+        # so if we want to start trajectories at (slightly) different *value* levels
+        # we do have a problem (with the reparameterised pontryagin solver). 
 
-            # it doesn't work with a from above, probably some error. 
-            a = .5  # regular old bisection instead of regula falsi. 
-
-            new_guess = a * lower + (1-a) * upper
-            new_v = vtau(new_guess)
-
-            print(f'new guess: {new_guess}')
-            print(f'new v: {new_v}')
-
-            if new_v - vT < 0: 
-                upper = new_guess
-                vupper = new_v
-            else: 
-                lower = new_guess
-                vlower = new_v
-
-            print(f'guesses = {(lower, upper)}')
-            print(f'v-vT\'s = {(vlower-vT, vupper-vT)}')
-
-            err = np.abs(new_v - vT)
-            print(f'err mag = {err}')
-            print('\n\n')
+        # what if we ditch the reparameterisation? can't we just not swap time and value? 
+        # in turn we can start the trajectories all at the same time and record the value easily.
+        # after getting the solution we might shift the time so 0 is exactly where they enter 
+        # Xf, and not where the trajectories end a tiny bit later. 
+        # the value sublevel set is then not as nicely defined anymore (as in we don't *exactly*
+        # integrate up to the boundary), but we can still have a diffrax terminating event 
+        # to stop once we have gone outside, so we don't make a cheeky NaN dough. 
 
 
-        plot=True
-
-        if plot: 
-            taus = np.linspace(vtau_guess, 0, 101)
-            vs = [vtau(tau).item() for tau in taus]
-            pl.plot(taus, vs)
-            pl.scatter([lower], [vlower])
-            pl.scatter([upper], [vupper])
-            pl.show()
-        '''
-
-        ipdb.set_trace()
         
 
 
@@ -355,7 +393,7 @@ if __name__ == '__main__':
 
         pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-    def plot_trajectories_meshcat(sols, vis=None, arrows=False):
+    def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True):
 
         '''
         tiny first draft of meshcat visualisation :o
@@ -459,20 +497,27 @@ if __name__ == '__main__':
             make_quad(vis, quad_name, opacity=float(opacities[sol_i]))
 
             min_t = sols.ys[sol_i, :, -1].min()
-            for y in sols.ys[sol_i]:
+            for (indep_var, y) in zip(sols.ts[sol_i], sols.ys[sol_i]):
                 
                 # inf = no more data 
                 if np.any(y == np.inf):
                     break
 
-                t = y[-1]
+                # v not needed, just for clarity. 
+                if reparam:
+                    t = y[-1]
+                    v = indep_var
+                else:
+                    t = indep_var
+                    v = y[-1]
+
                 anim_t = 25*float(t - min_t)
 
                 with anim.at_frame(vis, anim_t) as frame:
                     move_quad(frame, quad_name, y)
 
 
-        vis.set_animation(anim, repetitions=np.inf)
+        vis.set_animation(anim, repetitions=1)
 
     # just one trajectory atm
     # ts = np.linspace

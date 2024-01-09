@@ -583,3 +583,33 @@ def lqr(A, B, Q, R):
         raise ValueError('LQR closed loop not stable...')
 
     return K, X, eigVals
+
+
+
+def get_terminal_lqr(problem_params):
+    '''
+    a wrapper for the above lqr function that does some sanity checks 
+    and extracts the local dynamics & cost from the full system 
+    '''
+
+    x_eq = problem_params['x_eq']
+    u_eq = problem_params['u_eq']
+    f = problem_params['f']
+    l = problem_params['l']
+
+    assert np.allclose(f(0., x_eq, u_eq), 0), '(x_eq, u_eq) does not seem to be an equilibrium'
+
+    A = jax.jacobian(f, argnums=1)(0., x_eq, u_eq)
+    B = jax.jacobian(f, argnums=2)(0., x_eq, u_eq).reshape((problem_params['nx'], problem_params['nu']))
+    Q = jax.hessian(l, argnums=1)(0., x_eq, u_eq)
+    R = jax.hessian(l, argnums=2)(0., x_eq, u_eq)
+
+    # cheeky controllability test
+    ctrb =  np.hstack([np.linalg.matrix_power(A, j) @ B for j in range(problem_params['nx'])])
+    if np.linalg.matrix_rank(ctrb) < problem_params['nx']:
+        raise ValueError('linearisation not controllable aaaaah what did you do idiot')
+
+    K_lqr, P_lqr, _ = lqr(A, B, Q, R)
+
+    return K_lqr, P_lqr
+

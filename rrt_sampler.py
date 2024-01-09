@@ -10,7 +10,6 @@ import numpy as onp
 import tqdm
 
 
-
 def rrt_sample(problem_params, algo_params): 
 
     '''
@@ -25,7 +24,7 @@ def rrt_sample(problem_params, algo_params):
     the semester project. hopefully \o/
     '''
 
-    K_lqr, P_lqr = get_terminal_lqr(problem_params)
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 
     # compute sqrtm of P, the value function matrix.
     P_eigv, P_eigvec = np.linalg.eigh(P_lqr)
@@ -118,8 +117,11 @@ def rrt_sample(problem_params, algo_params):
     all_sol_ys = sols.ys
 
     def propose_new_xf(all_sol_ys, new_state):
-        # propose a new terminal state xT which starts a trajectory hopefully coming close to our point. 
-        # with new_state.shape == (nx,)
+        # propose a new terminal state x_f which starts a 
+        # trajectory hopefully coming close to our point. 
+
+        # new_state.shape  == (nx,)
+        # all_sol_ys.shape == (N_trajectories_total, N_timesteps, 2nx+1)
 
         k = 12
         # find distance to all other trajectories.
@@ -164,6 +166,7 @@ def rrt_sample(problem_params, algo_params):
     propose_new_xfs = jax.vmap(propose_new_xf, in_axes=(None, 0))
 
 
+    maxmaxsteps = 0
     for i in range(algo_params['sampling_N_iters']):
 
         print(f'starting iteration {i}')
@@ -211,7 +214,11 @@ def rrt_sample(problem_params, algo_params):
         all_sol_ys = np.concatenate([all_sol_ys, new_sols.ys], axis=0)
 
         steps = new_sols.stats['num_steps'].max()
+        if steps > maxmaxsteps: 
+            maxmaxsteps = steps
         print(f'    observed max steps taken: {steps}') 
+
+    print(f'total max steps: {maxmaxsteps}')
 
     return all_sol_ys
 

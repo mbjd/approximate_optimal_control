@@ -88,7 +88,7 @@ if __name__ == '__main__':
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
         'terminal_constraint': True,
-        'V_max': 500,
+        'V_max': 5000,
         'u_eq': np.ones(2) * m * g / 2,
         'x_eq': np.zeros(6),
     }
@@ -101,7 +101,7 @@ if __name__ == '__main__':
             'pontryagin_solver_adaptive': True,
             'pontryagin_solver_atol': 1e-4,
             'pontryagin_solver_rtol': 1e-4,
-            'pontryagin_solver_maxsteps': 64, # nice if it is not waaay too much
+            'pontryagin_solver_maxsteps': 128, # nice if it is not waaay too much
             'pontryagin_solver_dense': False,
     }
 

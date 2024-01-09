@@ -430,9 +430,6 @@ def make_pontryagin_solver_reparam(problem_params, algo_params):
 
         saveat = diffrax.SaveAt(steps=True)
 
-        if algo_params['pontryagin_solver_dense']:
-            saveat = diffrax.SaveAt(steps=True, dense=True)
-
         if algo_params['pontryagin_solver_adaptive']:
             # make a pid controller
             # hope we end up using fewer steps thatn with constant stepsize...
@@ -450,6 +447,7 @@ def make_pontryagin_solver_reparam(problem_params, algo_params):
 
             return solution  # only the object here! different from other version.
         else:
+            raise NotImplementedError('this has not been tested for ages')
             # and solve :)
             solution = diffrax.diffeqsolve(
                     term, solver, t0=v0, t1=v1, dt0=dt, y0=y0,

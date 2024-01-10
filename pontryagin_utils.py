@@ -400,6 +400,7 @@ def define_extended_dynamics_reparam(problem_params):
         t_dot       =  np.ones_like(value_dot)  # so it has some shape...?
 
         y_dot = np.concatenate([state_dot, costate_dot, t_dot]) / value_dot
+        # y_dot = np.concatenate([state_dot, costate_dot, t_dot]) / np.sqrt(value_dot)
 
         return y_dot
 

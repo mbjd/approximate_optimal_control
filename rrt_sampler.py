@@ -116,9 +116,13 @@ def rrt_sample(problem_params, algo_params):
 
     all_sol_ys = sols.ys
 
-    def propose_new_xf(all_sol_ys, new_state):
+    def propose_new_xf_softmax(all_sol_ys, new_state):
+
         # propose a new terminal state x_f which starts a 
         # trajectory hopefully coming close to our point. 
+
+        # this basically just comes up with convex combination weights 
+        # roughly inspired by the neg. distances to each trajectory. 
 
         # new_state.shape  == (nx,)
         # all_sol_ys.shape == (N_trajectories_total, N_timesteps, 2nx+1)
@@ -160,10 +164,181 @@ def rrt_sample(problem_params, algo_params):
         new_proposed_zf = proposed_zf / np.linalg.norm(proposed_zf)
         # transform back. 
         new_proposed_xf = (Phalf_inv @ new_proposed_zf) * np.sqrt(vT)
+
+        # UPDATE: found out that this is equivalent to just interpolating in original 
+        # space and then scaling to be on ∂Xf. More in handwritten notes from 2023-01-10
         
         return new_proposed_xf
+
+
+    def propose_new_xf_lstsq(all_sol_ys, new_state):
+
+        # propose a new terminal state x_f which starts a 
+        # trajectory hopefully coming close to our point. 
+
+        # this version forms a local quadratic interpolation of V to estimate
+        # V(new_state). Then all close trajectories are evaluated at V(new_state) and we 
+        # find the linear combination of the corresponding states coming closest to new_state. 
+        # should work, except if we have different local optima. not sure what to do then. 
+
+        # secondguessing: maybe doing this much work just to find the proposal is excessive? 
+        # maybe we should go with the *really* simple methods like just roughly guessing something in the 
+        # middle of the nearest trajectories, to be able to have more sim throughput? 
+        # I guess the fundamental question is whether or not simulations are expensive. For our simple toy models
+        # simulations are very cheap. But if the model is more complex the relative cost of searching the dataset 
+        # and finding precise convex combinations of trajectories might decrease...
+
+        # atm i am leaving this unfinished, due to the messiness of having to estimate that many parameters just for 
+        # a quick interpolation.  
+
+        # also, instead of building the quadratic approximation like this, would it not be easier to do it 
+        # using ricatti eqs around each trajectory? i guess that would go into the other direction of the tradeoff
+        # assuming cheap simulation to minimise the extra stuff we need to do. 
+
+        # new_state.shape  == (nx,)
+        # all_sol_ys.shape == (N_trajectories_total, N_timesteps, 2nx+1)
+
+        k = 12
+        # find distance to all other trajectories.
+        # just w.r.t. euclidean distance and only at saved points, not interpolated.
+        # first we find the closest point on each trajectory, then the k closest trajectories. 
+        state_diffs = all_sol_ys[:, :, 0:6] - new_state   # (N_traj, N_timesteps, nx)
+        state_dists = np.linalg.norm(state_diffs, axis=2) # (N_traj, N_timesteps)
+        shortest_traj_dists = state_dists.min(axis=1)
+
+        neg_dists, indices = jax.lax.top_k(-shortest_traj_dists, k)
+
+        # among those trajectories, somehow find a group of closest points? 
+        
+        # to address local/global issue: so some sort of k-means/EM thing to identify different branches? 
+        # also, what if different trajectories pass close to the new state at vastly different value levels? 
+        # is this just also a sign of local/global discrepancy? probably yes... should we just ignore that for now? 
+
+        '''
+        # form a quadratic local approximation of V to estimate V(x_new). 
+        # How do we do this neatly? 
+
+        # V(x) = x.T A_v x + b_v x + c_v. 
+        # this is linear in parameters, so we can write θ_v = vec(A_v, b_v, c_v)
+        # and V(x) = Φ(x) θ_v for some regressor matrix line Φ(x). What would that be?  
+
+        # for each point x, we have observation of V(x) in R and dV(x) = λ(x) in R^nx. 
+        # the regressor line would need to contain:
+        # - all quadratic terms x_i * x_j, each one associated with an entry of A_v
+        # - all linear terms x_i, each one associated with an entry of b_v
+        # - one constant 1 term, for c_v. 
+
+        # can we not do some jax magic to avoid the ugly vec(.) and associated bookkeeping? 
+        # for example, we define f(A_v, b_v, c_v) = the loss on the dataset and somehow 
+        # extract the linear system defining optimal A_v, b_v, c_v? 
+
+        # somehow, get the loss as a function of theta_v, with fixed dataset. 
+
+        def loss(theta_v, xs, Vs, Vxs):
+
+            def single_loss(theta_v, x, V, Vx): 
+
+                A_v, b_v, c_v = theta_v 
+
+                V_loss = x.T @ A_v @ x + b_v @ x + c_v - V
+                Vx_loss = 2 * A_v @ x + b_v.T - Vx
+
+                # age old question: how to balance the two? 
+                return V_loss + 10 * Vx_loss
+
+            dataset_loss = jax.vmap(single_loss, in_axes=(None, 0, 0, 0))
+        '''
+
+            
+        
+        # how about just a linear approximation of V(x)? probably worse but easier. 
+        # at least we get a learning exercise. 
+
+        # but probably it will be biased. imagine a line approximating a quadratic-ish function. 
+        # in the middle it is too high, outside too low. 
+
+        # for each V(x) observation we directly get a line of the linear system: 
+        # V(x) = b_v x + c_v. = [x1, ..., xnx, 1] @ [b_v, c_v].T.
+
+        # for each i-th *entry* of dV(x), we also get a line: 
+        # dV(x)/dx_i = b_v[i] (independent of x!)
+
+        # so for one data point, the equation looks like this: 
+        # 
+        # [ x1, ..., x_nx, 1 ]                 [  V(x)  ]
+        # [ 1            , 0 ]     [     ]     [ λ_1(x) ]
+        # [   1      0   , 0 ]     [ b_v ]     [ λ_2(x) ]
+        # [     1        , 0 ]     [     ]  =  [   .    ]   
+        # [       1      , 0 ]     [ --- ]     [   .    ]     
+        # [  0      1    , 0 ]     [ c_v ]     [   .    ]
+        # [            1 , 0 ]                 [ λnx(x) ]
+
+        # and we have to repeat this N times! obvs the system will be hugely overdetermined. 
+        # this kind of sucks tbh. and if this doesn't suck yet, then expecially the quadratic 
+        # approximation would suck! the regressor matrix would grow from
+        #  (N_datapts * (nx+1), nx+1)
+        # to
+        #  (N_datapts * (nx+1), nx**2+nx+1)
+        # both shapes are basically (N_observations, N_parameters)
+
+
+        return new_proposed_xf
+
+
+    def propose_new_xf_cvx(all_sol_ys, new_state):
+
+        # yet another go at this. 
+        # - choose some v_est "probably close" to V(x_new), such as the linear extrapolation from closest datapoint. 
+        # - find convex combination of closest trajectories such that at v_est, it is closest to x_new. 
+        #   with some jax qp solver, like https://github.com/kevin-tracy/qpax or jaxopt.BoxOSQP
+        # if needed:
+        # - from that point, re-estimate v_est using linear extrapolation from there. 
+        # - go to start. 
+        # probably 
+
+        # this first bit is the same as the other version.
+        # new_state.shape  == (nx,)
+        # all_sol_ys.shape == (N_trajectories_total, N_timesteps, 2nx+1)
+
+        k = 12
+        # find distance to all other trajectories.
+        # just w.r.t. euclidean distance and only at saved points, not interpolated.
+        # first we find the closest point on each trajectory, then the k closest trajectories. 
+        state_diffs = all_sol_ys[:, :, 0:6] - new_state   # (N_traj, N_timesteps, nx)
+        state_dists = np.linalg.norm(state_diffs, axis=2) # (N_traj, N_timesteps)
+        shortest_traj_dists = state_dists.min(axis=1)
+
+        neg_dists, indices = jax.lax.top_k(-shortest_traj_dists, k)
+        
+        close_trajs = all_sol_ys[indices, :, :]
+
+        # find k (again k, could use different constant) closest *points*. 
+        # only search over already established closest trajectories. is it
+        # even possible that some closest points are on other trajectories?
+
+        # surely we could do this without this extra reshaping???
+        close_traj_pts = close_trajs.reshape(-1, 13)
+        _, closest_traj_pts_idx = jax.lax.top_k(
+                -np.linalg.norm(close_traj_pts[:, 0:6] - new_state, axis=1),
+                k
+        )
+
+        closest_pts = close_traj_pts[closest_traj_pts_idx]
+        # every one of these points (v0, (x0, λ0, t)) induces a supporting hyperplane*
+        # to V at the point x0, namely: V(x) >= v0 + λ0.T x. 
+        # problem, we do not have those V's handy as the last state is t in the reparemterisation. 
+        # thus, we also need the V's here somehow. 
+
+        # easiest option: make extended state (x, λ, v, t).
+        # next easiest options: store ts array alongside solutions, but name it vs. 
+        # most future proof option: pass whole sols object in here
+
+        V_lowerbounds = 
+
+        ipdb.set_trace()
+
     
-    propose_new_xfs = jax.vmap(propose_new_xf, in_axes=(None, 0))
+    # propose_new_xfs = jax.vmap(propose_new_xf, in_axes=(None, 0))
 
 
     maxmaxsteps = 0
@@ -185,7 +360,8 @@ def rrt_sample(problem_params, algo_params):
         # b) based on those points, propose new terminal conditions yf that might lead 
         #    to trajectories passing close to the desired states. 
         print('    finding associated xfs')
-        new_xfs = propose_new_xfs(all_sol_ys, new_states_desired)
+        xf = propose_new_xf_cvx(all_sol_ys, new_states_desired[0])
+        # new_xfs = propose_new_xfs(all_sol_ys, new_states_desired)
         new_lamfs = jax.vmap(xf_to_lamf)(new_xfs)
         new_tfs = np.zeros((algo_params['sampling_N_trajectories'], 1))
         new_Vfs = jax.vmap(xf_to_Vf)(new_xfs)

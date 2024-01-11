@@ -18,7 +18,18 @@ import meshcat
 import meshcat.geometry as geom
 import meshcat.transformations as tf
 
+
 def current_weird_experiment(problem_params, algo_params):
+    
+    '''
+    idea for experiments to do: 
+    - sample from small region of xT space just to get a feel for the behaviour
+    - find out why no trajectories go upwards
+      - do they all have too large V?
+      - is it just the uniform distribution that has not enough mass there? 
+      - do those solutions not even exist (unlikely)? 
+    '''
+
     # just experiment around a bit. 
     # initial couple lines from rrt_sample
 
@@ -193,8 +204,8 @@ if __name__ == '__main__':
         
         
 
-    current_weird_experiment(problem_params, algo_params)
-    # all_sol_ys = rrt_sampler.rrt_sample(problem_params, algo_params)
+    # current_weird_experiment(problem_params, algo_params)
+    all_sol_ys = rrt_sampler.rrt_sample(problem_params, algo_params)
 
     visualiser.plot_trajectories_meshcat(sols.ys)
 

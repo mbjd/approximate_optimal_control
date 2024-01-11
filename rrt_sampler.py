@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as pl
+import diffrax
 
 import pontryagin_utils
 
@@ -114,7 +115,10 @@ def rrt_sample(problem_params, algo_params):
 
 
 
+    # can we somehow instead store the sols object and concatenate all its members? 
     all_sol_ys = sols.ys
+    all_sols = sols
+
 
     def propose_new_xf_softmax(all_sol_ys, new_state):
 
@@ -285,10 +289,12 @@ def rrt_sample(problem_params, algo_params):
         return new_proposed_xf
 
 
-    def propose_new_xf_cvx(all_sol_ys, new_state):
+    def propose_new_xf_cvx(all_sols, new_state):
+
+        assert type(all_sols) == diffrax.solution.Solution, 'need whole solution object'
 
         # yet another go at this. 
-        # - choose some v_est "probably close" to V(x_new), such as the linear extrapolation from closest datapoint. 
+        # - estimate some v_est "probably close" to V(x_new)
         # - find convex combination of closest trajectories such that at v_est, it is closest to x_new. 
         #   with some jax qp solver, like https://github.com/kevin-tracy/qpax or jaxopt.BoxOSQP
         # if needed:
@@ -298,19 +304,24 @@ def rrt_sample(problem_params, algo_params):
 
         # this first bit is the same as the other version.
         # new_state.shape  == (nx,)
-        # all_sol_ys.shape == (N_trajectories_total, N_timesteps, 2nx+1)
+        # all_sols the diffrax solution object where we store all solutions vmapped across 1st dim. 
+
 
         k = 12
         # find distance to all other trajectories.
         # just w.r.t. euclidean distance and only at saved points, not interpolated.
         # first we find the closest point on each trajectory, then the k closest trajectories. 
-        state_diffs = all_sol_ys[:, :, 0:6] - new_state   # (N_traj, N_timesteps, nx)
+        state_diffs = all_sols.ys[:, :, 0:6] - new_state   # (N_traj, N_timesteps, nx)
         state_dists = np.linalg.norm(state_diffs, axis=2) # (N_traj, N_timesteps)
         shortest_traj_dists = state_dists.min(axis=1)
 
         neg_dists, indices = jax.lax.top_k(-shortest_traj_dists, k)
         
-        close_trajs = all_sol_ys[indices, :, :]
+        # solution object with only the closest ones :) 
+        close_sols = jax.tree_util.tree_map(lambda a: a[indices], all_sols)
+        close_trajs = close_sols.ys
+        # confirmed equal :) 
+        # close_trajs = all_sols.ys[indices, :, :]  #
 
         # find k (again k, could use different constant) closest *points*. 
         # only search over already established closest trajectories. is it
@@ -318,27 +329,100 @@ def rrt_sample(problem_params, algo_params):
 
         # surely we could do this without this extra reshaping???
         close_traj_pts = close_trajs.reshape(-1, 13)
+        close_traj_vs = all_sols.ts[indices, :].reshape(-1)
         _, closest_traj_pts_idx = jax.lax.top_k(
                 -np.linalg.norm(close_traj_pts[:, 0:6] - new_state, axis=1),
                 k
         )
 
         closest_pts = close_traj_pts[closest_traj_pts_idx]
+        closest_pts_vs = close_traj_vs[closest_traj_pts_idx]
         # every one of these points (v0, (x0, λ0, t)) induces a supporting hyperplane*
-        # to V at the point x0, namely: V(x) >= v0 + λ0.T x. 
+        # to V at the point x0, namely: V(x) >= v0 + λ0.T (x-x0). 
         # problem, we do not have those V's handy as the last state is t in the reparemterisation. 
         # thus, we also need the V's here somehow. 
+
+        # * supporting hyperplane is a term stolen from convex analysis. V is generally
+        # not convex! but maybe locally. at least a bit. i hope. 
 
         # easiest option: make extended state (x, λ, v, t).
         # next easiest options: store ts array alongside solutions, but name it vs. 
         # most future proof option: pass whole sols object in here
+        # well we already need the interpolation anyway so we kind of have to 
+        # use the entire sols object...
 
-        V_lowerbounds = 
+        '''
+        for that here is a basic plan. 
+        - work out a way to store *all* the sol objects, or preferrably, to use the interpolation
+          while only storing the ts and ys arrays. 
+        '''
+
+
+        # closest_ts not needed
+        closest_xs, closest_lambdas, _ = np.split(closest_pts, [6, 12], axis=1)
+
+        # one line, to see if vectorised correctly. why did I not just do one vmap? 
+        # i=3; v_lowerbound = closest_pts_vs[i] + closest_lambdas[i] @ (closest_xs[i] - new_state)
+
+        # reshape to make all shapes (k,)
+        xdiffs = closest_xs - new_state[None, :]
+        lam_dot_xdiffs = jax.vmap(np.dot)(closest_lambdas, xdiffs)
+        v_lowerbounds = closest_pts_vs + lam_dot_xdiffs
+
+        # this is now our coarse V(x) estimate. should really make sure this is not 
+        # problematic when we are far away from all data or when multiple local sols. 
+        v_est = v_lowerbounds.max()
+
+
+
+
+
+        # now evaluate the trajectories at v_est
+        close_sols_ys_at_v_est = jax.vmap(lambda sol: sol.evaluate(v_est))(close_sols)
+        close_sols_xs_at_v_est = close_sols_ys_at_v_est[:, 0:6]  # TODO 6 -> nx etc
+
+        # these are the important thing. now we want to find alpha, shape (k,), such that: 
+        # close_sols_xs_at_v_est.T @ alpha = x_desired
+        alpha, _, _, _ = np.linalg.lstsq(close_sols_xs_at_v_est.T, new_state)
+        # but here alpha can be anything, have negative entries etc. this is not good. 
+        # we want a convex combinations. therefore, we use a QP solver, qpax. 
+
+        import qpax
+
+        # we want alpha to minimise || close_sols_xs_at_v_est.T alpha - new_state ||
+        # subject to alpha >= 0 and sum(alpha) == 1. 
+
+        # qpax wants: 0.5 x.T Q x + q.T x, s.t. Ax = b and Gx <= h. 
+        # multiplying out the norm and letting Φ = close_sols_xs_at_v_est.T, we have: 
+        #   (Φ α - new_state).T @ (Φ α - new_state) 
+        # = α.T Φ.T Φ α - α.T Φ.T new_state - (α.T Φ.T new_state).T + new_state.T @ new_state
+        # = α.T Φ.T Φ α - 2 new_state.T Φ α + const. 
+        # matching coefficients, we get for the standard QP parameters, with decision var x=alpha:
+        # objective params
+        Phi = close_sols_xs_at_v_est.T
+        Q = 2 * Phi.T @ Phi 
+        q = -2 * new_state.T @ Phi
+        # equality constraint params
+        A = np.ones(k)  # number of decision variables = points to choose for convex interp. 
+        b = 1
+        # inequality params. Gx <= h, -x <= 0, x >= 0 are all equivalent. 
+        G = -np.eye(k)
+        h = np.zeros(k)
 
         ipdb.set_trace()
 
+        # qpax attempts to qr decompose A even though it is just one row???
+        # this dumb
+        # if we add empty rows to the equality constraint system we get nan solution. 
+        x, s, z, y, iters = qpax.solve_qp(Q, q, A, b, G, h)
+        
+
+
+        
+
+
     
-    # propose_new_xfs = jax.vmap(propose_new_xf, in_axes=(None, 0))
+    propose_new_xfs = jax.vmap(propose_new_xf_softmax, in_axes=(None, 0))
 
 
     maxmaxsteps = 0
@@ -360,8 +444,12 @@ def rrt_sample(problem_params, algo_params):
         # b) based on those points, propose new terminal conditions yf that might lead 
         #    to trajectories passing close to the desired states. 
         print('    finding associated xfs')
-        xf = propose_new_xf_cvx(all_sol_ys, new_states_desired[0])
-        # new_xfs = propose_new_xfs(all_sol_ys, new_states_desired)
+
+        # just for developing it: un-vmapped. 
+        xf = propose_new_xf_cvx(all_sols, new_states_desired[0])
+        ipdb.set_trace()
+
+        new_xfs = propose_new_xfs(all_sol_ys, new_states_desired)
         new_lamfs = jax.vmap(xf_to_lamf)(new_xfs)
         new_tfs = np.zeros((algo_params['sampling_N_trajectories'], 1))
         new_Vfs = jax.vmap(xf_to_Vf)(new_xfs)
@@ -375,6 +463,10 @@ def rrt_sample(problem_params, algo_params):
         print('    simulating')
         new_sols = vmap_pontryagin_solver(new_yfs, new_Vfs, problem_params['V_max'])
 
+        # here we have both of the sols objects. 
+        # can we concatenate the *data* of the object, without messy pytrees of sols? 
+        # e.g. by tree_map(concatenate...)
+
         # d) 'clean' the trajectories so that the first saved point is the one on 
         #    the boundary of Xf. Then add that to our data set. 
         # yfs = find_yfs(new_sols)
@@ -387,7 +479,16 @@ def rrt_sample(problem_params, algo_params):
 
 
         # so instead d) add it to the dataset directly :) 
+
+        # store all sols in the diffrax solution object as a pytree.
+        all_sols = jax.tree_util.tree_map(
+                lambda a, b: np.concatenate([a, b], axis=0),
+                all_sols, 
+                new_sols
+        )
+
         all_sol_ys = np.concatenate([all_sol_ys, new_sols.ys], axis=0)
+        ipdb.set_trace()
 
         steps = new_sols.stats['num_steps'].max()
         if steps > maxmaxsteps: 

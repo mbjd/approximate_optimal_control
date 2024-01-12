@@ -32,7 +32,7 @@ def plot_trajectories(ts, ys, color='green', alpha='.1'):
 
     pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-def plot_trajectories_meshcat(sols_ys, vis=None, arrows=False, reparam=True):
+def plot_trajectories_meshcat(sols_ys, vis=None, arrows=False, reparam=True, colormap=None):
 
     '''
     tiny first draft of meshcat visualisation :o
@@ -134,7 +134,14 @@ def plot_trajectories_meshcat(sols_ys, vis=None, arrows=False, reparam=True):
 
     for sol_i in tqdm.tqdm(range(N_sols)):
         quad_name = f'quad_{sol_i}'
-        make_quad(vis, quad_name)
+
+        if colormap is not None:
+            color = pl.colormaps[colormap](sol_i/N_sols)
+            r, g, b, a = color
+            hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
+            make_quad(vis, quad_name, color=hexcolor)
+        else:  # it is None
+            make_quad(vis, quad_name)
 
         min_t = sols_ys[sol_i, :, -1].min()
         for y in sols_ys[sol_i]:

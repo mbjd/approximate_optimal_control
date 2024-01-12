@@ -207,7 +207,7 @@ if __name__ == '__main__':
     # current_weird_experiment(problem_params, algo_params)
     all_sol_ys = rrt_sampler.rrt_sample(problem_params, algo_params)
 
-    visualiser.plot_trajectories_meshcat(all_sol_ys)
+    visualiser.plot_trajectories_meshcat(all_sol_ys, colormap='viridis')
 
     # otherwise visualiser closes immediately
     ipdb.set_trace()

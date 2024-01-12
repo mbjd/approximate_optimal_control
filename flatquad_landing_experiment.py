@@ -184,14 +184,14 @@ if __name__ == '__main__':
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
         'terminal_constraint': True,
-        'V_max': 500,
+        'V_max': 50,
         'u_eq': np.ones(2) * m * g / 2,
         'x_eq': np.zeros(6),
     }
 
 
     algo_params = {
-            'sampling_N_trajectories': 2**8,
+            'sampling_N_trajectories': 2**5,
             'sampling_N_iters': 10,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
@@ -207,7 +207,7 @@ if __name__ == '__main__':
     # current_weird_experiment(problem_params, algo_params)
     all_sol_ys = rrt_sampler.rrt_sample(problem_params, algo_params)
 
-    visualiser.plot_trajectories_meshcat(sols.ys)
+    visualiser.plot_trajectories_meshcat(all_sol_ys)
 
     # otherwise visualiser closes immediately
     ipdb.set_trace()

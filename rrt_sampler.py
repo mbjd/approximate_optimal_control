@@ -116,7 +116,8 @@ def rrt_sample(problem_params, algo_params):
 
 
     # can we somehow instead store the sols object and concatenate all its members? 
-    all_sol_ys = sols.ys
+    # all_sol_ys = sols.ys
+    # yes we can :) thanks to a fancy jax tree map move later on
     all_sols = sols
 
 
@@ -446,10 +447,10 @@ def rrt_sample(problem_params, algo_params):
         print('    finding associated xfs')
 
         # just for developing it: un-vmapped. 
-        xf = propose_new_xf_cvx(all_sols, new_states_desired[0])
-        ipdb.set_trace()
+        # xf = propose_new_xf_cvx(all_sols, new_states_desired[0])
+        # ipdb.set_trace()
 
-        new_xfs = propose_new_xfs(all_sol_ys, new_states_desired)
+        new_xfs = propose_new_xfs(all_sols.ys, new_states_desired)
         new_lamfs = jax.vmap(xf_to_lamf)(new_xfs)
         new_tfs = np.zeros((algo_params['sampling_N_trajectories'], 1))
         new_Vfs = jax.vmap(xf_to_Vf)(new_xfs)
@@ -473,11 +474,6 @@ def rrt_sample(problem_params, algo_params):
         # new_ys_clean = new_sols.ys.at[:, 0, :].set(yfs)
         # all_sol_ys = np.concatenate([all_sol_ys, new_ys_clean], axis=0)
 
-        # this ^ is ditched. had problems where evaluating trajectories at vT would
-        # not give point on boundary due to nonlinearity or numerical errors. 
-        # instead we initialise exactly on boundary of Xf, see propose_new_xf.
-
-
         # so instead d) add it to the dataset directly :) 
 
         # store all sols in the diffrax solution object as a pytree.
@@ -487,8 +483,8 @@ def rrt_sample(problem_params, algo_params):
                 new_sols
         )
 
-        all_sol_ys = np.concatenate([all_sol_ys, new_sols.ys], axis=0)
-        ipdb.set_trace()
+        # ditch this now? 
+        # all_sol_ys = np.concatenate([all_sol_ys, new_sols.ys], axis=0)
 
         steps = new_sols.stats['num_steps'].max()
         if steps > maxmaxsteps: 
@@ -497,7 +493,7 @@ def rrt_sample(problem_params, algo_params):
 
     print(f'total max steps: {maxmaxsteps}')
 
-    return all_sol_ys
+    return all_sols.ys
 
 # here a long list of considerations about the sampling method
 # we want: the k trajectories which come closest to our point

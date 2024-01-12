@@ -184,15 +184,15 @@ if __name__ == '__main__':
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
         'terminal_constraint': True,
-        'V_max': 50,
+        'V_max': 200.,
         'u_eq': np.ones(2) * m * g / 2,
         'x_eq': np.zeros(6),
     }
 
 
     algo_params = {
-            'sampling_N_trajectories': 2**5,
-            'sampling_N_iters': 10,
+            'sampling_N_trajectories': 2000,
+            'sampling_N_iters': 0,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
             'pontryagin_solver_atol': 1e-4,
@@ -205,9 +205,9 @@ if __name__ == '__main__':
         
 
     # current_weird_experiment(problem_params, algo_params)
-    all_sol_ys = rrt_sampler.rrt_sample(problem_params, algo_params)
+    all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)
 
-    visualiser.plot_trajectories_meshcat(all_sol_ys, colormap='viridis')
+    visualiser.plot_trajectories_meshcat(all_sols, colormap='viridis', t_is_v=True)
 
     # otherwise visualiser closes immediately
     ipdb.set_trace()

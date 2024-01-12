@@ -32,7 +32,7 @@ def plot_trajectories(ts, ys, color='green', alpha='.1'):
 
     pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-def plot_trajectories_meshcat(sols_ys, vis=None, arrows=False, reparam=True, colormap=None):
+def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_v=False):
 
     '''
     tiny first draft of meshcat visualisation :o
@@ -45,6 +45,9 @@ def plot_trajectories_meshcat(sols_ys, vis=None, arrows=False, reparam=True, col
      - do some 3d thing :)
      - separate this functionality into its nice own file
     '''
+
+    sols_ys = sols.ys
+    sols_ts = sols.ts
 
     if sols_ys.shape[0] > 4000:
         print('meshcat visualiser: trajectory database large ({sols_ys.shape[0]})')
@@ -139,20 +142,25 @@ def plot_trajectories_meshcat(sols_ys, vis=None, arrows=False, reparam=True, col
             color = pl.colormaps[colormap](sol_i/N_sols)
             r, g, b, a = color
             hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
-            make_quad(vis, quad_name, color=hexcolor)
+            make_quad(vis, quad_name, color=hexcolor, opacity=.5)
         else:  # it is None
             make_quad(vis, quad_name)
 
         min_t = sols_ys[sol_i, :, -1].min()
-        for y in sols_ys[sol_i]:
+        for v, y in zip(sols_ts[sol_i], sols_ys[sol_i]):
             
             # data is inf-padded by diffrax. 
             if np.any(y == np.inf):
                 break
 
             t = y[-1]
+            if t_is_v:
+                # solution independent variable = sols.ts = value = animation time again here. 
+                # and also we cheat here and actually set t = sqrt(v) for uniform speed.
+                t = np.sqrt(v)
 
-            anim_t = 25*float(t - min_t)
+            # apparently we have 30 fps and the animation time is in frames
+            anim_t = 30*float(t - min_t)
 
             with anim.at_frame(vis, anim_t) as frame:
                 move_quad(frame, quad_name, y)

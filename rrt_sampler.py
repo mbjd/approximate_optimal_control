@@ -493,7 +493,7 @@ def rrt_sample(problem_params, algo_params):
 
     print(f'total max steps: {maxmaxsteps}')
 
-    return all_sols.ys
+    return all_sols
 
 # here a long list of considerations about the sampling method
 # we want: the k trajectories which come closest to our point

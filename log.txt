@@ -87,3 +87,45 @@ this was a lot of maybe incoherent rambling. sorry to my future self and
 whoever reads this. maybe the final paper will be more readable \o/
 
 
+
+2023-01-16
+
+looked through literature. found out that our gradient enabled neural network
+is already known under one more name: Sobolev training (sobolev spaces are
+function spaces endowed with a norm that looks like a p-norm of a vector of
+function norms of all partial derivatives up to order k). specifically there is
+also an interesting phd thesis:
+https://gepettoweb.laas.fr/articles/amit_icra_22.html. They basically use a DDP
+type solver coupled with global value function approximation, to find infinite
+horizon optimal control over a large domain by iteratively using the learned
+value function as terminal cost. 
+
+Should we try to expand this to some sort of provable global optimality?
+Because I don't think they do that there. There the claim "So, when used as a
+proxy for terminal cost functional, ∂PVPv [name of their algo] tends to drive
+the locally optimal solver toward the globally optimal solution.", but no proof
+or explanation. 
+
+possible decent contribution would also be to do the infinite horizon in one
+single trajectory with some sort of time reparameterisation. reduces the number
+of approximations and weak links, and I think with adaptive solver this can
+actually be quite efficient. In fact, I think inf-horizon DDP itself would already 
+be a cool contribution, even without the "hopefully global" optimality. 
+
+other new interesting papers in semanticscholar folders: 
+- ddp-ish value expansion
+- local -> global optimality
+- sobolev learning
+- V approx, transfer learning, etc. 
+
+
+small tidbits i thought about: 
+
+- in continuous time DDP apparently the hessian Vxx is always positive
+  definite, in contrast to the more often used time-discretised version. Does
+  this hold even when we have a really sloppy numerical solver? would be cool if
+  yes
+
+- NN learning: only consider data points with v(x) <= v, and sweep up v during
+  training? this way we might explicitly identify the points when different
+  local solutions start conflicting, and maybe do something about it. 

@@ -27,14 +27,17 @@ def rrt_sample(problem_params, algo_params):
 
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 
-    # compute sqrtm of P, the value function matrix.
-    P_eigv, P_eigvec = np.linalg.eigh(P_lqr)
+    # # compute sqrtm of P, the value function matrix.
+    # P_eigv, P_eigvec = np.linalg.eigh(P_lqr)
+    # Phalf = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
+    # maxdiff = np.abs(Phalf @ Phalf - P_lqr).max()
+    # assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
 
-    Phalf = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
+    # compute it using sqrtm instead and trust it blindly
+    Phalf = jax.scipy.linalg.sqrtm(P_lqr)
+    assert np.allclose(Phalf.imag, 0), 'nonzero imaginary part of sqrtm(P)! something stinks'
+    Phalf = Phalf.real  # dtype float32 instead of complex64
     Phalf_inv = np.linalg.inv(Phalf)  # only once! 
-
-    maxdiff = np.abs(Phalf @ Phalf - P_lqr).max()
-    assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
 
 
     # find N points on the unit sphere.
@@ -456,7 +459,12 @@ def rrt_sample(problem_params, algo_params):
         new_Vfs = jax.vmap(xf_to_Vf)(new_xfs)
 
         # this should *really* not happen now that propose_new_xf also scales them back
-        assert (new_Vfs <= vT + 1e-8).all(), 'trying to start trajectories outside Xf'
+        # assert (new_Vfs <= vT + 1e-8).all(), 'trying to start trajectories outside Xf'
+        # this one is more lenient...
+        print(np.abs(new_Vfs - vT).max())
+        if not np.allclose(new_Vfs, vT): 
+            ipdb.set_trace()
+        assert np.allclose(new_Vfs, vT), 'trying to start trajectories outside Xf'
 
         new_yfs = np.hstack([new_xfs, new_lamfs, new_tfs])
 

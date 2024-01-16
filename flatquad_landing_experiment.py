@@ -149,7 +149,7 @@ if __name__ == '__main__':
 
         state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
         Q = np.diag(1/state_length_scales**2)
-        state_cost = x.T @ Q @ x + np.maximum(-posy, 0)**2  # state penalty? 
+        state_cost = x.T @ Q @ x  
 
         # can we just set an input penalty that is zero at hover?
         # penalise x acc, y acc, angular acc here.
@@ -191,8 +191,8 @@ if __name__ == '__main__':
 
 
     algo_params = {
-            'sampling_N_trajectories': 2000,
-            'sampling_N_iters': 0,
+            'sampling_N_trajectories': 128,
+            'sampling_N_iters': 10,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
             'pontryagin_solver_atol': 1e-4,

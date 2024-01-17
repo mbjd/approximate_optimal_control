@@ -129,3 +129,82 @@ small tidbits i thought about:
 - NN learning: only consider data points with v(x) <= v, and sweep up v during
   training? this way we might explicitly identify the points when different
   local solutions start conflicting, and maybe do something about it. 
+
+
+2023-01-17
+
+had meeting. talked about all the concerns from last few days and got
+reassuring answer that yes, these are hard and, in practical terms, unsolved
+problems. advice: just explore around for another week and slowly try to come
+up with a sensible research question. 
+
+mentioned frustration that "everything" has already been done, no "niche" left.
+answer: "own" niche can also be very small, or a contribution to extend
+existing work can also be quite small to be significant. 
+
+current options: 
+
+- explore (probably limited) possibilities with pure PMP backward integration. 
+  also sometimes labelled geodesic flow, geodesic spray, etc. probably only
+  simple systems, low dim, not multiscale. 
+
+- explore backwards PMP integration + quadratic value expansion. the appeal is
+  obviously still no iterative optimisation over trajectories/inputs. Maybe we 
+  can slightly improve the problem of backward time instability leading to way 
+  more data than we actually need? Probably, but scalability concern remains. 
+
+- go for a DDP like solver method, similar to PhD thesis of Amit Parag, and try
+  to come up with tricks to "encourage" global optimality. Lots of ideas around
+  BNNs with asymmetric loss, Sobolev learning, active learning, etc. currently
+  this does seem the most interesting to me. 
+
+- sth else? 
+
+different, mostly-orthogonal directions to expand the problem setting beyond
+inf-horizon, continuous time: 
+
+- some sort of approximate *global* optimality. probably though there just
+  isn't an actual shortcut to this. give up? 
+- input constrained (in general dims -> QP solver finds u*)
+- state constrained (in the sense of safety limits) 
+- state constrained (in the sense that x is on a manifold)
+- robust (with adversary, HJI equation)
+- parameterised family of dynamics
+
+
+other than that: 
+
+- devoured more literature about continuous-time DDP-ish solvers, especially
+  interesting ones to do w/ HJI/robust stuff. 
+
+- found a nice paper comparing different BNN methods to the "true" posterior
+  obtained with Hamiltonian Monte Carlo, put it in a new BNN folder. 
+
+- found a couple more papers about what I think is essentially the same as
+  pontryagin backward integration like in SA, one example was planning min-time
+  flight trajectories on the actual globe with known wind field and simplified
+  single integrator dynamics. that is actually a cool application, where the
+  multiscale limitations do not come into play. 
+
+Random assorted thoughts, about making DDP work in inf-horizon:
+
+I am doubtful as to whether the time-value rescaling, or some different time
+rescaling, is needed. Probably the adaptive solver will be just as efficient
+without it [citation needed]. What is more interesting then is how do we choose
+the time horizon. Simple first idea: just choose a large-ish time horizon and
+define a terminal set Xf (eg. LQR value sublevel set). Then, optimise
+trajectories using DDP. If the trajectory ends inside of Xf, good. If not,
+increase the time horizon. In continuous time and w/ adaptive solvers, [i hope
+that] a "too" long time horizon will not be much of an issue, especially if
+most of the time is spent within Xf, where the ODE solver can choose large
+steps. 
+
+And about distributions/ill conditioning/timescale separations: 
+
+also, many of the problems we see (ill conditioning, bad distributions) arise
+from basically the fact that systems are decomposable across time scales.
+Traditionally, this makes engineering solutions easier, however if we aim to
+solve the whole problem at once it becomes much more difficult. Can we somehow
+use these time-scale decomposition heuristics to maybe improve/inform our
+sampling process, while still ultimately finding the actual solution to the
+full problem? not so sure how exactly to go about this. 

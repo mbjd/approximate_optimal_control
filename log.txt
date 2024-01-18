@@ -88,7 +88,7 @@ whoever reads this. maybe the final paper will be more readable \o/
 
 
 
-2023-01-16
+2024-01-16
 
 looked through literature. found out that our gradient enabled neural network
 is already known under one more name: Sobolev training (sobolev spaces are
@@ -131,7 +131,7 @@ small tidbits i thought about:
   local solutions start conflicting, and maybe do something about it. 
 
 
-2023-01-17
+2024-01-17
 
 had meeting. talked about all the concerns from last few days and got
 reassuring answer that yes, these are hard and, in practical terms, unsolved
@@ -149,14 +149,18 @@ current options:
   simple systems, low dim, not multiscale. 
 
 - explore backwards PMP integration + quadratic value expansion. the appeal is
-  obviously still no iterative optimisation over trajectories/inputs. Maybe we 
-  can slightly improve the problem of backward time instability leading to way 
-  more data than we actually need? Probably, but scalability concern remains. 
+  obviously still no iterative optimisation over trajectories/inputs. but
+  scalability concern due to instability and huge dataset remains -- can we
+  still optimise the hell out of it? with smart proposal strategies or fancy
+  data structures? 
 
 - go for a DDP like solver method, similar to PhD thesis of Amit Parag, and try
   to come up with tricks to "encourage" global optimality. Lots of ideas around
   BNNs with asymmetric loss, Sobolev learning, active learning, etc. currently
   this does seem the most interesting to me. 
+
+- actually already infinite-horizon, continuous-time DDP could be a cool
+  contribution itself...?
 
 - sth else? 
 
@@ -175,7 +179,7 @@ inf-horizon, continuous time:
 other than that: 
 
 - devoured more literature about continuous-time DDP-ish solvers, especially
-  interesting ones to do w/ HJI/robust stuff. 
+  nteresting ones to do w/ HJI/robust stuff. 
 
 - found a nice paper comparing different BNN methods to the "true" posterior
   obtained with Hamiltonian Monte Carlo, put it in a new BNN folder. 
@@ -208,3 +212,98 @@ solve the whole problem at once it becomes much more difficult. Can we somehow
 use these time-scale decomposition heuristics to maybe improve/inform our
 sampling process, while still ultimately finding the actual solution to the
 full problem? not so sure how exactly to go about this. 
+
+about possible approximate global optimality: 
+
+this seems admittedly hard and convoluted in the framework DDP + Sobolev BNN
+value function. One possiblilty: keep all trajectories in a data set. For each
+proposal, also find nearest neighbor trajectories, and for each one of them (*)
+try to do a homotopy method, moving its initial condition to the proposal while
+keeping local optimality w/ DDP.  
+
+*: To speed this up we can first do some k-means clustering of the trajectories
+in terms of lambda(x0), or in terms of some sampled points along the
+trajectory.  Probably we get away with at most producing k=2 clusters since
+(probably?) the set of points where n+1 different locally optimal trajectories
+are equally good has one dimension less than the same set for n different
+trajectories. So we might choose the minimum nontrivial number 2...
+
+Other possibility: somehow use a sobolev BNN with multimodal posterior. But
+this will be worth nothing if we don't have the data. you know, I am starting
+to think that global optimality is just actually not worth worrying about, and
+instead we will have to keep relying on engineering intution about the specific
+system to decide if we are happy with the local solution at hand.
+
+
+2024-01-18
+
+thinking about ways to do function approximation which maybe works well given
+the structured nonsmoothness encountered in value functions. 
+
+What would happen with a standard (B)NN (and enough data of suitable
+distribution covering several distinct local solutions) is that we just kind of
+smoothly interpolate between different local solutions, making the precise
+"decision boundary" rather muddy. What we would prefer is that there is a
+separate NN for each adjacent region, and that the output of the whole model is
+the minimum of the individual models. That way we benefit from smooth
+extrapolation (which over small enough distances should work quite well with
+appropriate sobolev loss) without interference due to neighboring, distinct
+solutions. 
+
+How could we achieve this behaviour, even approximately? We cannot just blindly
+have N values passed to some min(.) type last layer, because of this: 
+
+due to the global structure of the value function, there exists a curve γ(s)
+with γ(0) arbitrarily close to the nonsmooth decision boundary from one side,
+and γ(1) from the other side, but with the property that V is smooth at all
+γ(s) for 0 <= s <= 1. (intuitively, this curve can be constructed by following
+one local trajectory forward to almost the goal/equilibrium, then smoothly
+connect to the other solution, which we follow in reverse time until we reach
+the opposite side of the decision boundary). Therefore, if we apply a naive
+min(.) operator, we cannot exactly represent this because there has to be
+another switching surface switching between the left and right regions,
+somewhere along the curve, where V is actually smooth. 
+
+Therefore my next instinct is to approximate a min(.) operator with some
+smoothed version thereof, and add an extra parameter which changes the
+smoothness of it somehow. e.g. with some softmax thing. These are the
+requirements: 
+
+- the soft minimum selection should be a close approximation of the actual
+  minimum close to the decision boundary. 
+- the soft minimum selection should "fade out", i.e. change its selection only 
+  very smootly, when we are far from the decision boundary. 
+- there should be no deterioration in performance if we choose 10 different
+  "classes" but only 1 or 2 are necessary. 
+- in general it should not completely break NN fitting. 
+
+
+in other news: 
+
+tried to understand some of the results on "PPO attains global optimality",
+went over my head still. their convergence rate depends on the discount factor
+though with a singularity at 1 so I doubt it is in any way applicaple to the
+(IMO much more interesting) undiscounted case. 
+
+
+can we make ddp state constrained in an easy-ish way? I think I wrote this on
+some note yesterday. basic idea: during the backward pass have two different
+value functions: one from the standard unconstrained problem and one for the
+constraint violation \int max(0, g(x(t))) dt. Then, during the forward pass, if
+the constraint violation is nonzero, apply inputs minimising its local
+expansion, basically replacing V with V_g, otherwise apply inputs minimising
+the usual local value function. Does this work? If so, also in continuous time?
+Are there problems due to nonsmoothness on constrained arcs? 
+
+
+
+2024-01-19
+
+did a thorough literature search about continuous time variants of DDP, found
+not very many interesting results. instead found this very interesting read:
+https://www.semanticscholar.org/reader/43b33368299b9147cca10b25b1ab767db487c59f
+I think they argue global optimality only in case of finite state space and
+tabular representation based on standard DP theory. However they seem to have
+some cool practical tricks for continuous control with trajectory optimisation
+and function approximation. Another paper from the same authors is about
+Sobolev learning specifically. 

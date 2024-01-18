@@ -15,9 +15,8 @@ from functools import partial
 
 import numpy as onp
 
-from jax.config import config
-
-
+from jax import config
+config.update("jax_enable_x64", True)
 
 # example from idea dump. orbit-like thing where move in circles. if outside the
 # unit circle, move in one direction, inwards other. input u moves "orbit radius".
@@ -91,14 +90,14 @@ problem_params = {
         'U_interval': [-.2, .2],
         'terminal_constraint': False,
         # 'V_max': 3.8,
-        'V_max': 4,
+        'V_max': 4.2,
         }
 
 algo_params = {
         'pontryagin_solver_dt': 1 / 16,
         'pontryagin_solver_adaptive': True,
         'pontryagin_solver_dense': False,
-        'pontryagin_solver_rtol': 1e-6,
+        'pontryagin_solver_rtol': 1e-4,
         'pontryagin_solver_atol': 1e-4,
         'pontryagin_solver_maxsteps': 1024,
         }
@@ -119,7 +118,7 @@ pontryagin_solver = pontryagin_utils.make_pontryagin_solver_reparam(problem_para
 
 
 thetas = np.linspace(0, 2 * np.pi, 128)[:-1]
-circle_xs = np.row_stack([np.sin(thetas), np.cos(thetas)])
+circle_xs = np.vstack([np.sin(thetas), np.cos(thetas)])
 x0s = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ circle_xs + xf[:, None]  # sqrtm "covariance" maps circle to ellipse.
 
 
@@ -172,19 +171,21 @@ def sol_single_and_dxdtheta(theta):
         x0 = 0.01 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ direction + xf
         # lam0 = jax.jacobian(lambda x: (x-xf).T @ P0_inf @ (x-xf))(x0)
         lam0 = 2 * P0_inf @ (x0-xf)
-        y0 = np.concatenate([x0, lam0])
 
-        # this causes it to fail atm.
+        y0 = np.concatenate([x0, lam0])
+        # this ^ causes it to fail atm.
         # made a breaking change in pontryagin_utils of adding t to the state. 
 
+        # therefore: 
+        y0 = np.concatenate([x0, lam0, np.zeros(1,)])
         sol = pontryagin_solver(y0, v0, v1)
-        vs = np.linspace(np.sqrt(v0), np.sqrt(v1), 101)**2
+        vs = np.linspace(np.sqrt(v0), np.sqrt(v1)-0.001, 101)**2
         ys = jax.vmap(sol.evaluate)(vs)
         return vs, ys
 
     def get_final_x(theta):
         vs, ys = get_vs_ys(theta)
-        return ys[-1, 0:2]
+        return ys[-2, 0:2]
 
 
     # finite difference = bad they said
@@ -202,7 +203,7 @@ ax2d.axis('equal')
     # ax.plot(ys[:, :, 0].reshape(-1), ys[:, :, 1].reshape(-1), vs[:, :].reshape(-1), color='green', alpha=.5)
 
 theta = 0.  # important to be a float otherwise wrong types in jit
-target_x_steplen = .05
+target_x_steplen = .03
 all_vs = []
 all_ys = []
 all_thetas = []
@@ -211,7 +212,7 @@ all_thetas = []
 cmap = matplotlib.colormaps['viridis']
 # cmap = matplotlib.colormaps['jet']
 
-t_alpha = .8
+t_alpha = .2
 v_alpha = .4
 
 i=0
@@ -233,6 +234,7 @@ while theta < 2*np.pi:
     dx_final = dfinaldtheta[0:2]
     steplen_per_theta = np.linalg.norm(dfinaldtheta)
     thetastep = target_x_steplen / steplen_per_theta
+    if thetastep > 0.01: thetastep = 0.01
     theta = theta + thetastep
 print('')
 
@@ -267,6 +269,42 @@ thetas = np.linspace(0, 2*np.pi, 501)
 ax2d.plot(np.sin(thetas), np.cos(thetas), color='black')
 ax.plot(np.sin(thetas), np.cos(thetas), 0 * thetas, color='black')
 ax2d.scatter([0], [1], [0], color='black')
+
+def intersection(x1,x2,x3,x4,y1,y2,y3,y4):
+    d = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+    if d:
+        xs = ((x1*y2-y1*x2)*(x3-x4) - (x1-x2)*(x3*y4-y3*x4)) / d
+        ys = ((x1*y2-y1*x2)*(y3-y4) - (y1-y2)*(x3*y4-y3*x4)) / d
+        if (xs >= min(x1,x2) and xs <= max(x1,x2) and
+            xs >= min(x3,x4) and xs <= max(x3,x4)):
+            return xs, ys
+
+# this is, expectedly, slow as shit. 
+# make jitted version somehow or ignore completely? 
+find_intersections = True
+if find_intersections:
+    # find the points where each value curve self-intersects, to plot
+    # the decision boundary between going left or right. 
+
+    # first only for maximum vlevel. 
+    vlevel = 101
+    ntrajs = all_ys.shape[0]
+
+    # iterate over all pairs of lines. very brute force :/ 
+    for i, line_a in tqdm.tqdm(enumerate(all_ys)):
+        # only j > i bc symmetry
+        for j, line_b in enumerate(all_ys[i+1:]): 
+            xi, yi = all_ys[i, vlevel, 0:2]
+            xip, yip = all_ys[(i+1) % ntrajs, vlevel, 0:2]
+
+            xj, yj = all_ys[j, vlevel, 0:2]
+            xjp, yjp = all_ys[(j+1) % ntrajs, vlevel, 0:2]
+            
+            out = intersection(xi, xip, xj, xjp, yi, yip, yj, yjp)
+            # x[i],x[i+1],x[j],x[j+1],y[i],y[i+1],y[j],y[j+1]
+
+            if out is not None: 
+                print(out)
 
 
 pl.show()

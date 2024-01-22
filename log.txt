@@ -295,15 +295,94 @@ expansion, basically replacing V with V_g, otherwise apply inputs minimising
 the usual local value function. Does this work? If so, also in continuous time?
 Are there problems due to nonsmoothness on constrained arcs? 
 
+is this basically a cheap, not-thought-thorugh version of an augmented
+lagrangian type method? still want to grok those papers from Lutter et al. If
+working that would probably properly get rid of the nonsmoothness problems. 
 
 
-2024-01-19
+2024-01-22
 
-did a thorough literature search about continuous time variants of DDP, found
-not very many interesting results. instead found this very interesting read:
-https://www.semanticscholar.org/reader/43b33368299b9147cca10b25b1ab767db487c59f
-I think they argue global optimality only in case of finite state space and
-tabular representation based on standard DP theory. However they seem to have
-some cool practical tricks for continuous control with trajectory optimisation
-and function approximation. Another paper from the same authors is about
-Sobolev learning specifically. 
+Yet another flavor of the main idea. For some time now I've been thinking that
+while timescale separation introduces mostly problems for "full problem"
+optimal control solvers (ill conditioning, uneven trajectory distributions,
+stiff-ish ODEs), in the classical engineering setting it is mostly a blessing
+because we can often design controllers separately over timescales (sacrificing
+optimality but making it much simpler). From this angle I thought it would be
+cool if we can somehow use this timsecale separation intuition to our benefit,
+i.e. to make learning control laws more efficient, while still solving the
+"full" non-decoupled problem. 
+
+Wrote a page in the overleaf idea dump about it ("Slow(er) Manifold following).
+The idea is this: Instead of the RRT-style framework I thought about for some
+time, try to find a backward optimal trajectory on the slow manifold (i.e.
+where fast dynamics don't move much). This can probably be done with local
+quadratic value expansion (= DDP backward pass) and by somehow identifying the
+slow manifold or its local linearisation. Then once our trajectory inevitably
+strays away from the slow manifold we can go forward in time along it until it
+is ε-close to the slow manifold, then re-seed the trajectory "exactly" on the
+manifold. The crucial change then is that we can immediately re-seed the same
+trajectory, instead of doing nearest neighbor searches all the time. Then we
+can save only the stitched together trajectory which actually stays (almost) on
+the slow manifold and only do NN searches among this smaller dataset. Basically
+we then reduce our sampling problem to a lower-dimensional one over the slow
+manifold, where we first find "all" relevant causal dependencies and only after
+that branch out in the fast subspace (maybe this will not even be necessary due
+to already generated data as a byproduct). More thoughts in dump. Maybe this
+would be cool still...
+
+OTOH probably the full-blown inf-horizon DDP <-> BNN active learning loop would
+probably be even more scalable and data efficient. But admittedly less flashy
+and esotheric, and harder to pinpoint where exactly my "new" contribution will
+be. 
+
+Both require quadratic value expansions so maybe I should start by working this
+out properly in continuous time...
+
+So the current selection, to summarise, is this: 
+
+a) Develop "inf-horizon" continouos time DDP, implement in jax. Connect with
+   active learning & Sobolev NN to efficiently find new solutions over whole
+   interesting region. Maybe some sort of "approximate" global optimality. 
+
+b) Try to take the "purely backwards" approach further, possibly like the notes
+   just above
+
+
+at the moment I am leaning towards a) which is probably the more generally
+useful and scalable optinon. Main components of that: 
+
+- inf-horizon, continuous time DDP
+  - theory (basically figure out those couple papers)
+  - implementation :) 
+
+- Sobolev Bayesian NN
+  - Which flavour of "bayesianisation"? 
+  - Sobolev how exactly? With hessian approxiamated by random Hvp?
+  - Find some nice version that half works with nondifferentiable points? 
+    (see notes from Fr.)
+
+- Intermingling of the two
+  - How to propose new samples?
+  - How to handle trajectory optimisation? Fixed iterations? Until converged? 
+  - Data structure considerations? Hopefully not
+  - Reweight data, e.g. by 1/density, for training? 
+
+- Other stuff
+  - Which examples, costs, engineering tradeoff type goals? 
+ 
+this gon be fun 
+
+
+other small stuff: 
+
+- had an idea over the weekend that H(x, λ)=0 describes something useful and
+  could help in interpolating the right costate (in RRT idea). convinced myself
+  though that this is nothing. for all other terminal value functions, we also
+  have optimal trajectories with H=0. So this does not give much information. 
+
+- thought about other ways of modifying the backwards PMP system to make
+  trajectories more well behaved. I think continuously modifying it, while
+  always adjusting the V/Vx info using the local expansion, is a bad idea though,
+  can't think of a way to ensure low approximation error. 
+
+

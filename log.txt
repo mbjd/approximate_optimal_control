@@ -330,6 +330,13 @@ that branch out in the fast subspace (maybe this will not even be necessary due
 to already generated data as a byproduct). More thoughts in dump. Maybe this
 would be cool still...
 
+Other flavor: Modify the Hamiltonian dynamics of the PMP in such a way that the
+slow manifold is stable in backward time, instead of unstable. However this
+probably requires knowing the stable manifold in advance, which we don't in
+general. Very hard to ensure that the trajectories of the modified dynamics are
+somehow a good approximation of the unchanged dynamics with PERFECT
+initialisation. This is probably a dead end tbh. 
+
 OTOH probably the full-blown inf-horizon DDP <-> BNN active learning loop would
 probably be even more scalable and data efficient. But admittedly less flashy
 and esotheric, and harder to pinpoint where exactly my "new" contribution will
@@ -366,6 +373,8 @@ useful and scalable optinon. Main components of that:
   - How to handle trajectory optimisation? Fixed iterations? Until converged? 
   - Data structure considerations? Hopefully not
   - Reweight data, e.g. by 1/density, for training? 
+  - Bias somehow os we are more likely to encounter "surprising" trajectories
+    which are better than the currently known solution? 
 
 - Other stuff
   - Which examples, costs, engineering tradeoff type goals? 
@@ -386,3 +395,39 @@ other small stuff:
   can't think of a way to ensure low approximation error. 
 
 
+2024-01-23
+
+some more thoughts on how to represent the "multiple branched" value function
+with an NN. got not much further than last time though. Current idea: have an
+NN model which outputs k "possible" value functions Vi(x), and a smoothness
+parameter κ(x), to finally give it to a "smooth min" type function to form the
+final estimate. Scoured literature for descriptions of the "set of x where
+different equally good local solutions are globally optimal", found lots of
+names, made a section in idea dump. 
+
+Coded up a small demo of trajectory splitting with linear V extrapolation (from
+costate), the rest constant, for really tiny "jumps". Looks okay, though I am
+unsure how to verify it more precisely. Anyway I am thinking this is not really
+the way to go. 
+
+Also had thoughts about trying to implicitly represent (= learn) the lifted
+manifold, i.e. the set of (x, λ) described by our geodesic spray. However I
+think this does not fundamentally solve anything, the "complexity explosion"
+with longer time horizon is still the same, finding all local value functions
+given some x is still an nx-dimensional rootfinding problem, and we make no
+progress towards efficient global optimality with pruning of suboptimal local
+solutions. Really I think I have to ditch "proper" global optimality soon :( 
+
+However, could we somehow "aid" the whole thing with engineering intuition? I
+was just thinking always that the 2D quad has one obviously "nonconvex"
+decision, which way to go around to go to the upright equilibrium of the
+attitude subsystem (or perhaps how many times to rotate if we consider
+outlandish states). Can we somehow encourage the local solver to "check" both
+these cases? Maybe we can make something that obviously cannot in general find
+global optima (we can always make pathological OCPs with arbitrary number of
+almost equally good local optima: Think about a tiny UAV flying through some
+sort of grid from a far distance). Maybe we can then adapt the NN to have
+separate models depending on some simple condition, like: Is Vx saying we
+should turn left or right? Or based on literally the number of turns from the
+equilibrium. Although this could once more be some half assed solution that
+only works in weird special cases...

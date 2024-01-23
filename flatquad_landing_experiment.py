@@ -81,36 +81,55 @@ def current_weird_experiment(problem_params, algo_params):
 
     yTs = np.hstack([xTs, lamTs, np.zeros((algo_params['sampling_N_trajectories'], 1))])
 
-    pontryagin_solver = pontryagin_utils.make_pontryagin_solver_reparam(problem_params, algo_params)
+    pontryagin_solver = jax.jit(pontryagin_utils.make_pontryagin_solver_reparam(problem_params, algo_params))
 
     vmap_pontryagin_solver = jax.jit(jax.vmap(pontryagin_solver, in_axes=(0, 0, None)))
     sols = vmap_pontryagin_solver(yTs, vTs, problem_params['V_max'])
 
-    sol = pontryagin_solver(yTs[0], vTs[0], problem_params['V_max'])
-    f = lambda y: y[0:6].T @ P_lqr @ y[0:6] - 20
-    # TODO get this to work tomorrow. 
-    val = ct_basics.find_zero_on_trajectory(sol, f, 2e-4, 400.)
+    # newest experiment: "split" trajectories and see how it goes. 
+    idx = 0  # just split off this one trajectory for now. 
+    sol = jax.tree_util.tree_map(lambda node: node[idx], sols)
+    
+    # for each saved node here, no interpolation.
+    for (v, y) in tqdm.tqdm(zip(sol.ts, sol.ys)):
+
+        if v == np.inf or (y == np.inf).any() or np.abs(v - problem_params['V_max']) < 1e-4:
+            break
+
+        # come up with some random new y, close to current one. 
+        subkey, key = jax.random.split(key)
+        xdiff = jax.random.normal(subkey, shape=(6,)) * 1e-3
+
+        new_x = y[0:6] + xdiff
+        new_v = v + y[6:12] @ xdiff  # this is probably way below numerical noise though
+
+        # new_lambda = y[6:12]  # no way of knowing the change in costate without Vxx(x). 
+        # new_t = y[-1:]  # also this we just leave constant. 
+        
+        # new_y = np.concatenate([new_x, new_lambda, new_t])
+        new_y = y.at[0:6].set(new_x)
+        
+        # new_sol = pontryagin_solver(new_y, new_v, problem_params['V_max'])
+        # or like this we have the leading additional axis though it is just 1
+        new_sols = vmap_pontryagin_solver(new_y[None, :], new_v.reshape(1,), problem_params['V_max'])
+
+        sols = jax.tree_util.tree_map(
+                lambda a, b: np.concatenate([a, b], axis=0),
+                sols, 
+                new_sols
+        )
+
+
+
+    visualiser.plot_trajectories_meshcat(sols, colormap='viridis', line=True)
+
     ipdb.set_trace()
+
+    # TODO get this to work tomorrow. 
+    # val = ct_basics.find_zero_on_trajectory(sol, f, 2e-4, 400.)
+    # ipdb.set_trace()
     
     
-
-    # not working yet 
-    # # try to re-sample the trajectories that got highest, because right now we only
-    # # get ones where the goal is approached from below. 
-    # for i in range(10):
-    #     # replace inf with -inf to not mess with maximisation. 
-    #     last_ys_noinf = jax.lax.select(sols.ys == np.inf, -np.inf * np.ones_like(sols.ys), sols.ys)
-
-    #     max_y_per_trajectory = np.max(last_ys_noinf[:, :, 1], axis=1)
-    #     
-    #     # transform to 0 mean and unit variance. 
-    #     max_y_normalised = (max_y_per_trajectory - max_y_per_trajectory.mean()) / max_y_per_trajectory.std()
-
-    #     # transform to resampling probabilities.
-    #     ps = jax.nn.softmax(max_y_normalised)
-
-    #     key = jax.random.PRNGKey(i)
-    #     resampled_yfs = jax.random.choice(key, last_ys_noinf[:, 0, 0:6], p, axis=0)
 
 
 
@@ -184,14 +203,14 @@ if __name__ == '__main__':
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
         'terminal_constraint': True,
-        'V_max': 200.,
+        'V_max': 1000.,
         'u_eq': np.ones(2) * m * g / 2,
         'x_eq': np.zeros(6),
     }
 
 
     algo_params = {
-            'sampling_N_trajectories': 128,
+            'sampling_N_trajectories': 1,
             'sampling_N_iters': 10,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
@@ -204,10 +223,10 @@ if __name__ == '__main__':
         
         
 
-    # current_weird_experiment(problem_params, algo_params)
-    all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)
+    current_weird_experiment(problem_params, algo_params)
+    # all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)
 
-    visualiser.plot_trajectories_meshcat(all_sols, colormap='viridis')
+    # visualiser.plot_trajectories_meshcat(all_sols, colormap='viridis')
 
     # otherwise visualiser closes immediately
     ipdb.set_trace()

@@ -32,7 +32,7 @@ def plot_trajectories(ts, ys, color='green', alpha='.1'):
 
     pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_v=False):
+def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_v=False, line=False):
 
     '''
     tiny first draft of meshcat visualisation :o
@@ -164,6 +164,20 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
             with anim.at_frame(vis, anim_t) as frame:
                 move_quad(frame, quad_name, y)
+
+        if line:
+            # also plot the corresponding trajectory as a line. 
+            # it wants a point array of shape nx3. 
+            # sols_ys.shape is (N trajectories, N timesteps, 2nx+1)
+            # only the points where we don't have inf. 
+            pt_array = sols_ys[sol_i, sols_ts[sol_i] != np.inf, 0:2]
+            # fill in the missing z values. 
+            pt_array = np.column_stack([np.zeros((pt_array.shape[0], 1)), pt_array])
+
+            # now i am really suffering from the lack of documentation. 
+            # copy pasting these examples makes nothing appear in the viz. 
+            # https://github.com/meshcat-dev/meshcat-python/blob/master/examples/lines.ipynb
+            raise NotImplementedError('lines not supported yet :(.')
 
 
     vis.set_animation(anim, repetitions=np.inf)

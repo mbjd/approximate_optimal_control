@@ -567,3 +567,43 @@ Initial Sobolev learning paper: https://arxiv.org/abs/1706.04859
 
 
 ...need to be precise about research question, specifically, what are we doing better than these?
+
+
+2024-01-26
+
+
+read the different continous time ddp papers for a bit longer. i think I gained
+new intuition.
+
+backwards propagation of V, Vx, Vxx is actually similar to directly evaluating
+the characteristic trajectories backwards, but "modified" so they follow the
+forward dynamics. Imagine the PMP characteristic is a particle following some
+vector field (which it is), and imagine the Vxx term which we carry with it as
+a local representation of the value level set, i.e.  the "front" of possible
+adjacent trajectories. We can imagine replacing our point by an adjacent point
+on the front, and if close enough, we should still get an accurate optimal
+trajectory. 
+
+The DDP backward pass consists of essentially the same: propagating a particle
+backwards in time together with the "front" of nearby possible other points.
+The difference is the particle doesn't follow the vector field itself but
+travels on the trajectory obtained in the forward pass, like on a rail. Then
+there have to be some adjusting terms to account for the "sideways" movement of
+our point. Because we implicitly (using Vxx) keep track of all nearby
+trajectories, if the optimal trajectory is nearby (read: close enough so the
+system is essentially linear in the region between), we have already found it
+during the backward pass and just need the forward pass to "retrieve" it (and
+to check whether it is actually optimal). If we are further away it is more
+complicated, proving that we have a descent direction we can use for line
+search is above my paygrade.
+
+Now, the implementation is still not done, I still have to grok some notation
+from the papers. Certainly this is the next task.
+
+Also, installed ppopt (explicit multiparametric QP solver) and ran the test
+example (control allocation on octacopter). It finishes in like 5 seconds and
+gives a solution object with 500ish critical regions. But evaluating the
+solution at some point does not work, it thinks the point is not in any
+critical region. Want to find out why, also, am unsure whether using such a
+poorly documented tool is worth the hassle. Maybe I just stick with 1D or 2D
+input sets...

@@ -30,9 +30,13 @@ pure-eval==0.2.2
 Pygments==2.17.2
 pyngrok==7.0.5
 pyparsing==3.1.1
+PyQt5==5.15.10
+PyQt5-Qt5==5.15.2
+PyQt5-sip==12.13.0
 python-dateutil==2.8.2
 PyYAML==6.0.1
 pyzmq==25.1.2
+qpax @ git+https://github.com/kevin-tracy/qpax@599b665ebce31f039d9829527f58515dc37ead20
 scipy==1.11.4
 six==1.16.0
 stack-data==0.6.3

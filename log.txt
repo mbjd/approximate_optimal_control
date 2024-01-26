@@ -381,6 +381,17 @@ useful and scalable optinon. Main components of that:
  
 this gon be fun 
 
+basic research questions to justify these goals (is this the valid way of doing
+science? I am but a lowly engineer after all) : 
+
+- How can we achieve maximum sample efficiency? (by choosing correct NN and
+  sampling strategy)
+- Are we able to meaningfully speed up long-horizon trajectory optimisation by
+  going to continuous time? 
+- To what degree can we automate the process and make it "hyperparameter-free"?
+  (probably not that much tbh, I feel like optimal control is in the end just
+  as much black magic as RL, perhaps with two or three less black first steps.)
+
 
 other small stuff: 
 
@@ -431,3 +442,128 @@ separate models depending on some simple condition, like: Is Vx saying we
 should turn left or right? Or based on literally the number of turns from the
 equilibrium. Although this could once more be some half assed solution that
 only works in weird special cases...
+
+
+2024-01-24
+
+found another paper about continuous time DDP, which seems to have a nice
+derivation of the propagation of the value hessian. todo read this more
+carefully, and attempt to recreate? 
+
+https://dl.acm.org/doi/pdf/10.1145/3592454
+
+also got convinced by bhavya that making some custom NN model suited to the
+particular type of nondifferentiability encountered in value functions is
+probably not the way to go. questionable results and not scalable to higher
+dims (due to general lack of global solution).
+
+
+2024-01-25
+
+been reading that paper for some time. still don't understand all the
+notational quirks exactly. 
+
+have gained new intuition about the riccatti eq. this is actually really cool:
+instead of fiding the rapidly diverging backwards optimal trajectories adjacent
+to our trajectory, we find a quadratic/linear parameterisation (= quadratic
+taylor expansion of V(x)) of all of them. the good thing is that even if the
+dynamics are really rapidly unstable, the associated taylor expansion stays
+approximately constant, enabling us to "skip" all the local fast dynamics, and
+skip ahead to finding out how to stabilise them locally. 
+
+From this viewpoint it is almost nonsensical to propagate Vxx information with
+every trajectory in a purely backward PMP integration thing. 
+
+
+viable research goal: 
+
+learned *robust* optimal control a la https://arxiv.org/pdf/2107.04507.pdf? and
+instead of a gradient GP we use a Sobolev NN for function approximation,
+enabling us to use the second derivative. Going from there to optimise active
+learning <-> TO interaction. Maybe heuristically "address" global optimality. 
+
+for robust control there are ugly technicalities with the terminal set, because
+with an adversary we cannot stabilise all the way to the origin, because the
+adversary has no input cost and always chooses the maximally destabilising
+disturbance, whereas we do have an input cost and at some point stop caring
+about small setpoint errors if we have to incur large input cost to fix it. A
+very basic example of this is in Pachter & Weintraub. 
+
+
+~~~ other random idea ~~~
+
+In https://gepettoweb.laas.fr/articles/amit_icra_22.html, they use a fixed time
+horizon for prediction and use a learned value function as terminal cost. thus
+the region where controls are accurately approximated is expanded gradually,
+and they find infinite-horizon controls in the end.
+
+I have been put off by this idea for some time because stitching trajectories
+together gives us another source of approximation error (though I have the
+intuition that this error is somehow very small), and also it gives us an
+excuse to implement continuous time DDP, ofc with the hope that adaptive
+solvers can "skip" the long boring "turnpike" parts of the trajectory quickly
+and give effectively inf horizon optimal controls with feasible effort. 
+
+However, what if we do the following. We have a BNN with accurate uncertainty
+quantification. To find the initial guess for TO, do a forward sim with
+predicted u* from BNN. Evaluating uncertainty in u is no extra work so we might
+as well do it, and stop the simulation once we are in a region where
+uncertainty is below some small threshold. Then we do the TO with the BNN
+(mean?) value function as terminal cost, over a much shorter horizon, hopefully
+only concerning the fast part of the dynamics. 
+
+This *should* work intuitively right? If there is a "slow" manifold we expect
+to have relatively many trajectories there because they all stabilise to that
+region. Therefore we can hope there is a large region with low uncertainty
+after some active learning iterations, and that this region is quickly reached
+in the initial closed loop sim. 
+
+Are there concerns with the terminal state changing during TO, possibly to a
+"worse" region? Intuitively, we should expect that it only changes to better
+regions. Is this true? Try a proof: 
+
+Because the initial guess is a closed loop sim, it is a suboptimal trajectory.
+Join it with the rest (from T to inf), suppose the rest is actually optimal
+(reasonable since uncertainty low there). Then we know the cost-to-go from x0
+will be lower after TO than before (bc. we've gone from suboptimal to optimal). 
+Does this tell us anything about the terminal state? Somehow I have the feeling
+it doesn't if we have a time horizon in physical time, without warping...
+
+We can also just check at the end whether the BNN at the new terminal state is
+still certain enough, and if not, ditch the trajectory, or re-do with longer
+horizon in the next iteration. 
+
+
+
+
+current list of very relevant other publications: 
+
+DDP treatments in continuous time:
+
+Hutter et al.
+https://dl.acm.org/doi/pdf/10.1145/3592454 (w/ general parameters for diff)
+https://arxiv.org/pdf/2101.06067.pdf (w/ state constraints)
+
+
+Sun et al, w/ terminal constraints
+https://www.semanticscholar.org/paper/b00a864b457992c5f87a4e0e24382b33c26512f4
+https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10156422 (w/ control constraints)
+
+
++ HJI/robustness: 
+https://www.semanticscholar.org/paper/5ae21807233c95c5485da721a96cb9ff06a659de
+https://arxiv.org/pdf/2107.04507.pdf
+
+Trajectory Opt <-> Learning: 
+https://arxiv.org/pdf/2107.04507.pdf
+https://gepettoweb.laas.fr/articles/amit_icra_22.html
+
+CACTO: https://arxiv.org/pdf/2211.06625.pdf
+CACTO-SL: https://arxiv.org/pdf/2312.10666.pdf (Sobolev!!!)
+
+Initial Sobolev learning paper: https://arxiv.org/abs/1706.04859
+
++ something about BNNs/active learning but everyone knows how these work
+
+
+...need to be precise about research question, specifically, what are we doing better than these?

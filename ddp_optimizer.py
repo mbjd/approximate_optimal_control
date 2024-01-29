@@ -5,8 +5,9 @@ import pontryagin_utils
 # attept at implementing continuous-time DDP, a bit like: 
 # - https://dl.acm.org/doi/pdf/10.1145/3592454 (Hutter) but without the parameterised stuff
 # - https://arxiv.org/pdf/2107.04507.pdf (Sun) but without the opponent/disturbance
-# - https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10156422
+# - https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10156422 
 # ofc later we can add any of those components back maybe hopefully. 
+
 
 def ddp_main(problem_params, algo_params, init_sol):
 
@@ -39,6 +40,8 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     Vf = lambda x: x.T @ x  # some sensible terminal value...
 
+    forward_sol = init_sol
+
 
     # main iterations 
     for i in range(10): 
@@ -48,7 +51,7 @@ def ddp_main(problem_params, algo_params, init_sol):
         # parameterising λ(t) = S(t) x(t) + s(t), and then solving (26):
 
         # S' = H_xx - f_x^T S - S f_x - S H S
-        # s' = H_x - f_x^T s - S f_x - S H s
+        # s' = H_x - f_x^T s - S f - S H s
 
         # Here H and f are understood with u* substituted in already. but which x? δx? 
         # a bit confused about this, read paper again...
@@ -79,6 +82,80 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # man why can I not just write the equations and implement without
         # worrying so much about intuitively understanding every single detail
+
+        # a weekend passed. let us assume that eq. 26 in DOC (Hutter) is
+        # describing everything for the "tangential" linear system, and the "x"
+        # in (25) is actually a deviation w.r.t. the current iterate
+        # trajectory, and we have
+        #  λ_t(x) = S(t) (x - x_prev(t)) + s(t)
+        # (and thus obviously ∇x λ = S)
+
+        # therefore the full backward pass, with arguments, is this: 
+
+        # S' = H_xx - f_x^T S - S f_x - S H S
+        #      ^      ^           ^     ^ S(t) @ <pre-optimised hamiltonian at x(t), u(t) from forward pass> @ S
+        #      ^      ^-          ^ df/dx(x(t), u(t)) (arguments from forward pass)
+        #      ^ hessian w.r.t. x of pre-optimized hamiltonian at x(t), u(t)
+
+        # s' = H_x - f_x^T s - S f - S H s
+
+        def backwardpass_rhs(t, state, args):
+            S, s = state  # pyTree magic :) 
+
+            # how to give forwardsol nicely as an argument? 
+            # is this te time to use "args"?          
+            x = forward_sol.evaluate(t)  
+                                        
+
+            # we are integrating backwards along the "rolled out" trajectory. 
+            # the tangential linear system gives rise to the costate λ = S (x - x_prev) + s
+            # but because we are on the trajectory we have x = x_prev and λ = s.
+            # is this reasoning correct? 
+            λ = s
+            H = H_opt(x, λ)
+
+            # for this we need first and second derivatives of inner convex optimisation! 
+            # so basically the only option is explicit convex opti. 
+
+            H_x = jax.jacobian(H_opt, argnums=0)(x, λ)
+            H_xx = jax.hessian(H_opt, argnums=0)(x, λ)
+            
+            f_x = jax.jacobian(f, argnums=0)(x, λ)  # be careful if t argument first...
+
+            S_dot = H_xx - f_x.T @ S - S @ f_x - S @ H @ S
+            s_dot = H_x - f_x.T @ s - S @ f(x, λ) - S @ H @ s
+
+            return (S_dot, s_dot)
+
+        term = diffrax.ODETerm(backwardpass_rhs)
+        
+
+        # TODO somehow pass in terminal LQR stuff, and make sure that the terminal 
+        # state is close enough to the equilibrium.
+        # V_inf(x) = x.T @ P_inf @ x 
+        # Standard differentiation rules say:
+        # V_inf_x(x) = 2 P_inf @ x
+        # V_inf_xx(x) = 2 P_inf
+        P_inf = np.eye(nx)
+        
+        # terminal conditions given by taylor expansion of terminal value (eq. 27)
+        S_init = 2 * P_inf 
+        s_init = 2 * P_inf @ forward_sol.evaluate(T)  # terminal state from forward sim
+
+        init_state = (S_init, s_init)
+
+        # TODO also get the specifics (adaptive controller, max steps, SaveAt) right. 
+        backwardpass_sol = diffrax.diffeqsolve(term, Diffrax.Tsit5(), t0=T, t1=0, dt0=0.1, y0=init_state)
+
+        # Then, first thing tomorrow: 
+        # - work out the kinks above so it actually runs. 
+        # - find some actually optimal trajectory by PMP backwards integration
+        # - give it to this as an initial guess
+        # - verify that the backward pass is consistent w/ this info
+        #   (we should have the backward pass costate equal to the initial costate, 
+        #   and if we forward sim again, obtain the same trajectory again)
+        
+
 
         # and does the intuition about information flow along trajectories
         # still even exist? in the linear BVP world it is easy: we

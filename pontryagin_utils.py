@@ -511,13 +511,7 @@ def make_pontryagin_solver(problem_params, algo_params):
             # this should return the last calculated (= non-inf) solution.
             return solution, solution.ys[solution.stats['num_accepted_steps']-1]
 
-    # vmap = gangster!
-    # vmap only across first argument.
-    batch_pontryagin_backward_solver = jax.vmap(
-        pontryagin_backward_solver, in_axes=(0, None, None)
-    )
-
-    return batch_pontryagin_backward_solver
+    return pontryagin_backward_solver
 
 
 def make_pontryagin_solver_wrapped(problem_params, algo_params):
@@ -555,6 +549,7 @@ def make_pontryagin_solver_wrapped(problem_params, algo_params):
 
     x_to_y_vmap = jax.vmap(lambda x: x_to_y(x))
 
+    raise NotImplementedError('breaking change in make_pontryagin_solver: vmap not included anymore')
     batch_pontryagin_backward_solver = make_pontryagin_solver(problem_params, algo_params)
 
     T = problem_params['T']

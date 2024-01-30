@@ -1,5 +1,9 @@
 import jax
+import jax.numpy as np
 import diffrax
+
+import ipdb
+
 import pontryagin_utils
 
 # attept at implementing continuous-time DDP, a bit like: 
@@ -25,23 +29,23 @@ def ddp_main(problem_params, algo_params, init_sol):
     nx = problem_params['nx']
     nu = problem_params['nu']
 
-    # the usual Hamiltonian. 
-    H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
+    # the usual Hamiltonian. t argument irrelevant.
+    H = lambda x, u, λ: l(0., x, u) + λ.T @ f(0., x, u)
 
     # the pre-optimised Hamiltonian. 
     def H_opt(x, λ): 
+        # replace with relevant inner convex optimisation
         u_star = pontryagin_utils.u_star_2d(x, λ, problem_params)
         return H(x, u_star, λ)
             
-
-
-
-
-
     Vf = lambda x: x.T @ x  # some sensible terminal value...
 
+    # do we have problems if this solution was calculated backwards? 
+    # -> probably not, because evaluation works the same in any case.
     forward_sol = init_sol
 
+    # this is to handle case where t0>t1 (if solution was obtained backwards)
+    t0, tf = sorted([forward_sol.t0, forward_sol.t1])  
 
     # main iterations 
     for i in range(10): 
@@ -100,11 +104,14 @@ def ddp_main(problem_params, algo_params, init_sol):
         # s' = H_x - f_x^T s - S f - S H s
 
         def backwardpass_rhs(t, state, args):
-            S, s = state  # pyTree magic :) 
+
+            S, s = state  # pytree magic :) 
+            prev_sol = args
 
             # how to give forwardsol nicely as an argument? 
             # is this te time to use "args"?          
-            x = forward_sol.evaluate(t)  
+            x = prev_sol.evaluate(t)[0:nx]
+
                                         
 
             # we are integrating backwards along the "rolled out" trajectory. 
@@ -114,16 +121,38 @@ def ddp_main(problem_params, algo_params, init_sol):
             λ = s
             H = H_opt(x, λ)
 
-            # for this we need first and second derivatives of inner convex optimisation! 
-            # so basically the only option is explicit convex opti. 
+            # this is the input from the previous forward simulation
+            # which btw would not have contained 
+            # use diffrax's CDE tools? can we save the control term then? 
+            u = pontryagin_utils.u_star_2d(x, λ, problem_params)
 
-            H_x = jax.jacobian(H_opt, argnums=0)(x, λ)
-            H_xx = jax.hessian(H_opt, argnums=0)(x, λ)
-            
-            f_x = jax.jacobian(f, argnums=0)(x, λ)  # be careful if t argument first...
 
-            S_dot = H_xx - f_x.T @ S - S @ f_x - S @ H @ S
-            s_dot = H_x - f_x.T @ s - S @ f(x, λ) - S @ H @ s
+            # confused about Hutter (DOC) notation. Let us instead try Sun & Kleiber 2023.
+            # basically they have some Q function but never define it, instead only mentioning
+            # its different partial derivatives???
+
+            # matching terms from (7). not sure wtf (15) is
+            neg_V_dot = l(x, u_star)
+            neg_Vx_dot = 
+            neg_Vxx_dot = 
+
+            # # for this we need first and second derivatives of inner convex optimisation! 
+            # # so basically the only option is explicit convex opti. 
+
+            # # this returns something but H_x has some suspiciously large numbers, and 
+            # # H_xx is mostly diag(2I) with some exceptions. dunno why
+            # H_x = jax.jacobian(H_opt, argnums=0)(x, λ)
+            # H_xx = jax.hessian(H_opt, argnums=0)(x, λ)
+            # 
+            # # not sure if arguments are meant to be like this
+            # u_star = pontryagin_utils.u_star_2d(x, λ, problem_params)
+            # f_x = jax.jacobian(f, argnums=1)(0., x, u_star)  # be careful if t argument first...
+            # ipdb.set_trace()
+
+            # # is H supposed to be a scalar here? 
+            # # if yes, why? 
+            # S_dot = H_xx - f_x.T @ S - S @ f_x - S @ H @ S
+            # s_dot = H_x - f_x.T @ s - S @ f(x, λ) - S @ H @ s
 
             return (S_dot, s_dot)
 
@@ -139,10 +168,15 @@ def ddp_main(problem_params, algo_params, init_sol):
         P_inf = np.eye(nx)
         
         # terminal conditions given by taylor expansion of terminal value (eq. 27)
+        xf = forward_sol.evaluate(tf)[0:nx]
+        s_init = 2 * P_inf @ xf  # terminal state from forward sim
         S_init = 2 * P_inf 
-        s_init = 2 * P_inf @ forward_sol.evaluate(T)  # terminal state from forward sim
 
         init_state = (S_init, s_init)
+
+        # test the RHS function. 
+        out = backwardpass_rhs(tf, (S_init, s_init), forward_sol)
+        ipdb.set_trace()
 
         # TODO also get the specifics (adaptive controller, max steps, SaveAt) right. 
         backwardpass_sol = diffrax.diffeqsolve(term, Diffrax.Tsit5(), t0=T, t1=0, dt0=0.1, y0=init_state)

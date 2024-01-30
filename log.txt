@@ -607,3 +607,49 @@ solution at some point does not work, it thinks the point is not in any
 critical region. Want to find out why, also, am unsure whether using such a
 poorly documented tool is worth the hassle. Maybe I just stick with 1D or 2D
 input sets...
+
+
+
+2024-01-30
+
+
+copypasting from last time: the overarching project goals as of now. 
+
+a) Develop "inf-horizon" continouos time DDP, implement in jax. Connect with
+   active learning & Sobolev NN to efficiently find new solutions over whole
+   interesting region. Maybe some sort of "approximate" global optimality. 
+
+at the moment I am leaning towards a) which is probably the more generally
+useful and scalable optinon. Main components of that: 
+
+- inf-horizon, continuous time DDP
+  - theory (basically figure out those couple papers)
+  - implementation :) 
+
+- Sobolev Bayesian NN
+  - Which flavour of "bayesianisation"? 
+  - Sobolev how exactly? With hessian approxiamated by random Hvp?
+  - Find some nice version that half works with nondifferentiable points? 
+    (see notes from Fr.)
+
+- Intermingling of the two
+  - IMO this is the actual interesting part. 
+  - How to propose new samples?
+  - How to handle trajectory optimisation? Fixed iterations? Until converged? 
+  - Data structure considerations? Hopefully not
+  - Reweight data, e.g. by 1/density, for training? 
+  - Bias somehow so we are more likely to encounter "surprising" trajectories
+    which are better than the currently known solution? 
+  - some sort of heuristic global optimality thing? maybe assuming we know about
+    the number or structure of the different "modes"? 
+
+- Other stuff
+  - Which examples, costs, engineering tradeoff type goals? 
+ 
+
+
+been trying to grok the two main continuous time DDP papers again today. Tried
+to develop my own intuition, connect w/ characteristics approach, and see
+whether deriving the backward propagation from that angle gives us the same,
+and maybe lets me understand the papers. Got a bit further on the theory front
+but no implementation that is working yet. 

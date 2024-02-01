@@ -51,108 +51,66 @@ def ddp_main(problem_params, algo_params, init_sol):
     for i in range(10): 
 
         # backward pass: Find the local value function expansion around the trajectory.
-        # Hutter/Grandia says that the linearised pontryagin BVP (eq. 23) is solved by 
-        # parameterising λ(t) = S(t) x(t) + s(t), and then solving (26):
-
-        # S' = H_xx - f_x^T S - S f_x - S H S
-        # s' = H_x - f_x^T s - S f - S H s
-
-        # Here H and f are understood with u* substituted in already. but which x? δx? 
-        # a bit confused about this, read paper again...
-        # In this other paper (also from Hutter) https://arxiv.org/pdf/2101.06067.pdf
-        # they write the parameterisation as λ(t) = S(t) δx + s(t) which looks more reasonable. 
-        # then the δx is probably the deviation from the previous iterate at time t. 
-
-        # then, for each t in our time interval, we have a local approximation
-        # of the cost-to-go v(x) at some other state x: 
-
-        # 0 ord.    |-- 1st order --|   |--------- 2nd order ---------|
-        # v(x(t)) + s(t) @ (x - x(t)) + (1/2) (x - x(t))^T S (x - x(t))
-
-        # the 0th order is obviously correct if v represents the actual
-        # experienced cost-to-go on that trajectory.
-
-        # the 1st and second order i am a bit confused about. In nice pure
-        # optimal control theory the value gradient is obviously the costate.
-        # but is a similar thing true about our local cost-to-go approximation
-        # around this suboptimal trajectory? not so sure...
-
-        # is this correct? this is basically a taylor polynomial right?  or, is
-        # the resulting "V" not actually a local approximation of the cost to
-        # go on the previous iterate trajectory, but rather the actual full
-        # value function formed by "estimating" the optimal trajectory based on
-        # a lin/quad taylor expansion at the current one? This would nicely
-        # explain the newton-ish convergence. 
-
-        # man why can I not just write the equations and implement without
-        # worrying so much about intuitively understanding every single detail
-
-        # a weekend passed. let us assume that eq. 26 in DOC (Hutter) is
-        # describing everything for the "tangential" linear system, and the "x"
-        # in (25) is actually a deviation w.r.t. the current iterate
-        # trajectory, and we have
-        #  λ_t(x) = S(t) (x - x_prev(t)) + s(t)
-        # (and thus obviously ∇x λ = S)
-
-        # therefore the full backward pass, with arguments, is this: 
-
-        # S' = H_xx - f_x^T S - S f_x - S H S
-        #      ^      ^           ^     ^ S(t) @ <pre-optimised hamiltonian at x(t), u(t) from forward pass> @ S
-        #      ^      ^-          ^ df/dx(x(t), u(t)) (arguments from forward pass)
-        #      ^ hessian w.r.t. x of pre-optimized hamiltonian at x(t), u(t)
-
-        # s' = H_x - f_x^T s - S f - S H s
 
         def backwardpass_rhs(t, state, args):
 
-            S, s = state  # pytree magic :) 
+            # the taylor expansion stored normally as pytree.
+            v, lam, S = state  
+
             prev_sol = args
 
             # how to give forwardsol nicely as an argument? 
             # is this te time to use "args"?          
             x = prev_sol.evaluate(t)[0:nx]
 
-                                        
+            u_star = pontryagin_utils.u_star_2d(x, lam, problem_params)
 
-            # we are integrating backwards along the "rolled out" trajectory. 
-            # the tangential linear system gives rise to the costate λ = S (x - x_prev) + s
-            # but because we are on the trajectory we have x = x_prev and λ = s.
-            # is this reasoning correct? 
-            λ = s
-            H = H_opt(x, λ)
+            # this partial derivative we can do by hand :) H is linear in lambda.
+            H_lambda = f(t, x, u_star)  
 
+            # do NOT confuse these! I have the power
+            # of multivariate analysis and LaTeX on my side!
+            H_x_partial = jax.jacobian(H, argnum=0)
+            H_x = H_x_fct(x, u_star, lam)
+
+            # the expression we got for \dot S. 
+
+            def Hx_as_function_of_only_x(xp):
+                # taylor approx of lambda(x), bc this function is for differentating
+                # taylor approx is done about x, we are evaluating at xp.
+                # if somehow someone demands third gradients of V in the form of second 
+                # gradients of lambda, this will just give 0, as S is considered constant here. 
+
+                lam_x = lam + S @ (xp - x)
+                u_star = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+                return H_x_partial(x, u_star, lam_x)
+
+
+            weird_Hxx = jax.jacobian(Hx_as_function_of_only_x)(x)
+
+            # TODO do one of these: 
+            # a) evaluate RHS that was used to generate the forward trajectory
+            # b) approximate with d/dt of interpolated solution
+            dot_xbar = None
+
+            # this is ~ 1/2 of option a) 
+            # would also be cool if we could make diffrax store an interpolation
+            # of some "output" variables so we can put the input there, which would
+            # be handy for all sorts of things.
+
+            lam_prev = None # get this from last backward solution? 
             # this is the input from the previous forward simulation
-            # which btw would not have contained 
-            # use diffrax's CDE tools? can we save the control term then? 
-            u = pontryagin_utils.u_star_2d(x, λ, problem_params)
+            u_prev = pontryagin_utils.u_star_2d(x, lam_prev, problem_params)
 
 
-            # confused about Hutter (DOC) notation. Let us instead try Sun & Kleiber 2023.
-            # basically they have some Q function but never define it, instead only mentioning
-            # its different partial derivatives???
+            # according to my own derivations
+            # am I now really the type of guy who finds working this out myself easier 
+            # than copying formulas from existing papers? anyway...
 
-            # matching terms from (7). not sure wtf (15) is
-            neg_V_dot = l(x, u_star)
-            neg_Vx_dot = 
-            neg_Vxx_dot = 
-
-            # # for this we need first and second derivatives of inner convex optimisation! 
-            # # so basically the only option is explicit convex opti. 
-
-            # # this returns something but H_x has some suspiciously large numbers, and 
-            # # H_xx is mostly diag(2I) with some exceptions. dunno why
-            # H_x = jax.jacobian(H_opt, argnums=0)(x, λ)
-            # H_xx = jax.hessian(H_opt, argnums=0)(x, λ)
-            # 
-            # # not sure if arguments are meant to be like this
-            # u_star = pontryagin_utils.u_star_2d(x, λ, problem_params)
-            # f_x = jax.jacobian(f, argnums=1)(0., x, u_star)  # be careful if t argument first...
-            # ipdb.set_trace()
-
-            # # is H supposed to be a scalar here? 
-            # # if yes, why? 
-            # S_dot = H_xx - f_x.T @ S - S @ f_x - S @ H @ S
-            # s_dot = H_x - f_x.T @ s - S @ f(x, λ) - S @ H @ s
+            # the money shot, derivation & explanations in dump, section 3.5.*
+            v_dot = -l(x, u_star) + lambda.T @ (dot_xbar - H_lambda)
+            lam_dot = -H_x + S @ (dot_xbar - H_lambda)
+            S_dot = -weird_Hxx
 
             return (S_dot, s_dot)
 

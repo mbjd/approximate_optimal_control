@@ -653,3 +653,57 @@ to develop my own intuition, connect w/ characteristics approach, and see
 whether deriving the backward propagation from that angle gives us the same,
 and maybe lets me understand the papers. Got a bit further on the theory front
 but no implementation that is working yet. 
+
+
+2024-01-31
+
+
+meeting. discussion about whether or not it is worth it to implement own,
+continuous time optimiser. they say: probably not, probably they are right. i
+can still do this if I get the rest working. then I can focus on the more
+interesting part: how to do do active learning sensibly, how to handle
+different local solutions, how to make it infinite horizon.
+
+Problem is, in discrete time we get discretisation artefacts, we get no clearly
+defined time invariant value function (or do we?) Also the inner optimisation
+is now concerned with minimising the cost over an actual time interval, making
+everything nonlinear and nonconvex and ugly. and yet more, we don't get to
+profit from adaptive step sizes or anything like that. I really don't feel like
+"throwing away" all the nice continuous time things. Is this a sunk cost
+fallacy?
+
+Stuff to look up: 
+- Offline RL (learning optimal policy from fixed, suboptimal data)
+- average-reward MDP (undiscounted/inf-horizon problems)
+
+goal for next time: formulate overarching goal, high level problem description
+in cohesive and clear form
+
+
+found yet another paper from Farshidian, Buchli, etc. about continuous time
+constrained trajectory optimisation: https://arxiv.org/pdf/1701.08051v2.pdf
+They state pretty clearly the advantages over NLP-based approaches: 
+
+"
+    In general, NLP–based planning algorithms require the
+    discretization of the inﬁnite dimensional, continuous optimiza-
+    tion problem to a ﬁnite dimension NLP. This discretization is
+    often carried out using heuristics, which can result in numer-
+    ically poor or practically infeasible solutions. Our algorithm,
+    by contrast, is a continuous–time method which uses variable
+    step-size ODE solvers in its forward and backward passes.
+    Given the desired accuracy, it can automatically discretize the
+    problem using the error control mechanism of the variable
+    step-size ODE solver. Informally speaking, this allows the
+    solver to indirectly control the distance between the “nodes”
+    in the feedforward and feedback trajectory. In practice, this
+    decreases the runtime of an iteration, since the number of
+    calculations decreases.
+"
+
+
+2024-02-01
+
+finished own derivation of how the value taylor expansion evolves in the
+backward pass. just couldn't help it. coded it up in skeleton form, still a few
+things missing, I almost fear trying it out.

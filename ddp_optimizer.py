@@ -29,6 +29,27 @@ def ddp_main(problem_params, algo_params, init_sol):
     nx = problem_params['nx']
     nu = problem_params['nu']
 
+
+    # do this again here. should we put this in one of the params dicts? 
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+
+    # compute sqrtm of P, the value function matrix.
+    P_eigv, P_eigvec = np.linalg.eigh(P_lqr)
+
+    Phalf = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
+    Phalf_inv = np.linalg.inv(Phalf)  # only once! 
+
+    maxdiff = np.abs(Phalf @ Phalf - P_lqr).max()
+    assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
+
+    # should work the same for any unit vector (xT is disregarded)
+    unitvec_example = np.eye(nx)[0] 
+    xf_example = np.linalg.solve(Phalf, unitvec_example) * 0.01
+    v_f = xf_example.T @ P_lqr @ xf_example
+    # with this we have defined Xf = {x: x.T P_lqr x <= vT}
+    
+
+
     # the usual Hamiltonian. t argument irrelevant.
     H = lambda x, u, λ: l(0., x, u) + λ.T @ f(0., x, u)
 
@@ -38,14 +59,17 @@ def ddp_main(problem_params, algo_params, init_sol):
         u_star = pontryagin_utils.u_star_2d(x, λ, problem_params)
         return H(x, u_star, λ)
             
-    Vf = lambda x: x.T @ x  # some sensible terminal value...
-
     # do we have problems if this solution was calculated backwards? 
     # -> probably not, because evaluation works the same in any case.
     forward_sol = init_sol
 
     # this is to handle case where t0>t1 (if solution was obtained backwards)
     t0, tf = sorted([forward_sol.t0, forward_sol.t1])  
+
+    # write the whole iteration in a scan-type loop? 
+    # which pass should we do first in each loop iteration? 
+    # backward then forward? 
+    # + no special case for initial trajectory
 
     # main iterations 
     for i in range(10): 
@@ -70,7 +94,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
             # do NOT confuse these! I have the power
             # of multivariate analysis and LaTeX on my side!
-            H_x_partial = jax.jacobian(H, argnum=0)
+            H_x_fct = jax.jacobian(H, argnums=0)
             H_x = H_x_fct(x, u_star, lam)
 
             # the expression we got for \dot S. 
@@ -83,57 +107,85 @@ def ddp_main(problem_params, algo_params, init_sol):
 
                 lam_x = lam + S @ (xp - x)
                 u_star = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-                return H_x_partial(x, u_star, lam_x)
+                return H_x_fct(x, u_star, lam_x)
 
 
+            # all in all this is kind of a jacobian of a jacobian but the inner one is partial 
+            # and the outer one is total...? 
             weird_Hxx = jax.jacobian(Hx_as_function_of_only_x)(x)
+
+            ipdb.set_trace()
 
             # TODO do one of these: 
             # a) evaluate RHS that was used to generate the forward trajectory
             # b) approximate with d/dt of interpolated solution
-            dot_xbar = None
 
-            # this is ~ 1/2 of option a) 
-            # would also be cool if we could make diffrax store an interpolation
-            # of some "output" variables so we can put the input there, which would
-            # be handy for all sorts of things.
+            # this is the entirety of option b)
+            dot_xbar = prev_sol.derivative(t)[0:nx]
 
-            lam_prev = None # get this from last backward solution? 
+            ### # this is a rough draft of option a) 
+            ### # would also be cool if we could make diffrax store an interpolation
+            ### # of some "output" variables so we can put the input there, which would
+            ### # be handy for all sorts of things.
+
+            ### lam_prev = None # get this from last backward solution? 
+            ### # maybe that could be done with the SaveAt object in diffrax? 
+            ### # https://docs.kidger.site/diffrax/api/saveat/
+            ### # i guess with that we can also just save the input as a function of 
+            ### # state. But it will probably be evaluated twice...
+            ### 
+            ### # we could require that the forward solution be constructed with an approximate 
+            ### # optimal input given by some function lambda(x). this would encompass the repeated
+            ### # forward passes, and initialisation with some global approximate V_x function. 
+            ### # then we can do this: https://github.com/patrick-kidger/diffrax/issues/60
+            ### # and save the costate during the forward simulation. because it is smooth, at 
+            ### # least along forward trajectories, we expect that it works well with interpolation. 
+            ### # then we could just get it here as part of the prev_sol object probably...
+
+            ### # just for a small test
+            ### lam_prev = lam * (1 + jax.random.normal(jax.random.PRNGKey(9130), shape=lam.shape) * 0.1)
+
             # this is the input from the previous forward simulation
             u_prev = pontryagin_utils.u_star_2d(x, lam_prev, problem_params)
-
 
             # according to my own derivations
             # am I now really the type of guy who finds working this out myself easier 
             # than copying formulas from existing papers? anyway...
 
             # the money shot, derivation & explanations in dump, section 3.5.*
-            v_dot = -l(x, u_star) + lambda.T @ (dot_xbar - H_lambda)
+            v_dot = -l(t, x, u_star) + lam.T @ (dot_xbar - H_lambda)
+            # maybe ^ equivalent to -l(t, x, u_prev?)
+
             lam_dot = -H_x + S @ (dot_xbar - H_lambda)
+
             S_dot = -weird_Hxx
 
-            return (S_dot, s_dot)
+            return (v_dot, lam_dot, S_dot)
 
         term = diffrax.ODETerm(backwardpass_rhs)
         
-
-        # TODO somehow pass in terminal LQR stuff, and make sure that the terminal 
-        # state is close enough to the equilibrium.
-        # V_inf(x) = x.T @ P_inf @ x 
+        # V_inf(x) = x.T @ P_lqr @ x 
         # Standard differentiation rules say:
-        # V_inf_x(x) = 2 P_inf @ x
-        # V_inf_xx(x) = 2 P_inf
-        P_inf = np.eye(nx)
+        # V_inf_x(x) = 2 P_lqr @ x
+        # V_inf_xx(x) = 2 P_lqr
         
-        # terminal conditions given by taylor expansion of terminal value (eq. 27)
+        # terminal state from forward sim.
         xf = forward_sol.evaluate(tf)[0:nx]
-        s_init = 2 * P_inf @ xf  # terminal state from forward sim
-        S_init = 2 * P_inf 
 
-        init_state = (S_init, s_init)
+        # terminal conditions given by taylor expansion of terminal value
+        v_T = xf.T @ P_lqr @ xf
+        lam_T = 2 * P_lqr @ xf
+        S_T = 2 * P_lqr 
+
+        # small additional tolerance for numerical inaccuracies
+        if v_T >= v_f * 1.001: 
+            # better to be a bit of a bünzli about this :) 
+            raise ValueError('Terminal value function V_f undefined outside terminal region X_f')
+
+        init_state = (v_T, lam_T, S_T)
 
         # test the RHS function. 
-        out = backwardpass_rhs(tf, (S_init, s_init), forward_sol)
+        out = backwardpass_rhs(tf, init_state, forward_sol)
         ipdb.set_trace()
 
         # TODO also get the specifics (adaptive controller, max steps, SaveAt) right. 
@@ -147,7 +199,10 @@ def ddp_main(problem_params, algo_params, init_sol):
         #   (we should have the backward pass costate equal to the initial costate, 
         #   and if we forward sim again, obtain the same trajectory again)
         
-
+        # then, here: 
+        # - do forward pass
+        # - do some convergence check
+        # - if not converged, give forward solution to next iteration. 
 
         # and does the intuition about information flow along trajectories
         # still even exist? in the linear BVP world it is easy: we

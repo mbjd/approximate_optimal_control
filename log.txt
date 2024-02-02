@@ -707,3 +707,49 @@ They state pretty clearly the advantages over NLP-based approaches:
 finished own derivation of how the value taylor expansion evolves in the
 backward pass. just couldn't help it. coded it up in skeleton form, still a few
 things missing, I almost fear trying it out.
+
+
+2024-02-02
+
+continued hacking a bit at the implementation. been thinking about how we best
+access the RHS used to make the forward sim in the backward pass.
+mathematically we can just evaluate the time derivative of the solution
+trajectory. however, it is a polynomial interpolation, not the real thing.
+Compared the two with a plot and we indeed see rather large errors (more than
+10% of the state values themselves). So, there seems to be no shortcut to
+evaluating the RHS again, given that the ODE solver chooses different time
+points anyways. And, come to think of it, we need the state derivative of the
+RHS too which will dominate computational cost in all cases.
+
+maybe using the interpolation is even better? the interpolation's time
+derivative tells us where our actual approximate "solution" trajectory goes,
+while the RHS evaluated again tells us where it "should have gone", loosely
+speaking. will have to try it out. using the derivative is certainly easier
+though. but even if we do that we need the previous input anyway, and to get
+that reliably, the previous costate, and in turn to get that, either the full
+data from the last backward pass, or some interpolation of the costate seen
+during the forward pass. 
+
+
+ideas to start working next monday (high priority):
+
+- formulate overarching goals neatly, maybe in own latex document? 
+
+- finish the backward pass implementation, debug, sanitycheck, work towards DDP
+- if it completely fails, resort to trying to understand other papers
+
+- think about active learning part and local/global heuristics. 
+- maybe start using some finished DDP implementation for other experiments? 
+
+low priority:
+
+- implement inner convex optimisaiton in general case
+  (brute force active set = region-free explicit mpQP?)
+
+- come up with example dynamical systems illustrating different up/downsides of
+  our approach
+
+- think abt extensions (2 player differential game? parameterised?) in fact
+  just the combination of those two (basically unifying Hutter et al. with
+  Sun&Kleiber would be a great novelty but also considerable coding work)
+

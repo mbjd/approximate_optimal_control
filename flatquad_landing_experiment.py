@@ -38,7 +38,11 @@ def current_weird_experiment(problem_params, algo_params):
 
     # find N points on the unit sphere.
     # well known approach: find N standard normal points, divide by norm.
-    key = jax.random.PRNGKey(int(time.time()*100000))
+    # key = jax.random.PRNGKey(int(time.time()*100000))
+
+    # the key lead to an interesting failure case in evaluating the derivative of the interpolation. 
+    key = jax.random.PRNGKey(767667633)  
+
     normal_pts = jax.random.normal(key, shape=(algo_params['sampling_N_trajectories'], problem_params['nx']))
     unitsphere_pts = normal_pts /  np.sqrt((normal_pts ** 2).sum(axis=1))[:, None]
 
@@ -87,6 +91,87 @@ def current_weird_experiment(problem_params, algo_params):
     # to have correct time info, use non-reparam solver here
     pontryagin_solver_orig = jax.jit(pontryagin_utils.make_pontryagin_solver(problem_params, algo_params))
     sol_orig = pontryagin_solver_orig(yTs[0], 4., 0.) # [0] bc. not vmapped
+
+
+    # small test: plot the solution trajectory and its time derivatives.
+    # looks good at first glance, no discontinuities etc.
+    # second time derivative looks pretty ugly though 
+
+    # after a closer look we see though that anything discontinuous is not 
+    # well represented at all. for example if the initial input is full torque 
+    # because we rotate quickly, then the derivative of the omega state is obviously
+    # constant. After that it *should* start decreasing. At the nondifferentiable point
+    # however the interpolating polynomial's derivative oscillates about a bit and even 
+    # overshoots the (previous) maximum.
+
+    # this is making me think that indeed we will just have to evaluate the RHS again 
+    # instead of relying on the derivative of the interpolation. Patrick also warns 
+    # of this here: https://docs.kidger.site/diffrax/api/solution/
+
+    # or do we still "cheat" our way around it and d/dt the solution? my thinking is this: 
+    # we mostly don't care if the solution "wiggles" about slightly (which will alter the 
+    # v and vxx information we are propagating, but alter them right back when wiggling back)
+    # as long as it generally goes into the right direction. And the RHS derivatives we have to 
+    # evaluate anyway are evaluated at u* according to lambda (which we are finding in
+    # the backward pass) and x (which we have from the forward solution). the only reason we are
+    # interested in the time derivative of the forward solution is so we can adjust v and v_x 
+    # according to the difference in the two derivatives. 
+
+    # maybe the second is actually even better because we actually follow exactly the interpolated 
+    # solution so from that perspective it would be more "coherent" to also adjust the taylor 
+    # expansion using that info. but then again, the wiggling of the interpolation is just an artefact
+    # of the ODE solution method, we know that the actual trajectory follows the RHS precisely, and so
+    # might guess that the ODE solution over longer time periods is also more accurately represented by
+    # that RHS than the interpolation's time derivative
+
+    # this has turned into a rambling mess. probably either approach will work okay-ish, and we already
+    # have other numerical errors anyway. 
+
+    if False:
+        ts_eval = np.linspace(sol_orig.t0, sol_orig.t1, 2001)
+
+        interp_sol = jax.vmap(sol_orig.evaluate)(ts_eval)
+
+        # plot the interpolation as line, and the nodes as points. 
+        pl.subplot(121)
+        pl.plot(ts_eval, interp_sol[:, 0:6], label=problem_params['state_names'])
+        pl.gca().set_prop_cycle(None)
+        # basically pl.scatter but that one has trouble understanding arrays
+        pl.plot(sol_orig.ts, sol_orig.ys[:, 0:6], marker='.', linestyle='')
+        pl.xlabel('state trajectory (interpolated)')
+        pl.legend()
+
+
+        pl.subplot(122)
+        # now the same but for the derivative of the solution. 
+
+        # the difference between those looks like white noise about
+        # 10^5 times smaller than the trajectories themselves.
+        # so basically very minor numerical differences.
+        # interp_ddt = jax.vmap(jax.jacobian(sol_orig.evaluate))(ts_eval)
+        interp_ddt = jax.vmap(sol_orig.derivative)(ts_eval)
+
+        # higher derivative just for fun
+        # interp_ddt = jax.vmap(jax.jacobian(jax.jacobian(jax.jacobian(sol_orig.evaluate))))(ts_eval)
+
+        labels = ['d/dt ' + name for name in problem_params['state_names']]
+        pl.plot(ts_eval, interp_ddt[:, 0:6], label=labels, linestyle='--', alpha=.5)
+        pl.xlabel('d/dt [state trajectory (interpolated)]')
+
+
+        pl.xlabel('ODE RHS at interpolated state trajectory')
+
+        pl.gca().set_prop_cycle(None)
+        f = pontryagin_utils.define_extended_dynamics(problem_params)
+        interp_rhs = jax.vmap(f, in_axes=(None, 0))(0., interp_sol)
+        labels = ['rhs(' + name + ')' for name in problem_params['state_names']]
+        pl.plot(ts_eval, interp_rhs[:, 0:6], label=labels)
+
+
+        pl.legend()
+        pl.show()
+        ipdb.set_trace()
+
     ddp_optimizer.ddp_main(problem_params, algo_params, sol_orig)
     ipdb.set_trace()
 
@@ -163,6 +248,7 @@ if __name__ == '__main__':
         'h': h,
         'T': 2,
         'nx': 6,
+        'state_names': ("x", "y", "Phi", "vx", "vy", "omega"),
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
         'terminal_constraint': True,
@@ -177,8 +263,8 @@ if __name__ == '__main__':
             'sampling_N_iters': 10,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
-            'pontryagin_solver_atol': 1e-4,
-            'pontryagin_solver_rtol': 1e-4,
+            'pontryagin_solver_atol': 1e-3,
+            'pontryagin_solver_rtol': 1e-5,
             'pontryagin_solver_maxsteps': 128, # nice if it is not waaay too much
             'pontryagin_solver_dense': False,
     }

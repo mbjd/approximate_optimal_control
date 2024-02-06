@@ -566,7 +566,8 @@ Initial Sobolev learning paper: https://arxiv.org/abs/1706.04859
 + something about BNNs/active learning but everyone knows how these work
 
 
-...need to be precise about research question, specifically, what are we doing better than these?
+...need to be precise about research question, specifically, what are we doing
+...better than these?
 
 
 2024-01-26
@@ -752,4 +753,48 @@ low priority:
 - think abt extensions (2 player differential game? parameterised?) in fact
   just the combination of those two (basically unifying Hutter et al. with
   Sun&Kleiber would be a great novelty but also considerable coding work)
+
+
+
+2024-02-05
+
+...vs what I actually did: re-do the calculation of \dot S along
+characteristic curves. The thing from last time turned out to be not
+symmetric, therefore it must be wrong (still unsure where exactly I went wrong
+though). The second try is akin to the DOC derivation: write down a solution
+of the characteristics plus some small variation as (x, \lambda) + (\delta x,
+\delta \lambda). Then by subtracting the non-delta part and doing a first
+order taylor approximation we get "differential dynamics", a time varying
+linear system for the state variable (\delta x, \delta \lambda). like DOC we
+then parameterise lambda as a linear function of x, S x. After juggling around
+some terms the "differential dynamics" also tell us how this matrix S evolves,
+we get something depending on different second partial derivatives of H^\star
+and also S itself, looking very reasonable. Let's try it out in jax.
+
+
+2024-02-06
+
+was a bit sick in the morning, feared i had covid, slept in. was better by 10.
+
+did some more philosophising about the differences between the DOC derivation
+(LQ-isation of entire OCP about current iterate + solution of linear BVP) and
+the weird thing I did (follow characteristic curves first and foremost, but
+adjust the taylor expansion to account for the different direction in which
+the forward trajectory points.) I may have found the central difference,
+namely that in our version we are taylor expanding the pre-optimised
+hamiltonian about the characteristic field given by current x and lambda, and
+with it the u* map which is piecewise linear. In DOC this taylor expansion is
+formed about the iterate trajectory. But also they have no input constraints
+and no piecewise linear u*, just a linear one. Maybe read Sun&Kleiber more
+precisely again to see how they handled it? 
+
+then, continued the implementaiton (of our, almost-characteristics-following
+version) and got to the first run where numbers come out on the other side
+juhuuu ;) On the first try the value and costate match the forward trajectory
+(which was evaluated in backward time and so is already optimal). sanity check
+passed!  The entries of the S matrix look kind of sus to be honest but then
+again it is a trajectory which initially has the uav spinning quickly so that
+is kind of to be expected. more sanity checking follows tomorrow, goodnight :) 
+
+
 

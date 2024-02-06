@@ -228,7 +228,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # same tolerance parameters used in pure unguided backward integration of whole PMP
         step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
-        saveat = diffrax.SaveAt(steps=True)
+        saveat = diffrax.SaveAt(steps=True, dense=True)
 
         backwardpass_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=tf, t1=t0, dt0=-0.1, y0=init_state,
@@ -236,7 +236,63 @@ def ddp_main(problem_params, algo_params, init_sol):
             max_steps = 1024,
             args = forward_sol
         )
-        ipdb.set_trace()
+        # WE GOT OUR FIRST RUN! and it actually produces numbers and not NaNs and the like. 
+        # let us investigate if they make sense. 
+        investigate = True
+        if investigate:
+
+            # compare values from backward pass and "forward" sol
+            pl.figure()
+            pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[0], label='v from backward pass')
+            pl.plot(forward_sol.ts, forward_sol.ys[:, -1], label='v from "forward" pass')
+            pl.legend()
+
+            # compare costates. 
+            pl.figure()
+            pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[1], label='costate from backward pass')
+            pl.gca().set_prop_cycle(None)
+            pl.plot(forward_sol.ts, forward_sol.ys[:, nx:2*nx], label='costate from "forward" pass', linestyle='--')
+            pl.legend()
+
+
+            pl.figure()
+            # now the interesting stuff, stats about the S matrix. 
+            pl.subplot(131)
+            pl.xlabel('S matrix - raw and interpolated entries')
+            pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[2].reshape(-1, nx*nx), marker='.', linestyle='')
+            interp_ts = np.linspace(backwardpass_sol.t0, backwardpass_sol.t1, 501)
+            interp_ys = jax.vmap(backwardpass_sol.evaluate)(interp_ts)
+            pl.gca().set_prop_cycle(None)
+            pl.plot(interp_ts, interp_ys[2].reshape(-1, nx*nx))
+            '''
+
+            these S entries look kind of wild but then again so does the state
+            trajectory. so maybe nothing to worry about. need to see other
+            trajectories and do numerical sanity checks by using the local
+            value function in feedback controller and looking at those
+            trajectories. 
+
+            '''
+
+            pl.subplot(132)
+            pl.xlabel('norm(S - S.T)')
+            batch_matrix_asymmetry = jax.vmap(lambda mat: np.linalg.norm(mat - mat.T))
+            pl.plot(backwardpass_sol.ts, batch_matrix_asymmetry(backwardpass_sol.ys[2]), marker='.', linestyle='')
+            pl.plot(interp_ts, batch_matrix_asymmetry(interp_ys[2]))
+
+            '''
+            
+            the asymmetry does grow to about does grow to about .00018. I'd
+            say its nothing to worry about right now. whenever we need a
+            precisely symmetric matrix S we can just use (S + S.T)/2. If it
+            becomes a problem for longer horizons let's call up our boi
+            Baumgarte
+
+            '''
+
+
+            pl.show()
+            ipdb.set_trace()
 
         # Then, first thing tomorrow: 
         # - work out the kinks above so it actually runs. 

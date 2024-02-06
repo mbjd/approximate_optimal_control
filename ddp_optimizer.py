@@ -2,6 +2,8 @@ import jax
 import jax.numpy as np
 import diffrax
 
+import matplotlib.pyplot as pl
+
 import ipdb
 
 import pontryagin_utils
@@ -99,22 +101,6 @@ def ddp_main(problem_params, algo_params, init_sol):
 
             # the expression we got for \dot S. 
 
-            def Hx_as_function_of_only_x(xp):
-                # taylor approx of lambda(x), bc this function is for differentating
-                # taylor approx is done about x, we are evaluating at xp.
-                # if somehow someone demands third gradients of V in the form of second 
-                # gradients of lambda, this will just give 0, as S is considered constant here. 
-
-                lam_x = lam + S @ (xp - x)
-                u_star = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-                return H_x_fct(x, u_star, lam_x)
-
-
-            # all in all this is kind of a jacobian of a jacobian but the inner one is partial 
-            # and the outer one is total...? 
-            weird_Hxx = jax.jacobian(Hx_as_function_of_only_x)(x)
-
-            ipdb.set_trace()
 
             # TODO do one of these: 
             # a) evaluate RHS that was used to generate the forward trajectory
@@ -123,30 +109,37 @@ def ddp_main(problem_params, algo_params, init_sol):
             # this is the entirety of option b)
             dot_xbar = prev_sol.derivative(t)[0:nx]
 
-            ### # this is a rough draft of option a) 
-            ### # would also be cool if we could make diffrax store an interpolation
-            ### # of some "output" variables so we can put the input there, which would
-            ### # be handy for all sorts of things.
+            option_A = False
+            if option_A:
+                ### # this is a rough draft of option a) 
+                ### # would also be cool if we could make diffrax store an interpolation
+                ### # of some "output" variables so we can put the input there, which would
+                ### # be handy for all sorts of things.
 
-            ### lam_prev = None # get this from last backward solution? 
-            ### # maybe that could be done with the SaveAt object in diffrax? 
-            ### # https://docs.kidger.site/diffrax/api/saveat/
-            ### # i guess with that we can also just save the input as a function of 
-            ### # state. But it will probably be evaluated twice...
-            ### 
-            ### # we could require that the forward solution be constructed with an approximate 
-            ### # optimal input given by some function lambda(x). this would encompass the repeated
-            ### # forward passes, and initialisation with some global approximate V_x function. 
-            ### # then we can do this: https://github.com/patrick-kidger/diffrax/issues/60
-            ### # and save the costate during the forward simulation. because it is smooth, at 
-            ### # least along forward trajectories, we expect that it works well with interpolation. 
-            ### # then we could just get it here as part of the prev_sol object probably...
+                ### lam_prev = None # get this from last backward solution? 
+                ### # maybe that could be done with the SaveAt object in diffrax? 
+                ### # https://docs.kidger.site/diffrax/api/saveat/
+                ### # i guess with that we can also just save the input as a function of 
+                ### # state. But it will probably be evaluated twice...
+                ### 
+                ### # we could require that the forward solution be constructed with an approximate 
+                ### # optimal input given by some function lambda(x). this would encompass the repeated
+                ### # forward passes, and initialisation with some global approximate V_x function. 
+                ### # then we can do this: https://github.com/patrick-kidger/diffrax/issues/60
+                ### # and save the costate during the forward simulation. because it is smooth, at 
+                ### # least along forward trajectories, we expect that it works well with interpolation. 
+                ### # then we could just get it here as part of the prev_sol object probably...
 
-            ### # just for a small test
-            ### lam_prev = lam * (1 + jax.random.normal(jax.random.PRNGKey(9130), shape=lam.shape) * 0.1)
+                ### # just for a small test
+                # TODO take actual value
+                lam_prev = lam * (1 + jax.random.normal(jax.random.PRNGKey(9130), shape=lam.shape) * 0.1)
 
-            # this is the input from the previous forward simulation
-            u_prev = pontryagin_utils.u_star_2d(x, lam_prev, problem_params)
+                # this is the input from the previous forward simulation
+                u_prev = pontryagin_utils.u_star_2d(x, lam_prev, problem_params)
+
+                # to get previous RHS in this way...
+                # beware of possible - for backward integration...
+                dot_xbar_1  = f(0., x, u_prev)
 
             # according to my own derivations
             # am I now really the type of guy who finds working this out myself easier 
@@ -158,7 +151,51 @@ def ddp_main(problem_params, algo_params, init_sol):
 
             lam_dot = -H_x + S @ (dot_xbar - H_lambda)
 
-            S_dot = -weird_Hxx
+            # other derivation in idea dump, second try, DOC inspired. 
+            # all second partial derivatives of the pre-optimised hamiltonian. 
+            H_opt_xx = jax.hessian(H_opt, argnums=0)(x, lam)
+            H_opt_xlam = jax.jacobian(jax.jacobian(H_opt, argnums=0), argnums=1)(x, lam)
+            # H_opt_lamx = jax.jacobian(jax.jacobian(H_opt, argnums=1), argnums=0)(x, lam)
+            H_opt_lamlam = jax.hessian(H_opt, argnums=1)(x, lam)
+
+
+            # the complete hessian is symmetric. but that means its off diagonals are the transpose of each other... 
+            # therefore this one here is wrong. 2 * (term) != term + term.T
+
+            # S_dot_wrong = -H_opt_xx - 2 * H_opt_xlam @ S - S.T @ H_opt_lamlam @ S
+
+            # try a couple ways to calculate the same thing as a sanity check.
+            S_dot_1 = -H_opt_xx - H_opt_xlam @ S - (H_opt_xlam @ S).T - S.T @ H_opt_lamlam @ S
+            # S_dot_2 = -H_opt_xx - H_opt_xlam @ S - S @ H_opt_lamx - S.T @ H_opt_lamlam @ S
+
+            # third way: obviously S_dot = [I S] <hessian of H wrt both arguments jointly> [I; S]
+            '''
+            def H_opt_total(z):
+                x, lam = np.split(z, [nx])
+                return H_opt(x, lam)
+
+            H_opt_hessian = jax.hessian(H_opt_total)(np.concatenate([x, lam]))
+            '''
+            # pl.imshow(np.log(1e-12 + H_opt_hessian ** 2))
+            # I_S = np.vstack([np.eye(nx), S])
+            # S_dot_3 = -I_S.T @ H_opt_hessian @ I_S
+
+            # they are all pretty close except for numericall errors (slightly above allclose standard tolerance though)
+            # all of them are also slightly off of being symmetric unfortunately. 
+
+            #     ipdb> np.linalg.norm(S_dot_1 - S_dot_1.T)
+            #     Array(7.069856e-05, dtype=float32)
+            #     ipdb> np.linalg.norm(S_dot_2 - S_dot_2.T)
+            #     Array(7.470183e-05, dtype=float32)
+            #     ipdb> np.linalg.norm(S_dot_3 - S_dot_3.T)
+            #     Array(5.04795e-05, dtype=float32)
+
+            # seems like there is not one which is clearly much better or much worse, so 
+
+            # so, artificially "symmetrize" them here? or baumgarte type stabilisation? 
+            # let's do nothing for the moment and wait until it bites us in the ass :) 
+
+            S_dot = S_dot_1
 
             return (v_dot, lam_dot, S_dot)
 
@@ -186,10 +223,20 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # test the RHS function. 
         out = backwardpass_rhs(tf, init_state, forward_sol)
-        ipdb.set_trace()
 
         # TODO also get the specifics (adaptive controller, max steps, SaveAt) right. 
-        backwardpass_sol = diffrax.diffeqsolve(term, Diffrax.Tsit5(), t0=T, t1=0, dt0=0.1, y0=init_state)
+
+        # same tolerance parameters used in pure unguided backward integration of whole PMP
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True)
+
+        backwardpass_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=tf, t1=t0, dt0=-0.1, y0=init_state,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = 1024,
+            args = forward_sol
+        )
+        ipdb.set_trace()
 
         # Then, first thing tomorrow: 
         # - work out the kinks above so it actually runs. 

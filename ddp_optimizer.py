@@ -80,34 +80,29 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         def backwardpass_rhs(t, state, args):
 
-            # the taylor expansion stored normally as pytree.
+            # v = cost to go, lam = costate, S = value hessian
+
             v, lam, S = state  
+            prev_forward_sol = args
 
-            prev_sol = args
-
-            # how to give forwardsol nicely as an argument? 
-            # is this te time to use "args"?          
-            x = prev_sol.evaluate(t)[0:nx]
-
-            u_star = pontryagin_utils.u_star_2d(x, lam, problem_params)
+            # current state and optimal input *according to backward-pass costate*
+            xbar = prev_forward_sol.evaluate(t)[0:nx]
+            u_star = pontryagin_utils.u_star_2d(xbar, lam, problem_params)
 
             # this partial derivative we can do by hand :) H is linear in lambda.
-            H_lambda = f(t, x, u_star)  
+            H_lambda = f(t, xbar, u_star)
 
             # do NOT confuse these! I have the power
             # of multivariate analysis and LaTeX on my side!
             H_x_fct = jax.jacobian(H, argnums=0)
-            H_x = H_x_fct(x, u_star, lam)
-
-            # the expression we got for \dot S. 
-
+            H_x = H_x_fct(xbar, u_star, lam)
 
             # TODO do one of these: 
             # a) evaluate RHS that was used to generate the forward trajectory
             # b) approximate with d/dt of interpolated solution
 
             # this is the entirety of option b)
-            dot_xbar = prev_sol.derivative(t)[0:nx]
+            dot_xbar = prev_forward_sol.derivative(t)[0:nx]
 
             option_A = False
             if option_A:
@@ -123,79 +118,48 @@ def ddp_main(problem_params, algo_params, init_sol):
                 ### # state. But it will probably be evaluated twice...
                 ### 
                 ### # we could require that the forward solution be constructed with an approximate 
-                ### # optimal input given by some function lambda(x). this would encompass the repeated
+                ### # optimal input given by some function lambda(xbar). this would encompass the repeated
                 ### # forward passes, and initialisation with some global approximate V_x function. 
                 ### # then we can do this: https://github.com/patrick-kidger/diffrax/issues/60
                 ### # and save the costate during the forward simulation. because it is smooth, at 
                 ### # least along forward trajectories, we expect that it works well with interpolation. 
-                ### # then we could just get it here as part of the prev_sol object probably...
+                ### # then we could just get it here as part of the prev_forward_sol object probably...
 
                 ### # just for a small test
                 # TODO take actual value
                 lam_prev = lam * (1 + jax.random.normal(jax.random.PRNGKey(9130), shape=lam.shape) * 0.1)
 
                 # this is the input from the previous forward simulation
-                u_prev = pontryagin_utils.u_star_2d(x, lam_prev, problem_params)
+                u_prev = pontryagin_utils.u_star_2d(xbar, lam_prev, problem_params)
 
                 # to get previous RHS in this way...
                 # beware of possible - for backward integration...
-                dot_xbar_1  = f(0., x, u_prev)
+                dot_xbar_1  = f(0., xbar, u_prev)
 
             # according to my own derivations
             # am I now really the type of guy who finds working this out myself easier 
             # than copying formulas from existing papers? anyway...
 
             # the money shot, derivation & explanations in dump, section 3.5.*
-            v_dot = -l(t, x, u_star) + lam.T @ (dot_xbar - H_lambda)
-            # maybe ^ equivalent to -l(t, x, u_prev?)
+            v_dot = -l(t, xbar, u_star) + lam.T @ (dot_xbar - H_lambda)
+            # maybe ^ equivalent to -l(t, xbar, u_prev?)
 
             lam_dot = -H_x + S @ (dot_xbar - H_lambda)
 
             # other derivation in idea dump, second try, DOC inspired. 
             # all second partial derivatives of the pre-optimised hamiltonian. 
-            H_opt_xx = jax.hessian(H_opt, argnums=0)(x, lam)
-            H_opt_xlam = jax.jacobian(jax.jacobian(H_opt, argnums=0), argnums=1)(x, lam)
-            # H_opt_lamx = jax.jacobian(jax.jacobian(H_opt, argnums=1), argnums=0)(x, lam)
-            H_opt_lamlam = jax.hessian(H_opt, argnums=1)(x, lam)
+            H_opt_xx = jax.hessian(H_opt, argnums=0)(xbar, lam)
+            H_opt_xlam = jax.jacobian(jax.jacobian(H_opt, argnums=0), argnums=1)(xbar, lam)
+            # H_opt_lamx = jax.jacobian(jax.jacobian(H_opt, argnums=1), argnums=0)(xbar, lam)
+            H_opt_lamlam = jax.hessian(H_opt, argnums=1)(xbar, lam)
+
+            # purely along characteristic curve, no correction term here. 
+            S_dot = -H_opt_xx - H_opt_xlam @ S - (H_opt_xlam @ S).T - S.T @ H_opt_lamlam @ S
 
 
-            # the complete hessian is symmetric. but that means its off diagonals are the transpose of each other... 
-            # therefore this one here is wrong. 2 * (term) != term + term.T
-
-            # S_dot_wrong = -H_opt_xx - 2 * H_opt_xlam @ S - S.T @ H_opt_lamlam @ S
-
-            # try a couple ways to calculate the same thing as a sanity check.
-            S_dot_1 = -H_opt_xx - H_opt_xlam @ S - (H_opt_xlam @ S).T - S.T @ H_opt_lamlam @ S
-            # S_dot_2 = -H_opt_xx - H_opt_xlam @ S - S @ H_opt_lamx - S.T @ H_opt_lamlam @ S
-
-            # third way: obviously S_dot = [I S] <hessian of H wrt both arguments jointly> [I; S]
-            '''
-            def H_opt_total(z):
-                x, lam = np.split(z, [nx])
-                return H_opt(x, lam)
-
-            H_opt_hessian = jax.hessian(H_opt_total)(np.concatenate([x, lam]))
-            '''
-            # pl.imshow(np.log(1e-12 + H_opt_hessian ** 2))
-            # I_S = np.vstack([np.eye(nx), S])
-            # S_dot_3 = -I_S.T @ H_opt_hessian @ I_S
-
-            # they are all pretty close except for numericall errors (slightly above allclose standard tolerance though)
-            # all of them are also slightly off of being symmetric unfortunately. 
-
-            #     ipdb> np.linalg.norm(S_dot_1 - S_dot_1.T)
-            #     Array(7.069856e-05, dtype=float32)
-            #     ipdb> np.linalg.norm(S_dot_2 - S_dot_2.T)
-            #     Array(7.470183e-05, dtype=float32)
-            #     ipdb> np.linalg.norm(S_dot_3 - S_dot_3.T)
-            #     Array(5.04795e-05, dtype=float32)
-
-            # seems like there is not one which is clearly much better or much worse, so 
-
+            # S_dot slightly off of being symmetric unfortunately. 
             # so, artificially "symmetrize" them here? or baumgarte type stabilisation? 
             # let's do nothing for the moment and wait until it bites us in the ass :) 
-
-            S_dot = S_dot_1
 
             return (v_dot, lam_dot, S_dot)
 
@@ -228,6 +192,8 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # same tolerance parameters used in pure unguided backward integration of whole PMP
         step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        # 10x relaxed tolerance
+        step_ctrl = diffrax.PIDController(rtol=10*algo_params['pontryagin_solver_rtol'], atol=10*algo_params['pontryagin_solver_atol'])
         saveat = diffrax.SaveAt(steps=True, dense=True)
 
         backwardpass_sol = diffrax.diffeqsolve(
@@ -260,7 +226,7 @@ def ddp_main(problem_params, algo_params, init_sol):
             pl.subplot(131)
             pl.xlabel('S matrix - raw and interpolated entries')
             pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[2].reshape(-1, nx*nx), marker='.', linestyle='')
-            interp_ts = np.linspace(backwardpass_sol.t0, backwardpass_sol.t1, 501)
+            interp_ts = np.linspace(backwardpass_sol.t0, backwardpass_sol.t1, 5001) # continuous time go brrrr
             interp_ys = jax.vmap(backwardpass_sol.evaluate)(interp_ts)
             pl.gca().set_prop_cycle(None)
             pl.plot(interp_ts, interp_ys[2].reshape(-1, nx*nx))
@@ -278,6 +244,7 @@ def ddp_main(problem_params, algo_params, init_sol):
             pl.xlabel('norm(S - S.T)')
             batch_matrix_asymmetry = jax.vmap(lambda mat: np.linalg.norm(mat - mat.T))
             pl.plot(backwardpass_sol.ts, batch_matrix_asymmetry(backwardpass_sol.ys[2]), marker='.', linestyle='')
+            pl.gca().set_prop_cycle(None)
             pl.plot(interp_ts, batch_matrix_asymmetry(interp_ys[2]))
 
             '''
@@ -289,6 +256,13 @@ def ddp_main(problem_params, algo_params, init_sol):
             Baumgarte
 
             '''
+
+            pl.subplot(133)
+            pl.xlabel('eigs(S)')
+            batch_real_eigvals = jax.vmap(lambda mat: np.sort(np.linalg.eig(mat)[0].real))
+            pl.semilogy(backwardpass_sol.ts, batch_real_eigvals(backwardpass_sol.ys[2]), marker='.', linestyle='')
+            pl.gca().set_prop_cycle(None)
+            pl.semilogy(interp_ts, batch_real_eigvals(interp_ys[2]))
 
 
             pl.show()

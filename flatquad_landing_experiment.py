@@ -38,10 +38,15 @@ def current_weird_experiment(problem_params, algo_params):
 
     # find N points on the unit sphere.
     # well known approach: find N standard normal points, divide by norm.
-    # key = jax.random.PRNGKey(int(time.time()*100000))
 
-    # the key lead to an interesting failure case in evaluating the derivative of the interpolation. 
-    key = jax.random.PRNGKey(767667633)  
+    # the key leads to an interesting failure case in evaluating the derivative of the interpolation.
+    # basically, the input goes from saturated to non-saturated, introducing a nondifferentiable point.
+    # because basically input = d/dt state (differential flatness you know) the time derivative of the
+    # state should have a similar corner. It does if we evaluate rhs(solution(t)), but if we instead
+    # evaluate d/dt solution(t) we get wiggling artefacts due to polynomial interpolation.
+    key = jax.random.PRNGKey(767667633)
+
+    key = jax.random.PRNGKey(int(time.time()*100000))
 
     normal_pts = jax.random.normal(key, shape=(algo_params['sampling_N_trajectories'], problem_params['nx']))
     unitsphere_pts = normal_pts /  np.sqrt((normal_pts ** 2).sum(axis=1))[:, None]
@@ -127,7 +132,7 @@ def current_weird_experiment(problem_params, algo_params):
     # this has turned into a rambling mess. probably either approach will work okay-ish, and we already
     # have other numerical errors anyway. 
 
-    if False:
+    if True:
         ts_eval = np.linspace(sol_orig.t0, sol_orig.t1, 2001)
 
         interp_sol = jax.vmap(sol_orig.evaluate)(ts_eval)
@@ -170,7 +175,7 @@ def current_weird_experiment(problem_params, algo_params):
 
         pl.legend()
         pl.show()
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
     ddp_optimizer.ddp_main(problem_params, algo_params, sol_orig)
     ipdb.set_trace()
@@ -263,9 +268,9 @@ if __name__ == '__main__':
             'sampling_N_iters': 10,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
-            'pontryagin_solver_atol': 1e-3,
-            'pontryagin_solver_rtol': 1e-5,
-            'pontryagin_solver_maxsteps': 128, # nice if it is not waaay too much
+            'pontryagin_solver_atol': 1e-4,
+            'pontryagin_solver_rtol': 1e-4,
+            'pontryagin_solver_maxsteps': 512, # nice if it is not waaay too much
             'pontryagin_solver_dense': False,
     }
 

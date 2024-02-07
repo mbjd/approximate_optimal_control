@@ -5,8 +5,10 @@ import diffrax
 import matplotlib.pyplot as pl
 
 import ipdb
+import tqdm
 
 import pontryagin_utils
+import visualiser
 
 # attept at implementing continuous-time DDP, a bit like: 
 # - https://dl.acm.org/doi/pdf/10.1145/3592454 (Hutter) but without the parameterised stuff
@@ -64,6 +66,7 @@ def ddp_main(problem_params, algo_params, init_sol):
     # do we have problems if this solution was calculated backwards? 
     # -> probably not, because evaluation works the same in any case.
     forward_sol = init_sol
+    x0 = forward_sol.evaluate(0.)[0:nx]  # this stays the same in the entire function
 
     # this is to handle case where t0>t1 (if solution was obtained backwards)
     t0, tf = sorted([forward_sol.t0, forward_sol.t1])  
@@ -264,17 +267,155 @@ def ddp_main(problem_params, algo_params, init_sol):
             pl.gca().set_prop_cycle(None)
             pl.semilogy(interp_ts, batch_real_eigvals(interp_ys[2]))
 
+            '''
+            mostly this seems to stay positive definite, although there was ONE case where one eigenvalue 
+            dropped to like -0.1 or something, so clearly negative but not overly so, and only for like .1 or .2 seconds. 
+            lost the prng seed responsible for it due to a crash :( maybe keep this in mind for future debugging. 
+            '''
+
 
             pl.show()
             ipdb.set_trace()
 
+
         # Then, first thing tomorrow: 
-        # - work out the kinks above so it actually runs. 
-        # - find some actually optimal trajectory by PMP backwards integration
-        # - give it to this as an initial guess
+        # - work out the kinks above so it actually runs. (done)
+        # - find some actually optimal trajectory by PMP backwards integration (done)
+        # - give it to this as an initial guess (done)
         # - verify that the backward pass is consistent w/ this info
         #   (we should have the backward pass costate equal to the initial costate, 
         #   and if we forward sim again, obtain the same trajectory again)
+
+        # looks good until now :) backward pass very nice. 
+        # let us implement a forward pass here. 
+
+        # this means basically just a closed loop simulation, with the controller 
+        #    u(t, x) = argmin_H(t, x, lambda(t, x))
+        # with lambda(t, x) given by the taylor approximation from the backward pass. 
+
+        def forwardpass_rhs(t, state, args):
+
+            # here we only have the actual system state for a change
+            x = state  
+            # need both backward and forward pass solutions. 
+            prev_forward_sol, backwardpass_sol = args 
+
+            # this stacked vector forward sol is not too elegant, should probably
+            # introduce a tuple or even dict state to access solution more clearly
+            xbar = prev_forward_sol.evaluate(t)[0:nx] 
+            dx = x - xbar
+            v_xbar, lam_xbar, S_xbar = backwardpass_sol.evaluate(t)
+            # this defines a local quadratic value function: 
+            # v(xbar + dx) = v + lam.T dx + 1/2 dx.T S dx
+            # we need the first gradient of this quadratic value function. 
+            # lambda(xbar + dx) = 0 + lam.T + dx.T S  (or its transpose whatever)
+            lam_x = lam_xbar + S_xbar @ dx
+
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            dot_x = f(t, x, u)
+
+            return dot_x
+
+        # setup the ODE solver call. 
+        term = diffrax.ODETerm(forwardpass_rhs)
+
+        # same tolerance parameters used in pure unguided backward integration of whole PMP
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True, dense=True) 
+
+        forwardpass_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+            args = (forward_sol, backwardpass_sol)
+        )
+
+        if investigate:
+            # we got a solution!!! plot it. 
+            # specifically, compare the new forwardpass_sol with the previous, forward_sol. 
+
+            # here plot just the forward pass solution (solid) and the initial guess (translucent)
+            # they should match each other very closely. 
+            interp_ts = np.linspace(t0, tf, 501)
+
+
+            label = ['forward pass: ' + name for name in problem_params['state_names']]
+            pl.plot(forwardpass_sol.ts, forwardpass_sol.ys, linestyle='', marker='.')
+            pl.gca().set_prop_cycle(None)
+            pl.plot(interp_ts, jax.vmap(forwardpass_sol.evaluate)(interp_ts), label=label)
+
+            label = ['init guess (optimal already) ' + name for name in problem_params['state_names']]
+            pl.gca().set_prop_cycle(None)
+            pl.plot(forward_sol.ts, forward_sol.ys[:, 0:nx], linestyle='', marker='.', alpha=.5)
+            pl.gca().set_prop_cycle(None)
+            pl.plot(interp_ts, jax.vmap(forward_sol.evaluate)(interp_ts)[:, 0:nx], label=label, linestyle='--', alpha=.5)
+            pl.legend()
+
+            # here we plot N different forward passes from different, but close initial conditions. 
+            # then we visualise with meshcat :) 
+            def forward_sim(x0):
+                forwardpass_sol = diffrax.diffeqsolve(
+                    term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
+                    stepsize_controller=step_ctrl, saveat=saveat,
+                    max_steps = algo_params['pontryagin_solver_maxsteps'],
+                    args = (forward_sol, backwardpass_sol)
+                )
+                return forwardpass_sol
+
+            # N initial states disturbed w/ gaussian noise. 
+            N_sim = 100
+            k = jax.random.PRNGKey(0)
+            x0s = x0[None, :] + jax.random.normal(k, shape=(N_sim, nx)) * 0.1
+
+            sols = jax.vmap(forward_sim)(x0s)
+            visualiser.plot_trajectories_meshcat(sols)
+            # this looks like complete shit. did i change the state format or something???
+
+            # now that we have this nice sols object, we might as well plot some stats with it. 
+            def local_v(t, x):
+                xbar = forward_sol.evaluate(t)[0:nx]
+                v, lam, S = backwardpass_sol.evaluate(t)
+                dx = x - xbar
+                quad_v = dx.T @ S @ dx
+                v_x = v + lam.T @ dx + 0.5 * quad_v
+                return v_x, quad_v
+
+            # cool, calm & collected double vmap.
+            vs, vquads = jax.vmap(jax.vmap(local_v, in_axes=(0, 0)), in_axes=(1, 1))(sols.ts, sols.ys)
+            pl.semilogy(vs, color='green', alpha=0.1)
+            pl.semilogy(vquads, color='red', alpha=0.1)
+            pl.show()
+
+            ipdb.set_trace()
+
+
+
+
+        '''
+
+        term = diffrax.ODETerm(backwardpass_rhs)
+        init_state = (v_T, lam_T, S_T)
+
+        # test the RHS function. 
+        out = backwardpass_rhs(tf, init_state, forward_sol)
+
+        # TODO also get the specifics (adaptive controller, max steps, SaveAt) right. 
+
+        # same tolerance parameters used in pure unguided backward integration of whole PMP
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        # 10x relaxed tolerance
+        step_ctrl = diffrax.PIDController(rtol=10*algo_params['pontryagin_solver_rtol'], atol=10*algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True, dense=True)
+
+        backwardpass_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=tf, t1=t0, dt0=-0.1, y0=init_state,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = 1024,
+            args = forward_sol
+        )
+        '''
+
+
         
         # then, here: 
         # - do forward pass

@@ -798,3 +798,8 @@ is kind of to be expected. more sanity checking follows tomorrow, goodnight :)
 
 
 
+2024-02-07
+
+implemented the forward passs! it seems to work as expected!!!! except for some
+small questions, such as: why does S = V_xx sometimes turn
+non-positive-definite? 

@@ -93,6 +93,7 @@ def ddp_main(problem_params, algo_params, init_sol):
             u_star = pontryagin_utils.u_star_2d(xbar, lam, problem_params)
 
             # this partial derivative we can do by hand :) H is linear in lambda.
+            H_lam_fct = jax.jacobian(H, argnums=2)
             H_lambda = f(t, xbar, u_star)
 
             # do NOT confuse these! I have the power
@@ -159,6 +160,42 @@ def ddp_main(problem_params, algo_params, init_sol):
             # purely along characteristic curve, no correction term here. 
             S_dot = -H_opt_xx - H_opt_xlam @ S - (H_opt_xlam @ S).T - S.T @ H_opt_lamlam @ S
 
+            # and the other derivatives too just to sanity check the different derivations....
+            H_xx_hess = jax.hessian(H, argnums=0)(xbar, u_star, lam)
+
+            H_xx = jax.jacobian(H_x_fct, argnums=0)(xbar, u_star, lam)
+            H_xu = jax.jacobian(H_x_fct, argnums=1)(xbar, u_star, lam)  
+            H_xlam = jax.jacobian(H_x_fct, argnums=2)(xbar, u_star, lam)
+            # H_ux == H_xu.T etc
+
+            H_lamx = jax.jacobian(H_lam_fct, argnums=0)(xbar, u_star, lam)
+            H_lamu = jax.jacobian(H_lam_fct, argnums=1)(xbar, u_star, lam)
+            H_lamlam = jax.jacobian(H_lam_fct, argnums=2)(xbar, u_star, lam)
+            
+            u_star_x = jax.jacobian(pontryagin_utils.u_star_2d, argnums=0)(xbar, lam, problem_params)
+            u_star_lam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(xbar, lam, problem_params)
+
+            # the matrix governing the evolution of (\delta x, \delta \lambda) in the linearised 
+            # pontryagin BVP (see notes in idea dump)
+            Alin = np.block([[H_lamx, H_lamlam], [-H_xx, -H_xlam]]) + np.vstack([H_lamu, -H_xu]) @ np.hstack([u_star_x, u_star_lam])
+
+            # because the derivation uses those to shorten notation...
+            A11 = Alin[0:nx, 0:nx]
+            A12 = Alin[0:nx, nx:]
+            A21 = Alin[nx:, 0:nx]
+            A22 = Alin[nx:, nx:]
+
+            s = lam
+            Sdotnew = A21 + A22 @ S - S @ A11 - S @ A12 @ S
+            sdotnew = (-S @ A12 + A22) @ s
+
+            # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
+            S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
+            Sdotnew_rel_asymmetry = np.linalg.norm(Sdotnew - Sdotnew.T) / np.linalg.norm(Sdotnew)
+            Sdot_rel_diff = np.linalg.norm(Sdotnew - S_dot) / np.linalg.norm(Sdotnew)
+
+
+            ipdb.set_trace()
 
             # S_dot slightly off of being symmetric unfortunately. 
             # so, artificially "symmetrize" them here? or baumgarte type stabilisation? 
@@ -275,7 +312,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
 
             pl.show()
-            ipdb.set_trace()
+            # ipdb.set_trace()
 
 
         # Then, first thing tomorrow: 
@@ -382,38 +419,13 @@ def ddp_main(problem_params, algo_params, init_sol):
 
             # cool, calm & collected double vmap.
             vs, vquads = jax.vmap(jax.vmap(local_v, in_axes=(0, 0)), in_axes=(1, 1))(sols.ts, sols.ys)
-            pl.semilogy(vs, color='green', alpha=0.1)
-            pl.semilogy(vquads, color='red', alpha=0.1)
+            pl.figure()
+            pl.semilogy(sols.ts.T, vs, color='green', alpha=0.1)
+            pl.semilogy(sols.ts.T, vquads, color='red', alpha=0.1)
             pl.show()
 
             ipdb.set_trace()
 
-
-
-
-        '''
-
-        term = diffrax.ODETerm(backwardpass_rhs)
-        init_state = (v_T, lam_T, S_T)
-
-        # test the RHS function. 
-        out = backwardpass_rhs(tf, init_state, forward_sol)
-
-        # TODO also get the specifics (adaptive controller, max steps, SaveAt) right. 
-
-        # same tolerance parameters used in pure unguided backward integration of whole PMP
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
-        # 10x relaxed tolerance
-        step_ctrl = diffrax.PIDController(rtol=10*algo_params['pontryagin_solver_rtol'], atol=10*algo_params['pontryagin_solver_atol'])
-        saveat = diffrax.SaveAt(steps=True, dense=True)
-
-        backwardpass_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=tf, t1=t0, dt0=-0.1, y0=init_state,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = 1024,
-            args = forward_sol
-        )
-        '''
 
 
         
@@ -422,23 +434,9 @@ def ddp_main(problem_params, algo_params, init_sol):
         # - do some convergence check
         # - if not converged, give forward solution to next iteration. 
 
-        # and does the intuition about information flow along trajectories
-        # still even exist? in the linear BVP world it is easy: we
-        # parameterise all costate trajectories by the matrix S such that λ = S
-        # x, and solve for S instead. However here what is the significance of
-        # S? Trajectories can go "off" our iterate??
-
         # forward pass: simulate our system in forward time, with input as if the
         # quadratic value expansion the backward pass actual value fct. 
         # (what if this fails? line search?)
-
-        # concretely: over [0, T] solve x' = f(x, u(x, t)), 
-        # with u(x, t) = V(t) + Vx(t) @ (x - xl(t)) + (1/2) (x - xl(t)).T Vxx(t) (x - xl(t)) 
-        # where V, Vx, Vxx are the value function parameters obtained in the backward pass
-        # and xl(.) is the state trajectory used in that backward pass (i.e. the last iterate)
-
-        # is this correct? can we just "ignore" input constraints like this? 
-
 
         # for later: convergence criterion? 
 

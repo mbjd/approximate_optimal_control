@@ -10,6 +10,7 @@ exceptiongroup==1.2.0
 executing==2.0.1
 fonttools==4.47.0
 gurobipy==11.0.0
+ijson==3.2.3
 iniconfig==2.0.0
 ipdb==0.13.13
 ipython==8.19.0

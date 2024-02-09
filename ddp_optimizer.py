@@ -189,10 +189,22 @@ def ddp_main(problem_params, algo_params, init_sol):
             Sdotnew = A21 + A22 @ S - S @ A11 - S @ A12 @ S
             sdotnew = (-S @ A12 + A22) @ s
 
+
             # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
             S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
             Sdotnew_rel_asymmetry = np.linalg.norm(Sdotnew - Sdotnew.T) / np.linalg.norm(Sdotnew)
             Sdot_rel_diff = np.linalg.norm(Sdotnew - S_dot) / np.linalg.norm(Sdotnew)
+
+            # however, sdotnew and lam_dot are markedly different. 
+            # this is despite the two relevant directions (d/dt xbar and H_lambda) being almost the same (worst ratio .997)
+            # are they even comparable? the early, characteristics type derivation only has a \lambda variable. 
+            # in the new DOC derivation, we have lambda AND \delta lambda, the latter one being what we are finding in the linear BVP. 
+            # still a bit of understanding left to be gained here. 
+
+            # REALLY unsure whether I got this correctly from the paper. e.g. \hat H is supposed to be a matrix right? 
+            # f_x = jax.jacobian(f, argnums=1)(0., xbar, u_star)
+            # Sdot_DOC = H_opt_xx - f_x.T @ S - S @ f_x - S @ H_opt(xbar, lam) @ S
+            # sdot_DOC = H_opt_x
 
 
             ipdb.set_trace()

@@ -803,3 +803,49 @@ is kind of to be expected. more sanity checking follows tomorrow, goodnight :)
 implemented the forward passs! it seems to work as expected!!!! except for some
 small questions, such as: why does S = V_xx sometimes turn
 non-positive-definite? 
+
+
+2024-02-07
+
+had big enlightement this morning by feeling like the DOC derivation is the
+correct one after all. by properly approximating the problem about the current
+iterate with quadratic cost and linear constraints, then solving the resulting
+linear subproblem, they basically build a standard newton method, with easy
+proofs of convergence, line search etc. Went over the DOC style derivation
+again, I think I have it correct now, first implementation looks alright
+(symmetric \dot S and very close to other version). Not sure if they are both
+actually the same. Maybe the only difference is really which linearisation for
+the u* map we are using. 
+
+spent some time thinking about line search. in contrast to fininte-dim
+optimisation, we cannot just add arbitrarily many iterates on top of each
+other, but standard line search basically requires this. by letting x+ = x +
+alpha * (descent direction) we are making x+ a linear combination of the first
+iterate and all descent directions.
+
+so we need to be somewhat smart about this. brute force solution: 
+- attempt full newton step, if some sensible descent condition holds, accept. 
+- if not, repeat backward pass, with an additional "regularization" term
+  penalising ||x - x_iterate||. this gives still a LQ subproblem which we can
+  solve exactly. Do the forward pass again, check descent condition. If OK,
+  return; otherwise repeat the step with a larger "closeness" penalty. 
+
+Repeating the backward pass is expensive though. Other papers rely on just
+applying a scaled down version of \delta x and \delta u. But with input
+constraints this will be a bit complicated. Would much rather have a 'scaled
+down' value function. But to do that properly we'd need to keep track of the
+local value function that generated the last forward pass. And if that was
+already made by combining the previous backward passes we need both of those
+too.
+
+easy heuristic which maybe works: Do only 1 backward pass. If descent condition
+fails, then do another forward pass, but with local value function:
+
+V(t, x) = v(xbar(t)) + λ(xbar(t)) (x - xbar(t)) + α/2 (x - xbar(t)).T S(t, xbar(t)) (x - xbar(t))
+
+for some α > 1 which we may increase to increase the quadratic value term. this
+corresponds to using a larger linear feedback gain which surely will not work
+for significant α. 
+
+There must be something akin to "step in the descent direction but only a
+fraction" that does not have all these issues...? how? 

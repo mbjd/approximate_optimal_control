@@ -849,3 +849,22 @@ for significant α.
 
 There must be something akin to "step in the descent direction but only a
 fraction" that does not have all these issues...? how? 
+
+
+
+2024-02-07
+
+did some further attempts at replicating DOC's S and s updates but to no avail.
+mostly looked at pretty plots and figured out how to record webcam timelapses
+from mjpeg streams. 
+
+points to start next week (this is essentially copy pasted from last week...)
+
+- (still) formulate overarching goals neatly, maybe in own latex document? 
+
+- further debug & sanitycheck the backward pass, work towards DDP
+- either decide on DOC or my implementation, or do both separately and compare
+  (but stop switching every half day)
+
+- think about active learning part and local/global heuristics. 
+- maybe start using some finished DDP implementation for other experiments? 

@@ -32,7 +32,7 @@ def plot_trajectories(ts, ys, color='green', alpha='.1'):
 
     pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
-def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_v=False, line=False):
+def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_indep=True, line=False):
 
     '''
     tiny first draft of meshcat visualisation :o
@@ -147,20 +147,19 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
             make_quad(vis, quad_name)
 
         min_t = sols_ys[sol_i, :, -1].min()
-        for v, y in zip(sols_ts[sol_i], sols_ys[sol_i]):
+        for t, y in zip(sols_ts[sol_i], sols_ys[sol_i]):
             
             # data is inf-padded by diffrax. 
             if np.any(y == np.inf):
                 break
 
-            t = y[-1]
-            if t_is_v:
-                # solution independent variable = sols.ts = value = animation time again here. 
-                # and also we cheat here and actually set t = sqrt(v) for uniform speed.
-                t = np.sqrt(v)
+            if not t_is_indep:
+                # assume instead that t is in the last 'extended state' variable. 
+                # will fail silently (and produce very weird visualisation) if this some other variable
+                t = y[-1]
 
             # apparently we have 30 fps and the animation time is in frames
-            anim_t = 30*float(t - min_t)
+            anim_t = 30*float(t)
 
             with anim.at_frame(vis, anim_t) as frame:
                 move_quad(frame, quad_name, y)

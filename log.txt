@@ -868,3 +868,22 @@ points to start next week (this is essentially copy pasted from last week...)
 
 - think about active learning part and local/global heuristics. 
 - maybe start using some finished DDP implementation for other experiments? 
+
+
+
+2024-02-12
+
+re-did the derivation from the chacteristics angle without the error I made
+previously (in confusing a total and partial derivative of the hamiltonian).
+Got the same fomula I have from the DOC style derivation for \dot S. looks
+good. 
+
+did a couple sweeps (move initial state a bit, do a fixed amount of DDP
+iterations) to obtain a family of (hopefully) optimal trajectories. Next up,
+further sanity checking: Are the trajectories actually optimal? Find some way
+to see how close to a solution we are. 
+
+But all in all this looks great. Was also happy about how quick it seems to be
+after jit. 
+
+

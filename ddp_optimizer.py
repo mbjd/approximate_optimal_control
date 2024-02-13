@@ -81,7 +81,6 @@ def ddp_main(problem_params, algo_params, init_sol):
 
 
 
-    @jax.jit
     def backwardpass_rhs(t, state, args):
 
         # v = cost to go, lam = costate, S = value hessian
@@ -233,7 +232,6 @@ def ddp_main(problem_params, algo_params, init_sol):
         # this does NOT seem to work....
         # return (v_dot, sdotnew, Sdotnew)
 
-    @jax.jit
     def forwardpass_rhs(t, state, args):
 
         # here we only have the actual system state for a change
@@ -257,35 +255,25 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         return dot_x
 
-
-    def scan_fct(carry, inp):
-
-        # what do we need to carry? 
-        # atm I think we really only need the forward_sol. 
-
-        # later we might want to also have the previous backward sol, to 
-        # evaluate the derivative of the forward trajectory as RHS(x(t)) 
-        # instead of d/dt x(t). 
-
-        # also any step length/line search/convergence checks can be put here.
-
-        forward_sol, = carry
-        i = inp  # unused counter.
-
-        oup = dict()
+    def ddp_backwardpass(forward_sol):
 
         # backward pass. (more comments in python for loop below.)
         term = diffrax.ODETerm(backwardpass_rhs)
-        xf = forward_sol.evaluate(tf)[0:nx]
+
+        # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
+        # we are overloading this function to handle both extended and pure state. 
+        # (this means we have to re-jit when changing between them)
+        xf = forward_sol.evaluate(tf)[0:nx]  
 
         # terminal conditions given by taylor expansion of terminal value
+        # these are static w.r.t. jit compilation. 
         v_T = xf.T @ P_lqr @ xf
         lam_T = 2 * P_lqr @ xf
         S_T = 2 * P_lqr 
 
         # instead of doing something about it, just pass it to the output 
         # so at least we know about it.
-        oup['xf_outside_Xf'] = v_T >= v_f * 1.001
+        xf_outside_Xf = v_T >= v_f * 1.001
 
         init_state = (v_T, lam_T, S_T)
 
@@ -300,8 +288,9 @@ def ddp_main(problem_params, algo_params, init_sol):
             args = forward_sol
         )
 
-        oup['backward_sol'] = backward_sol
+        return backward_sol, xf_outside_Xf
 
+    def ddp_forwardpass(prev_forward_sol, backward_sol):
 
         # forward pass. 
         term = diffrax.ODETerm(forwardpass_rhs)
@@ -314,19 +303,52 @@ def ddp_main(problem_params, algo_params, init_sol):
             term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'],
-            args = (forward_sol, backward_sol)
+            args = (prev_forward_sol, backward_sol)
         )
+
+        return forward_sol
+
+
+    def scan_fct(carry, inp):
+
+        # what do we need to carry? 
+        # atm I think we really only need the forward_sol. 
+
+        # later we might want to also have the previous backward sol, to 
+        # evaluate the derivative of the forward trajectory as RHS(x(t)) 
+        # instead of d/dt x(t). 
+
+        # also any step length/line search/convergence checks can be put here.
+
+        prev_forward_sol, = carry
+        i = inp  # unused counter.
+
+        out = dict()
+
+        backward_sol, xf_outside_Xf = ddp_backwardpass(prev_forward_sol)
+
+        out['xf_outside_Xf'] = xf_outside_Xf
+        out['backward_sol'] = backward_sol
+
+        forward_sol = ddp_forwardpass(prev_forward_sol, backward_sol)
 
         out['forward_sol'] = forward_sol
 
-        new_carry = forward_sol
+        new_carry = forward_sol,
 
-        return new_carry, oup
+        return new_carry, out
 
     N_iter=32
 
-    # this will only work if init_sol is without costate and value info.
-    jax.lax.scan(scan_fct, forward_sol, np.arange(N_iter))
+    # this scan will only work if init_sol is without costate and value info.
+    # so here we perform a first "iteration" of the whole thing.
+    ipdb.set_trace()
+    init_carry = forward_sol,
+    new_carry, output = scan_fct((forward_sol,), 0)
+    final_forwardsol, outputs = jax.lax.scan(scan_fct, new_carry, np.arange(N_iter))
+
+    # it works! (i.e. returns). lets go to lunch
+
 
     # main iterations 
     x0 = x0_orig * 0.5

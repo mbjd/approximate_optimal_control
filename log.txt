@@ -884,6 +884,12 @@ further sanity checking: Are the trajectories actually optimal? Find some way
 to see how close to a solution we are. 
 
 But all in all this looks great. Was also happy about how quick it seems to be
-after jit. 
+after jit. it does 32 iterations, for the flatquad model in like 0.1 seconds :) 
 
 
+
+2024-02-13
+
+continued playing around with ddp. made a cleaner implementation in functional
+jax style with some extra abstraction. did some initial state sweeps. looks
+pretty nice :) i think for the moment this should be workable. 

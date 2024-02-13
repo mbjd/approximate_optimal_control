@@ -6,6 +6,7 @@ import matplotlib.pyplot as pl
 
 import ipdb
 import tqdm
+import time
 
 import pontryagin_utils
 import visualiser
@@ -290,7 +291,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         return backward_sol, xf_outside_Xf
 
-    def ddp_forwardpass(prev_forward_sol, backward_sol):
+    def ddp_forwardpass(prev_forward_sol, backward_sol, x0):
 
         # forward pass. 
         term = diffrax.ODETerm(forwardpass_rhs)
@@ -318,10 +319,16 @@ def ddp_main(problem_params, algo_params, init_sol):
         # evaluate the derivative of the forward trajectory as RHS(x(t)) 
         # instead of d/dt x(t). 
 
+        # but for that we need to initialise already with a backward sol....
+        # maybe we just need a "special" first iteration which takes a feedback
+        # controller given as lambda(x), then computes the forward sol, and first 
+        # backward sol while replacing the previous backward sol (which would be
+        # needed to calculate RHS(x(t)) ) with the feedback controller.
+
         # also any step length/line search/convergence checks can be put here.
 
         prev_forward_sol, = carry
-        i = inp  # unused counter.
+        x0, = inp
 
         out = dict()
 
@@ -330,7 +337,7 @@ def ddp_main(problem_params, algo_params, init_sol):
         out['xf_outside_Xf'] = xf_outside_Xf
         out['backward_sol'] = backward_sol
 
-        forward_sol = ddp_forwardpass(prev_forward_sol, backward_sol)
+        forward_sol = ddp_forwardpass(prev_forward_sol, backward_sol, x0)
 
         out['forward_sol'] = forward_sol
 

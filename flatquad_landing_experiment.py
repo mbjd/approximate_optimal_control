@@ -268,9 +268,9 @@ if __name__ == '__main__':
             'sampling_N_iters': 10,
             'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             'pontryagin_solver_adaptive': True,
-            'pontryagin_solver_atol': 1e-4,
-            'pontryagin_solver_rtol': 1e-4,
-            'pontryagin_solver_maxsteps': 512, # nice if it is not waaay too much
+            'pontryagin_solver_atol': 1e-5,
+            'pontryagin_solver_rtol': 1e-5,
+            'pontryagin_solver_maxsteps': 4192, # nice if it is not waaay too much
             'pontryagin_solver_dense': False,
     }
 

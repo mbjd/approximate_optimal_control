@@ -132,7 +132,8 @@ def current_weird_experiment(problem_params, algo_params):
     # this has turned into a rambling mess. probably either approach will work okay-ish, and we already
     # have other numerical errors anyway. 
 
-    if True:
+    plot=False
+    if plot:
         ts_eval = np.linspace(sol_orig.t0, sol_orig.t1, 2001)
 
         interp_sol = jax.vmap(sol_orig.evaluate)(ts_eval)

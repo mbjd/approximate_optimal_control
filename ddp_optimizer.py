@@ -258,9 +258,78 @@ def ddp_main(problem_params, algo_params, init_sol):
         return dot_x
 
 
+    def scan_fct(carry, inp):
+
+        # what do we need to carry? 
+        # atm I think we really only need the forward_sol. 
+
+        # later we might want to also have the previous backward sol, to 
+        # evaluate the derivative of the forward trajectory as RHS(x(t)) 
+        # instead of d/dt x(t). 
+
+        # also any step length/line search/convergence checks can be put here.
+
+        forward_sol, = carry
+        i = inp  # unused counter.
+
+        oup = dict()
+
+        # backward pass. (more comments in python for loop below.)
+        term = diffrax.ODETerm(backwardpass_rhs)
+        xf = forward_sol.evaluate(tf)[0:nx]
+
+        # terminal conditions given by taylor expansion of terminal value
+        v_T = xf.T @ P_lqr @ xf
+        lam_T = 2 * P_lqr @ xf
+        S_T = 2 * P_lqr 
+
+        # instead of doing something about it, just pass it to the output 
+        # so at least we know about it.
+        oup['xf_outside_Xf'] = v_T >= v_f * 1.001
+
+        init_state = (v_T, lam_T, S_T)
+
+        # 10x relaxed tolerance
+        step_ctrl = diffrax.PIDController(rtol=10*algo_params['pontryagin_solver_rtol'], atol=10*algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True, dense=True)
+
+        backward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=tf, t1=t0, dt0=-0.1, y0=init_state,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = 1024,
+            args = forward_sol
+        )
+
+        oup['backward_sol'] = backward_sol
+
+
+        # forward pass. 
+        term = diffrax.ODETerm(forwardpass_rhs)
+
+        # same tolerance parameters used in pure unguided backward integration of whole PMP
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True, dense=True) 
+
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+            args = (forward_sol, backward_sol)
+        )
+
+        out['forward_sol'] = forward_sol
+
+        new_carry = forward_sol
+
+        return new_carry, oup
+
+    N_iter=32
+
+    # this will only work if init_sol is without costate and value info.
+    jax.lax.scan(scan_fct, forward_sol, np.arange(N_iter))
 
     # main iterations 
-    N_iter=32
+    x0 = x0_orig * 0.5
     for i in range(N_iter): 
 
         print(f'ddp-ing iter {i}')

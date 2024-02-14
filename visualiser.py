@@ -49,6 +49,13 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     sols_ys = sols.ys
     sols_ts = sols.ts
 
+    if len(sols_ys.shape) == 2:
+
+        print('visualiser given single sol. sneakily making it look like several solutions.')
+        
+        sols_ys = sols_ys[None, :, :]
+        sols_ts = sols_ts[None, :]
+
     if sols_ys.shape[0] > 4000:
         print('meshcat visualiser: trajectory database large ({sols_ys.shape[0]})')
         print('probably you will encounter memory issues when opening the visualiser')

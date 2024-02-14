@@ -125,10 +125,7 @@ def ddp_main(problem_params, algo_params, init_sol):
         H_lam_fct = jax.jacobian(H, argnums=2)
         H_lambda = f(t, xbar, u_star)
 
-        # do NOT confuse these! I have the power
-        # of multivariate analysis and LaTeX on my side!
-        H_x_fct = jax.jacobian(H, argnums=0)
-        H_x = H_x_fct(xbar, u_star, lam)
+        H_x = jax.jacobian(H, argnums=0)(xbar, u_star, lam)
 
         # TODO do one of these: 
         # a) evaluate RHS that was used to generate the forward trajectory
@@ -187,56 +184,73 @@ def ddp_main(problem_params, algo_params, init_sol):
         H_opt_lamlam = jax.hessian(H_opt, argnums=1)(xbar, lam)
 
         # purely along characteristic curve, no correction term here. 
+        # still unsure whether or not this makes it wrong (see idea dump)
+        # indeed it seems there are differences between this and the other one which are
+        # more than just numerical noise (about 1.5% at one particular point)
         S_dot = -H_opt_xx - H_opt_xlam @ S - (H_opt_xlam @ S).T - S.T @ H_opt_lamlam @ S
 
-        # and the other derivatives too just to sanity check the different derivations....
-        H_xx_hess = jax.hessian(H, argnums=0)(xbar, u_star, lam)
 
-        H_xx = jax.jacobian(H_x_fct, argnums=0)(xbar, u_star, lam)
-        H_xu = jax.jacobian(H_x_fct, argnums=1)(xbar, u_star, lam)  
-        H_xlam = jax.jacobian(H_x_fct, argnums=2)(xbar, u_star, lam)
-        # H_ux == H_xu.T etc
+        # these are basically manual differentiation rules applied to the function
+        #  (x, lam)  ->  ( H_x(x, u*(x, lam), lam), (H_x(x, u*(x, lam), lam) )
+        # and in the end we get its jacobian and call it A_lin, a 2*nx square matrix.
+        # kind of dumb in retrospect -- hence below this I do it all with jax in one step.
 
-        H_lamx = jax.jacobian(H_lam_fct, argnums=0)(xbar, u_star, lam)
-        H_lamu = jax.jacobian(H_lam_fct, argnums=1)(xbar, u_star, lam)
-        H_lamlam = jax.jacobian(H_lam_fct, argnums=2)(xbar, u_star, lam)
-        
-        u_star_x = jax.jacobian(pontryagin_utils.u_star_2d, argnums=0)(xbar, lam, problem_params)
-        u_star_lam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(xbar, lam, problem_params)
+        # H_xx = jax.jacobian(H_x_fct, argnums=0)(xbar, u_star, lam)
+        # H_xu = jax.jacobian(H_x_fct, argnums=1)(xbar, u_star, lam)  
+        # H_xlam = jax.jacobian(H_x_fct, argnums=2)(xbar, u_star, lam)
+        # # H_ux == H_xu.T etc
 
-        # the matrix governing the evolution of (\delta x, \delta \lambda) in the linearised 
-        # pontryagin BVP (see notes in idea dump)
-        Alin = np.block([[H_lamx, H_lamlam], [-H_xx, -H_xlam]]) + np.vstack([H_lamu, -H_xu]) @ np.hstack([u_star_x, u_star_lam])
+        # H_lamx = jax.jacobian(H_lam_fct, argnums=0)(xbar, u_star, lam)
+        # H_lamu = jax.jacobian(H_lam_fct, argnums=1)(xbar, u_star, lam)
+        # H_lamlam = jax.jacobian(H_lam_fct, argnums=2)(xbar, u_star, lam)
+        # 
+        # u_star_x = jax.jacobian(pontryagin_utils.u_star_2d, argnums=0)(xbar, lam, problem_params)
+        # u_star_lam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(xbar, lam, problem_params)
 
-        # because the derivation uses those to shorten notation...
-        # also I have two different short notations for the same thing...
-        fx = A11 = Alin[0:nx, 0:nx]
-        flam = A12 = Alin[0:nx, nx:]
-        gx = A21 = Alin[nx:, 0:nx]
-        glam = A22 = Alin[nx:, nx:]
+        # # the matrix governing the evolution of (\delta x, \delta \lambda) in the linearised 
+        # # pontryagin BVP (see notes in idea dump)
+        # Alin = np.block([[H_lamx, H_lamlam], [-H_xx, -H_xlam]]) + np.vstack([H_lamu, -H_xu]) @ np.hstack([u_star_x, u_star_lam])
 
-        s = lam
-        Sdotnew = A21 + A22 @ S - S @ A11 - S @ A12 @ S
-        sdotnew = (-S @ A12 + A22) @ s  # this one appears to be wrong though. lam_dot makes better plots. 
+        # # because the derivation uses those to shorten notation...
+        # # also I have two different short notations for the same thing...
+        # A11 = Alin[0:nx, 0:nx]
+        # A12 = Alin[0:nx, nx:]
+        # A21 = Alin[nx:, 0:nx]
+        # A22 = Alin[nx:, nx:]
+
+        # s = lam
+        # Sdotnew = A21 + A22 @ S - S @ A11 - S @ A12 @ S
+        # sdotnew = (-S @ A12 + A22) @ s  # this one appears to be wrong though. lam_dot makes better plots.
+
+
+        # yet another way, maybe the nicest???
+        # this is basically f_forward from pontryagin_utils but without the separate v variable. 
+        # also the arguments are kept separate so we nicely get the four derivative combinations
+        # instead of one big matrix. 
+        def pmp_rhs(state, costate):
+
+            u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
+
+            state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
+            costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
+
+            return state_dot, costate_dot
+
+        # confirmed that [fx flam; gx glam] == Alin from above
+        # f and g are defined as the pmp rhs: x_dot = f(x, lam), lam_dot = g(x, lam)
+        # this removes any confusion with already present partial derivatives of H
+        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(xbar, lam)
+        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(xbar, lam)
 
         # Sdotnew = Sdot_three at least. it is literally the same formula :) 
         # Sdot_three from 'characteristics' derivation with (finally I think) derivation of Sdot. 
         # Sdotnew is from the pontryagin BVP -> linearisation path. 
-        Sdot_three = gx + glam @ S - S @ fx - S @ flam @ S
-
-        # suspicion: maybe the difference between Sdotnew, Sdot_three only creeps up once we have input constraints...? 
+        S_dot_three = gx + glam @ S - S @ fx - S @ flam @ S
 
         # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
-        S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
-        Sdotnew_rel_asymmetry = np.linalg.norm(Sdotnew - Sdotnew.T) / np.linalg.norm(Sdotnew)
-        Sdot_rel_diff = np.linalg.norm(Sdotnew - S_dot) / np.linalg.norm(Sdotnew)
-
-        # ipdb.set_trace()
-
-        # these on the other hand are "delta" trajectories. so they provide the local expansion around the forward 
-        # trajectory, with v again equal to the cost-to-go on the trajectory, lam the linear term, S the hessian. 
-        # then we have cost_to_go_lin(x+dx) = v + lam.T dx + 1/2 dx.T S dx. which is good right? then we can directly use
-        # lam and S in the ofrward pass too. so the variables from the backward pass have the same meaning as before!?!??
+        # S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
+        # Sdotnew_rel_asymmetry = np.linalg.norm(Sdotnew - Sdotnew.T) / np.linalg.norm(Sdotnew)
+        # Sdot_rel_diff = np.linalg.norm(Sdotnew - S_dot) / np.linalg.norm(Sdotnew)
 
         # however, sdotnew and lam_dot are markedly different. 
         # this is despite the two relevant directions (d/dt xbar and H_lambda) being almost the same (worst ratio .997)
@@ -244,22 +258,14 @@ def ddp_main(problem_params, algo_params, init_sol):
         # in the new DOC derivation, we have lambda AND \delta lambda, the latter one being what we are finding in the linear BVP. 
         # still a bit of understanding left to be gained here. 
 
-        # REALLY unsure whether I got this correctly from the paper. e.g. \hat H is supposed to be a matrix right? 
-        # f_x = jax.jacobian(f, argnums=1)(0., xbar, u_star)
-        # Sdot_DOC = H_opt_xx - f_x.T @ S - S @ f_x - S @ H_opt(xbar, lam) @ S
-        # sdot_DOC = H_opt_x
-
-
-        # ipdb.set_trace()
-
         # S_dot slightly off of being symmetric unfortunately. 
         # so, artificially "symmetrize" them here? or baumgarte type stabilisation? 
         # let's do nothing for the moment and wait until it bites us in the ass :) 
 
+        return (v_dot, lam_dot, S_dot_three)
 
-        return (v_dot, lam_dot, Sdotnew)
         # this does NOT seem to work....
-        # return (v_dot, sdotnew, Sdotnew)
+        # return (v_dot, sdotnew, S_dot_three)
 
     def forwardpass_rhs(t, state, args):
 
@@ -364,12 +370,11 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         out = dict()
 
+        # the whole DDP loop is it not beautiful <3 
         backward_sol = ddp_backwardpass(prev_forward_sol)
-
-        out['backward_sol'] = backward_sol
-
         forward_sol = ddp_forwardpass(prev_forward_sol, backward_sol, x0)
 
+        out['backward_sol'] = backward_sol
         out['forward_sol'] = forward_sol
 
         new_carry = forward_sol,
@@ -378,6 +383,15 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     N_iters=16
 
+    xf = forward_sol.evaluate(tf)[0:nx]  
+    v_T = xf.T @ P_lqr @ xf
+    lam_T = 2 * P_lqr @ xf
+    S_T = 2 * P_lqr 
+    init_state = (v_T, lam_T, S_T)
+
+
+    # to catch the ipdb inside
+    _ = backwardpass_rhs(tf, init_state, forward_sol)
     # this scan will only work if init_sol is without costate and value info
     # so here we perform a first "iteration". 
 
@@ -390,11 +404,19 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     # sweep the Phi and omega states from x0 to 0. 
     x0_final = x0.at[np.array([2,5])].set(0)
-    x0_fina = x0  # don't sweep
+    # go to weird position
+    x0_final = np.array([10, 10, 0, -10, 10, 0])
+    # don't sweep at all
+    # x0_final = x0  
     alphas = np.linspace(0, 1, N_iters)
 
-    alphas = np.repeat(alphas, 5)[:, None]  # to "simulate" several iterations per x0.
+    # this is kind of ugly ikr
+    # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
+    # after that we modify the N_iters variable 
+    iters_per_x0 = 5
+    alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.
     N_iters = alphas.shape[0]
+    iters_from_same_x0 = np.arange(N_iters) % iters_per_x0
 
     x0s = x0 * (1-alphas) + x0_final * alphas
 
@@ -412,6 +434,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     plot=True
     if plot:
+
         # plot the final solution - ODE solver nodes...
         pl.figure('final solution')
         pl.gca().set_prop_cycle(None)
@@ -427,7 +450,10 @@ def ddp_main(problem_params, algo_params, init_sol):
         pl.figure('intermediate solutions')
         for j in range(N_iters):
 
+            # alpha ~ total iterations
             alpha = 1-j/N_iters
+            # alpha ~ iterations from same initial state
+            alpha = float((iters_from_same_x0[j] + 1) / iters_per_x0)
 
             sol_j = jax.tree_util.tree_map(lambda z: z[j], outputs['forward_sol'])
 
@@ -461,8 +487,8 @@ def ddp_main(problem_params, algo_params, init_sol):
         pl.subplot(311)
         # update norm
         # difference of state vectors between iterations, norm across both time and state axis. 
-        update_norm = np.linalg.norm(np.diff(all_statevecs, axis=1), axis=(0, 2))
-        pl.semilogy(update_norm, label='update norm')
+        update_norm = np.linalg.norm(np.diff(all_statevecs, axis=1), axis=(0, 2)) / N_t
+        pl.semilogy(update_norm, label='update norm, averaged over t')
         pl.legend()
         pl.xlabel('iterations')
 
@@ -478,13 +504,15 @@ def ddp_main(problem_params, algo_params, init_sol):
             PMP_residuals = jax.vmap(fct)(ts_fine)
             return PMP_residuals
 
+        # we expect this residual to be less smooth as a function of t than 
+        # the update norm, thus finer discretisation is used here.
         Nt_fine = 100
         # and vmap for all iterations. this is of shape (N_iters, Nt_fine)
         all_PMP_residuals = jax.vmap(PMP_residuals_iter, in_axes=(0, None))(np.arange(N_iters), Nt_fine)
 
         # averaged over time axis. 
         mean_PMP_residuals = np.linalg.norm(all_PMP_residuals, axis=1) / Nt_fine
-        pl.semilogy(mean_PMP_residuals, label='PMP residual averaged over t')
+        pl.semilogy(mean_PMP_residuals, label='PMP residual, averaged over t')
         pl.legend()
 
 
@@ -508,6 +536,9 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # plot the (last? all?) backward pass just to see how it handles stepsize selection etc.
         # also, ensure that S > 0 and S-S.T is small enough.
+
+        # astonishingly this works without any weird stuff :o very cool
+        visualiser.plot_trajectories_meshcat(outputs['forward_sol'])
 
         pl.show()
 

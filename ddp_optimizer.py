@@ -80,6 +80,34 @@ def ddp_main(problem_params, algo_params, init_sol):
 
 
 
+    def PMP_wrongness(t, state, args):
+
+        # this is a measure of how far we're off form an exact PMP solution. 
+        # basically we take the direction difference from the backward pass: 
+        # if the forward trajectory comes from the same direction the backward
+        # characteristics go in, then it is optimal. This returns the norm
+        # of that direction difference (for a single time instant)
+
+        # call this function with same arguments as backwardpass RHS, it is 
+        # basically a dumbed down version of that. 
+
+        v, lam, S = state  
+        prev_forward_sol = args
+
+
+        xbar = prev_forward_sol.evaluate(t)[0:nx]
+        dot_xbar = prev_forward_sol.derivative(t)[0:nx]
+
+        # optimal input *according to backward-pass costate*
+        u_star = pontryagin_utils.u_star_2d(xbar, lam, problem_params)
+
+        # this partial derivative we can do by hand :) H is linear in lambda.
+        H_lambda = f(t, xbar, u_star)
+
+
+        # the money shot, derivation & explanations in dump, section 3.5.*
+        direction_diff = dot_xbar - H_lambda
+        return np.linalg.norm(direction_diff)
 
 
     def backwardpass_rhs(t, state, args):
@@ -229,7 +257,7 @@ def ddp_main(problem_params, algo_params, init_sol):
         # let's do nothing for the moment and wait until it bites us in the ass :) 
 
 
-        return (v_dot, lam_dot, S_dot)
+        return (v_dot, lam_dot, Sdotnew)
         # this does NOT seem to work....
         # return (v_dot, sdotnew, Sdotnew)
 
@@ -275,12 +303,15 @@ def ddp_main(problem_params, algo_params, init_sol):
         # instead of doing something about it, just pass it to the output 
         # so at least we know about it.
         # instead of this we might also output the SDF of Xf, v_T(xf) - v_f
-        xf_outside_Xf = v_T >= v_f * 1.001
+        # xf_outside_Xf = v_T >= v_f * 1.001
+        # or not, because this is just a function of the forward solution
+        # which can be calculated outside whenever we want. 
 
         init_state = (v_T, lam_T, S_T)
 
         # 10x relaxed tolerance
-        step_ctrl = diffrax.PIDController(rtol=10*algo_params['pontryagin_solver_rtol'], atol=10*algo_params['pontryagin_solver_atol'])
+        relax_factor = 100
+        step_ctrl = diffrax.PIDController(rtol=relax_factor*algo_params['pontryagin_solver_rtol'], atol=relax_factor*algo_params['pontryagin_solver_atol'])
         saveat = diffrax.SaveAt(steps=True, dense=True)
 
         backward_sol = diffrax.diffeqsolve(
@@ -290,7 +321,7 @@ def ddp_main(problem_params, algo_params, init_sol):
             args = forward_sol
         )
 
-        return backward_sol, xf_outside_Xf
+        return backward_sol # , xf_outside_Xf
 
     def ddp_forwardpass(prev_forward_sol, backward_sol, x0):
 
@@ -333,15 +364,13 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         out = dict()
 
-        backward_sol, xf_outside_Xf = ddp_backwardpass(prev_forward_sol)
+        backward_sol = ddp_backwardpass(prev_forward_sol)
 
-        out['xf_outside_Xf'] = xf_outside_Xf
         out['backward_sol'] = backward_sol
 
         forward_sol = ddp_forwardpass(prev_forward_sol, backward_sol, x0)
 
         out['forward_sol'] = forward_sol
-        out['x0s'] = x0  # just to double check...
 
         new_carry = forward_sol,
 
@@ -361,6 +390,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     # sweep the Phi and omega states from x0 to 0. 
     x0_final = x0.at[np.array([2,5])].set(0)
+    x0_fina = x0  # don't sweep
     alphas = np.linspace(0, 1, N_iters)
 
     alphas = np.repeat(alphas, 5)[:, None]  # to "simulate" several iterations per x0.
@@ -377,6 +407,7 @@ def ddp_main(problem_params, algo_params, init_sol):
     print(f'second run: {time.time() - start_t}')
 
     final_forwardsol, = final_carry
+
 
 
     plot=True
@@ -410,7 +441,76 @@ def ddp_main(problem_params, algo_params, init_sol):
             pl.plot(interp_ts, interp_ys, label=labels, alpha=alpha)
 
         pl.legend()
+
+
+
+
+
+        pl.figure('states vs iterations stats')
+        N_t = 10
+        ts = np.linspace(t0, tf, N_t)
+
+        def all_states_t(t):
+            return jax.vmap(lambda sol: sol.evaluate(t))(outputs['forward_sol'])
+
+        # this has shape (N_t, N_iters, nx)
+        all_statevecs = jax.vmap(all_states_t)(ts)
+
+
+
+        pl.subplot(311)
+        # update norm
+        # difference of state vectors between iterations, norm across both time and state axis. 
+        update_norm = np.linalg.norm(np.diff(all_statevecs, axis=1), axis=(0, 2))
+        pl.semilogy(update_norm, label='update norm')
+        pl.legend()
+        pl.xlabel('iterations')
+
+        pl.subplot(312)
+        # just for one iteration. 
+        def PMP_residuals_iter(k, Nt):
+            backsol = jax.tree_util.tree_map(lambda x: x[k], outputs['backward_sol']) 
+            fwdsol = jax.tree_util.tree_map(lambda x: x[k], outputs['forward_sol']) 
+            fct = lambda t: PMP_wrongness(t, backsol.evaluate(t), fwdsol)
+
+            ts_fine = np.linspace(t0, tf, Nt)
+
+            PMP_residuals = jax.vmap(fct)(ts_fine)
+            return PMP_residuals
+
+        Nt_fine = 100
+        # and vmap for all iterations. this is of shape (N_iters, Nt_fine)
+        all_PMP_residuals = jax.vmap(PMP_residuals_iter, in_axes=(0, None))(np.arange(N_iters), Nt_fine)
+
+        # averaged over time axis. 
+        mean_PMP_residuals = np.linalg.norm(all_PMP_residuals, axis=1) / Nt_fine
+        pl.semilogy(mean_PMP_residuals, label='PMP residual averaged over t')
+        pl.legend()
+
+
+        pl.subplot(313)
+        v0s = jax.vmap(lambda sol: sol.evaluate(0.)[0])(outputs['backward_sol'])
+        pl.plot(v0s, label='v(0)')
+        pl.xlabel('iterations')
+        pl.legend()
+
+        # same data, but in a parametric form. 
+        pl.figure('PMP error vs update norm')
+        pl.loglog(mean_PMP_residuals[1:], update_norm)
+        pl.xlabel('mean PMP residual')
+        pl.ylabel('update norm')
+
+
+        # plot something like || d/dt (x(t), lambda(t)) - PMP_RHS(x(t), lambda(t)) || as function of time? 
+        # if PMP fulfilled to low tolerance we are (probably) not having any problems
+
+        pl.figure('backward pass')
+
+        # plot the (last? all?) backward pass just to see how it handles stepsize selection etc.
+        # also, ensure that S > 0 and S-S.T is small enough.
+
         pl.show()
+
 
     ipdb.set_trace()        
 

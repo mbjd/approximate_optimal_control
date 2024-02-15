@@ -7,6 +7,7 @@ import matplotlib.pyplot as pl
 import ipdb
 import tqdm
 import time
+from operator import itemgetter
 
 import pontryagin_utils
 import visualiser
@@ -290,6 +291,30 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         return dot_x
 
+    # same as forwardpass_rhs but returns the input. mostly for plotting.
+    def forwardpass_u(t, state, args):
+
+        # here we only have the actual system state for a change
+        x = state  
+        # need both backward and forward pass solutions. 
+        prev_forward_sol, backwardpass_sol = args 
+
+        # this stacked vector forward sol is not too elegant, should probably
+        # introduce a tuple or even dict state to access solution more clearly
+        xbar = prev_forward_sol.evaluate(t)[0:nx] 
+        dx = x - xbar
+        v_xbar, lam_xbar, S_xbar = backwardpass_sol.evaluate(t)
+        # this defines a local quadratic value function: 
+        # v(xbar + dx) = v + lam.T dx + 1/2 dx.T S dx
+        # we need the first gradient of this quadratic value function. 
+        # lambda(xbar + dx) = 0 + lam.T + dx.T S  (or its transpose whatever)
+        lam_x = lam_xbar + S_xbar @ dx
+
+        u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+        return u
+
+
+
     def ddp_backwardpass(forward_sol):
 
         # backward pass. (more comments in python for loop below.)
@@ -315,16 +340,21 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         init_state = (v_T, lam_T, S_T)
 
-        # 10x relaxed tolerance
-        relax_factor = 100
-        step_ctrl = diffrax.PIDController(rtol=relax_factor*algo_params['pontryagin_solver_rtol'], atol=relax_factor*algo_params['pontryagin_solver_atol'])
+        # relaxed tolerance - otherwise the backward pass needs many more steps
+        # maybe it also "needs" the extra accuracy though...? 
+        relax_factor = 10
+        step_ctrl = diffrax.PIDController(
+            rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
+            atol=relax_factor*algo_params['pontryagin_solver_atol'],
+            # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
+        )
         saveat = diffrax.SaveAt(steps=True, dense=True)
 
         backward_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=tf, t1=t0, dt0=-0.1, y0=init_state,
             stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = 1024,
-            args = forward_sol
+            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+            args = forward_sol,
         )
 
         return backward_sol # , xf_outside_Xf
@@ -335,13 +365,18 @@ def ddp_main(problem_params, algo_params, init_sol):
         term = diffrax.ODETerm(forwardpass_rhs)
 
         # same tolerance parameters used in pure unguided backward integration of whole PMP
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        step_ctrl = diffrax.PIDController(
+            rtol=algo_params['pontryagin_solver_rtol'],
+            atol=algo_params['pontryagin_solver_atol'],
+            # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
+        )
+
         saveat = diffrax.SaveAt(steps=True, dense=True) 
 
         forward_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
             stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'],
+            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
             args = (prev_forward_sol, backward_sol)
         )
 
@@ -381,7 +416,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         return new_carry, out
 
-    N_iters=16
+    N_x0s = 64
 
     xf = forward_sol.evaluate(tf)[0:nx]  
     v_T = xf.T @ P_lqr @ xf
@@ -405,10 +440,11 @@ def ddp_main(problem_params, algo_params, init_sol):
     # sweep the Phi and omega states from x0 to 0. 
     x0_final = x0.at[np.array([2,5])].set(0)
     # go to weird position
-    x0_final = np.array([10, 10, 0, -10, 10, 0])
+    # x0_final = x0 + np.array([10, 0, 0, 0, 0, 0])
+    x0_final = x0 + np.array([0, 0, 2*np.pi, 0, 0, 0])
     # don't sweep at all
     # x0_final = x0  
-    alphas = np.linspace(0, 1, N_iters)
+    alphas = np.linspace(0, 1,  N_x0s)
 
     # this is kind of ugly ikr
     # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
@@ -422,11 +458,11 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     start_t = time.time()
     final_carry, outputs = jax.lax.scan(scan_fct, new_carry, x0s)
-    print(f'first run: {time.time() - start_t}')
+    print(f'first run (with jit): {time.time() - start_t}')
 
-    start_t = time.time()
-    final_carry, outputs = jax.lax.scan(scan_fct, new_carry, x0s)
-    print(f'second run: {time.time() - start_t}')
+    # start_t = time.time()
+    # final_ca1ry, outputs = jax.lax.scan(scan_fct, new_carry, x0s)
+    # print(f'second run: {time.time() - start_t}')
 
     final_forwardsol, = final_carry
 
@@ -435,16 +471,56 @@ def ddp_main(problem_params, algo_params, init_sol):
     plot=True
     if plot:
 
+        def plot_forwardpass(sol, ts, alpha=1., labels=True):
+            # plot trajectory with solver steps and interpolation.
+            pl.gca().set_prop_cycle(None)
+            pl.plot(sol.ts, sol.ys, marker='.', linestyle='', alpha=alpha)
+
+            interp_ys = jax.vmap(sol.evaluate)(ts)
+            pl.gca().set_prop_cycle(None)
+            pl.plot(interp_ts, interp_ys, label=problem_params['state_names'] if labels else None, alpha=alpha)
+            pl.legend()
+
+        def plot_backwardpass(sol, ts, alpha=1., labels=True):
+
+            pl.subplot(411)
+            pl.plot(sol.ts, sol.ys[0], label='v' if labels else None)
+            pl.legend()
+
+            pl.subplot(412)
+            pl.plot(sol.ts, sol.ys[1], label=problem_params['state_names'] if labels else None)
+            pl.ylabel('costates')
+            pl.legend()
+
+            pl.subplot(413)
+            pl.ylabel('S(t) - raw entries')
+            pl.plot(sol.ts, sol.ys[2].reshape(-1, nx*nx), color='black', alpha=0.2)
+            pl.legend()
+
+            pl.subplot(414)
+            S_eigenvalues = jax.vmap(lambda S: np.sort(np.linalg.eig(S)[0].real))(sol.ys[2])
+            eigv_label = ['S(t) eigenvalues'] + [None] * (nx-1)
+            pl.semilogy(sol.ts, S_eigenvalues, color='C0', label=eigv_label)
+
+            # relative matrix asymmetry: (S - S.T)/S = (1 matrix) - S.T/S
+            S_asym_rel = jax.vmap(lambda S: np.linalg.norm(1 - S/S.T))(sol.ys[2])
+            pl.semilogy(sol.ts, S_asym_rel, color='C1', label='rms [(S-S.T)/S]')
+            pl.legend()
+            
+
+
+
+        interp_ts = np.linspace(t0, tf, 512)
+
+        pl.figure('some random ass backward pass')
+        sol = jax.tree_util.tree_map(itemgetter(3), outputs['backward_sol'])
+        plot_backwardpass(sol, interp_ts)
+        ipdb.set_trace()
+
         # plot the final solution - ODE solver nodes...
         pl.figure('final solution')
-        pl.gca().set_prop_cycle(None)
-        pl.plot(final_forwardsol.ts, final_forwardsol.ys, marker='.', linestyle='')
-        # ...and interpolation.
-        interp_ts = np.linspace(final_forwardsol.t0, final_forwardsol.t1, 512) # continuous time go brrrr
-        interp_ys = jax.vmap(final_forwardsol.evaluate)(interp_ts)
-        pl.gca().set_prop_cycle(None)
-        pl.plot(interp_ts, interp_ys, label=problem_params['state_names'])
-        pl.legend()
+
+        plot_forwardpass(final_forwardsol, interp_ts)
 
 
         pl.figure('intermediate solutions')
@@ -457,14 +533,7 @@ def ddp_main(problem_params, algo_params, init_sol):
 
             sol_j = jax.tree_util.tree_map(lambda z: z[j], outputs['forward_sol'])
 
-            # and now do exactly the same as above.
-            pl.gca().set_prop_cycle(None)
-            pl.plot(sol_j.ts, sol_j.ys, marker='.', linestyle='', alpha=alpha)
-            interp_ts = np.linspace(sol_j.t0, sol_j.t1, 512) # continuous time go brrrr
-            interp_ys = jax.vmap(sol_j.evaluate)(interp_ts)
-            pl.gca().set_prop_cycle(None)
-            labels = problem_params['state_names'] if j == 0 else None
-            pl.plot(interp_ts, interp_ys, label=labels, alpha=alpha)
+            plot_forwardpass(sol_j, interp_ts, alpha=alpha, labels=(j==N_iters-1))
 
         pl.legend()
 
@@ -523,8 +592,10 @@ def ddp_main(problem_params, algo_params, init_sol):
         pl.legend()
 
         # same data, but in a parametric form. 
+        # same plot twice: markers plus translucent line. 
         pl.figure('PMP error vs update norm')
-        pl.loglog(mean_PMP_residuals[1:], update_norm)
+        pl.loglog(mean_PMP_residuals[1:], update_norm, linestyle='', marker='.', c='C0')
+        pl.loglog(mean_PMP_residuals[1:], update_norm, alpha=0.2, c='C0')
         pl.xlabel('mean PMP residual')
         pl.ylabel('update norm')
 
@@ -532,202 +603,86 @@ def ddp_main(problem_params, algo_params, init_sol):
         # plot something like || d/dt (x(t), lambda(t)) - PMP_RHS(x(t), lambda(t)) || as function of time? 
         # if PMP fulfilled to low tolerance we are (probably) not having any problems
 
-        pl.figure('backward pass')
+        # pl.figure('backward pass')
 
         # plot the (last? all?) backward pass just to see how it handles stepsize selection etc.
         # also, ensure that S > 0 and S-S.T is small enough.
 
+        pl.figure('solver stats')
+        pl.plot(outputs['forward_sol'].stats['num_accepted_steps'], linestyle='', marker='.', label='forward steps')
+        pl.plot(outputs['backward_sol'].stats['num_accepted_steps'], linestyle='', marker='.', label='backward steps')
+        pl.xlabel('iteration')
+        pl.legend()
+
         # astonishingly this works without any weird stuff :o very cool
-        visualiser.plot_trajectories_meshcat(outputs['forward_sol'])
+        # but only the solutions corresponding to the last iteration at each initial state. 
+        idxs = iters_from_same_x0 == (iters_per_x0 - 1)
+
+        sols_pruned = jax.tree_util.tree_map(lambda z: z[idxs], outputs['forward_sol'])
+        visualiser.plot_trajectories_meshcat(sols_pruned)
+
+
+
+        # latest debugging spree
+        '''
+        ts = np.linspace(t0, tf, 512)
+
+        # returns the input time series for one particular solution.
+        # instead of the solution we pass the index (first axis in each leaf of sols pytree)
+        # so we can access the previous solution too, to replicate exactly the forward pass.
+        # if we jit this the whole thing crashes and just says "Killed" -- are we using too much memory?
+        def idx_to_us(idx):
+            prev_forward_sol = jax.tree_util.tree_map(itemgetter(idx-1), outputs['forward_sol'])
+            current_backward_sol = jax.tree_util.tree_map(itemgetter(idx), outputs['backward_sol'])
+            current_forward_sol = jax.tree_util.tree_map(itemgetter(idx), outputs['forward_sol'])
+            args = (prev_forward_sol, current_backward_sol)
+
+            t=1.1
+            
+            def u_t(t):
+                return forwardpass_u(t, current_forward_sol.evaluate(t), args)
+
+            us = jax.vmap(u_t)(ts)
+            return us
+
+
+        # plot angular rates
+        N=50
+        for j in (15, 16):
+            pl.figure()
+            idx = 800 + j  
+
+            # plot the forward trajectory.
+            pl.subplot(411)
+            pl.gca().set_prop_cycle(None)
+            pl.plot(outputs['forward_sol'].ts[j], outputs['forward_sol'].ys[j, :, 2], alpha=j/N, label='Phi')
+            pl.plot(outputs['forward_sol'].ts[j], outputs['forward_sol'].ys[j, :, 5], alpha=j/N, label='omega')
+            pl.legend()
+
+            pl.subplot(412)
+            pl.plot(outputs['backward_sol'].ts[j], outputs['backward_sol'].ys[1][j], label=problem_params['state_names'])
+            pl.ylabel('costates')
+
+            # plot the input 
+            pl.subplot(413)
+            pl.gca().set_prop_cycle(None)
+            us = idx_to_us(idx)
+            pl.plot(us, alpha=j/N, label=('u1', 'u2'))
+
+            pl.subplot(414)
+            # plot the backwardpass data.
+            pl.plot(outputs['backward_sol'].ts[j], outputs['backward_sol'].ys[2][j].reshape(256, -1), color='C0', alpha=.2)
+            # todo replace hardcoded 256 with maxsteps
+
+
+        # it goes wrong for the first time at index 816. 
+
+
+            # us = 
+
+        '''
+
 
         pl.show()
-
-
-    ipdb.set_trace()        
-
-
-    #     if investigate:
-
-    #         # compare values from backward pass and "forward" sol
-    #         pl.figure()
-    #         pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[0], label='v from backward pass')
-    #         pl.plot(forward_sol.ts, forward_sol.ys[:, -1], label='v from "forward" pass')  # wtf is this? 
-    #         pl.legend()
-
-    #         # compare costates. 
-    #         pl.figure()
-    #         pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[1], label='costate from backward pass')
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.plot(forward_sol.ts, forward_sol.ys[:, nx:2*nx], label='costate from "forward" pass', linestyle='--')
-    #         pl.legend()
-
-
-    #         pl.figure()
-    #         # now the interesting stuff, stats about the S matrix. pl.subplot(131)
-    #         pl.xlabel('S matrix - raw and interpolated entries')
-    #         pl.plot(backwardpass_sol.ts, backwardpass_sol.ys[2].reshape(-1, nx*nx), marker='.', linestyle='')
-    #         interp_ts = np.linspace(backwardpass_sol.t0, backwardpass_sol.t1, 5001) # continuous time go brrrr
-    #         interp_ys = jax.vmap(backwardpass_sol.evaluate)(interp_ts)
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.plot(interp_ts, interp_ys[2].reshape(-1, nx*nx))
-    #         '''
-
-    #         these S entries look kind of wild but then again so does the state
-    #         trajectory. so maybe nothing to worry about. need to see other
-    #         trajectories and do numerical sanity checks by using the local
-    #         value function in feedback controller and looking at those
-    #         trajectories. 
-
-    #         '''
-
-    #         pl.subplot(132)
-    #         pl.xlabel('norm(S - S.T)')
-    #         batch_matrix_asymmetry = jax.vmap(lambda mat: np.linalg.norm(mat - mat.T))
-    #         pl.plot(backwardpass_sol.ts, batch_matrix_asymmetry(backwardpass_sol.ys[2]), marker='.', linestyle='')
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.plot(interp_ts, batch_matrix_asymmetry(interp_ys[2]))
-
-    #         '''
-    #         
-    #         the asymmetry does grow to about does grow to about .00018. I'd
-    #         say its nothing to worry about right now. whenever we need a
-    #         precisely symmetric matrix S we can just use (S + S.T)/2. If it
-    #         becomes a problem for longer horizons let's call up our boi
-    #         Baumgarte
-
-    #         '''
-
-    #         pl.subplot(133)
-    #         pl.xlabel('eigs(S)')
-    #         batch_real_eigvals = jax.vmap(lambda mat: np.sort(np.linalg.eig(mat)[0].real))
-    #         pl.semilogy(backwardpass_sol.ts, batch_real_eigvals(backwardpass_sol.ys[2]), marker='.', linestyle='')
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.semilogy(interp_ts, batch_real_eigvals(interp_ys[2]))
-
-    #         '''
-    #         mostly this seems to stay positive definite, although there was ONE case where one eigenvalue 
-    #         dropped to like -0.1 or something, so clearly negative but not overly so, and only for like .1 or .2 seconds. 
-    #         lost the prng seed responsible for it due to a crash :( maybe keep this in mind for future debugging. 
-    #         '''
-
-
-    #         pl.show()
-    #         # ipdb.set_trace()
-
-
-    #     # Then, first thing tomorrow: 
-    #     # - work out the kinks above so it actually runs. (done)
-    #     # - find some actually optimal trajectory by PMP backwards integration (done)
-    #     # - give it to this as an initial guess (done)
-    #     # - verify that the backward pass is consistent w/ this info
-    #     #   (we should have the backward pass costate equal to the initial costate, 
-    #     #   and if we forward sim again, obtain the same trajectory again)
-
-    #     # looks good until now :) backward pass very nice. 
-    #     # let us implement a forward pass here. 
-
-    #     # this means basically just a closed loop simulation, with the controller 
-    #     #    u(t, x) = argmin_H(t, x, lambda(t, x))
-    #     # with lambda(t, x) given by the taylor approximation from the backward pass. 
-
-
-    #     # setup the ODE solver call. 
-    #     term = diffrax.ODETerm(forwardpass_rhs)
-
-    #     # same tolerance parameters used in pure unguided backward integration of whole PMP
-    #     step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
-    #     saveat = diffrax.SaveAt(steps=True, dense=True) 
-
-    #     forward_sol = diffrax.diffeqsolve(
-    #         term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
-    #         stepsize_controller=step_ctrl, saveat=saveat,
-    #         max_steps = algo_params['pontryagin_solver_maxsteps'],
-    #         args = (forward_sol, backwardpass_sol)
-    #     )
-
-    #     alpha = i/N_iters
-
-    #     print(f'plotting iter {i}')
-    #     interp_ts = np.linspace(t0, tf, 501)
-    #     label = ['forward pass: ' + name for name in problem_params['state_names']]
-
-    #     # colors = ('C0', 'C1', 'C2', 'C3', 'C4', 'C5')
-    #     pl.gca().set_prop_cycle(None)
-    #     pl.plot(forward_sol.ts, forward_sol.ys, linestyle='', marker='.', alpha=alpha)
-    #     pl.gca().set_prop_cycle(None)
-    #     pl.plot(interp_ts, jax.vmap(forward_sol.evaluate)(interp_ts), label=label, alpha=alpha)
-
-
-
-    #     if investigate:
-    #         # we got a solution!!! plot it. 
-    #         # specifically, compare the new forward_sol with the previous, forward_sol. 
-
-    #         # here plot just the forward pass solution (solid) and the initial guess (translucent)
-    #         # they should match each other very closely. 
-    #         interp_ts = np.linspace(t0, tf, 501)
-
-
-    #         label = ['forward pass: ' + name for name in problem_params['state_names']]
-    #         pl.plot(forward_sol.ts, forward_sol.ys, linestyle='', marker='.')
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.plot(interp_ts, jax.vmap(forward_sol.evaluate)(interp_ts), label=label)
-
-    #         label = ['init guess (optimal already) ' + name for name in problem_params['state_names']]
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.plot(init_sol.ts, init_sol.ys[:, 0:nx], linestyle='', marker='.', alpha=.5)
-    #         pl.gca().set_prop_cycle(None)
-    #         pl.plot(interp_ts, jax.vmap(init_sol.evaluate)(interp_ts)[:, 0:nx], label=label, linestyle='--', alpha=.5)
-    #         pl.legend()
-
-    #         # here we plot N different forward passes from different, but close initial conditions. 
-    #         # then we visualise with meshcat :) 
-    #         def forward_sim(x0):
-    #             forward_sol = diffrax.diffeqsolve(
-    #                 term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
-    #                 stepsize_controller=step_ctrl, saveat=saveat,
-    #                 max_steps = algo_params['pontryagin_solver_maxsteps'],
-    #                 args = (forward_sol, backwardpass_sol)
-    #             )
-    #             return forward_sol
-
-    #         # N initial states disturbed w/ gaussian noise. 
-    #         N_sim = 100
-    #         k = jax.random.PRNGKey(0)
-    #         x0s = x0[None, :] + jax.random.normal(k, shape=(N_sim, nx)) * 0.1
-
-    #         sols = jax.vmap(forward_sim)(x0s)
-    #         visualiser.plot_trajectories_meshcat(sols)
-    #         # this looks like complete shit. did i change the state format or something???
-
-    #         # now that we have this nice sols object, we might as well plot some stats with it. 
-    #         def local_v(t, x):
-    #             xbar = forward_sol.evaluate(t)[0:nx]
-    #             v, lam, S = backwardpass_sol.evaluate(t)
-    #             dx = x - xbar
-    #             quad_v = dx.T @ S @ dx
-    #             v_x = v + lam.T @ dx + 0.5 * quad_v
-    #             return v_x, quad_v
-
-    #         # cool, calm & collected double vmap.
-    #         vs, vquads = jax.vmap(jax.vmap(local_v, in_axes=(0, 0)), in_axes=(1, 1))(sols.ts, sols.ys)
-    #         pl.figure()
-    #         pl.semilogy(sols.ts.T, vs, color='green', alpha=0.1)
-    #         pl.semilogy(sols.ts.T, vquads, color='red', alpha=0.1)
-    #         pl.show()
-
-    #         ipdb.set_trace()
-
-
-
-        # then, here: 
-        # - do forward pass
-        # - do some convergence check
-        # - if not converged, give forward solution to next iteration. 
-
-        # forward pass: simulate our system in forward time, with input as if the
-        # quadratic value expansion the backward pass actual value fct. 
-        # (what if this fails? line search?)
-
-        # for later: convergence criterion? 
+        ipdb.set_trace()        
 

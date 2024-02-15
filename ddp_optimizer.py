@@ -263,6 +263,15 @@ def ddp_main(problem_params, algo_params, init_sol):
         # so, artificially "symmetrize" them here? or baumgarte type stabilisation? 
         # let's do nothing for the moment and wait until it bites us in the ass :) 
 
+        # let us try to do gradient descent on ||A-A'||^2. 
+        # matrixcalculus.org tells us that the gradient of that expression wrt A is: 
+        # 2 (A - A') - 2 (A' - A) = 2 A - 2 A' - 2 A' + 2 A = 4 (A - A').
+
+        # somehow this makes things worse even after flipping the sign twice
+        # asymmetry_gradient = 4 * (S - S.T)
+        # baumgarte_timeconstant = 0.5  # seconds (or other time units)
+        # S_dot_three = S_dot_three + asymmetry_gradient / baumgarte_timeconstant
+
         return (v_dot, lam_dot, S_dot_three)
 
         # this does NOT seem to work....
@@ -440,7 +449,7 @@ def ddp_main(problem_params, algo_params, init_sol):
     # sweep the Phi and omega states from x0 to 0. 
     x0_final = x0.at[np.array([2,5])].set(0)
     # go to weird position
-    # x0_final = x0 + np.array([10, 0, 0, 0, 0, 0])
+    # x0_final = x0 + np.array([10, 0, 0, 0, 10, 0])
     x0_final = x0 + np.array([0, 0, 2*np.pi, 0, 0, 0])
     # don't sweep at all
     # x0_final = x0  
@@ -479,32 +488,36 @@ def ddp_main(problem_params, algo_params, init_sol):
             interp_ys = jax.vmap(sol.evaluate)(ts)
             pl.gca().set_prop_cycle(None)
             pl.plot(interp_ts, interp_ys, label=problem_params['state_names'] if labels else None, alpha=alpha)
-            pl.legend()
+            if labels: pl.legend()
 
         def plot_backwardpass(sol, ts, alpha=1., labels=True):
 
-            pl.subplot(411)
-            pl.plot(sol.ts, sol.ys[0], label='v' if labels else None)
+            ax0 = pl.subplot(221)
+            pl.semilogy(sol.ts, sol.ys[0], label='v' if labels else None)
             pl.legend()
 
-            pl.subplot(412)
+            pl.subplot(222, sharex=ax0)
             pl.plot(sol.ts, sol.ys[1], label=problem_params['state_names'] if labels else None)
             pl.ylabel('costates')
             pl.legend()
 
-            pl.subplot(413)
+            pl.subplot(223, sharex=ax0)
             pl.ylabel('S(t) - raw entries')
             pl.plot(sol.ts, sol.ys[2].reshape(-1, nx*nx), color='black', alpha=0.2)
-            pl.legend()
 
-            pl.subplot(414)
+            pl.subplot(224, sharex=ax0)
             S_eigenvalues = jax.vmap(lambda S: np.sort(np.linalg.eig(S)[0].real))(sol.ys[2])
             eigv_label = ['S(t) eigenvalues'] + [None] * (nx-1)
             pl.semilogy(sol.ts, S_eigenvalues, color='C0', label=eigv_label)
 
-            # relative matrix asymmetry: (S - S.T)/S = (1 matrix) - S.T/S
-            S_asym_rel = jax.vmap(lambda S: np.linalg.norm(1 - S/S.T))(sol.ys[2])
-            pl.semilogy(sol.ts, S_asym_rel, color='C1', label='rms [(S-S.T)/S]')
+            # relative matrix asymmetry: || (S - S.T)/S || = || (1 matrix) - S.T/S ||
+            # S_asym_rel = jax.vmap(lambda S: np.linalg.norm(1 - S.T/S))(sol.ys[2])
+            # pl.semilogy(sol.ts, S_asym_rel, color='C1', label='norm( (S-S.T)/S )')
+
+            # other versioon: || S-S.T || / ||S||
+            # hard to say which one of these is better to use...
+            S_asym_rel = jax.vmap(lambda S: np.linalg.norm(S-S.T)/np.linalg.norm(S))(sol.ys[2])
+            pl.semilogy(sol.ts, S_asym_rel, color='C1', label='norm(S-S.T)/norm(S)')
             pl.legend()
             
 
@@ -514,8 +527,8 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         pl.figure('some random ass backward pass')
         sol = jax.tree_util.tree_map(itemgetter(3), outputs['backward_sol'])
-        plot_backwardpass(sol, interp_ts)
-        ipdb.set_trace()
+        plot_backwardpass(sol, None)
+        
 
         # plot the final solution - ODE solver nodes...
         pl.figure('final solution')

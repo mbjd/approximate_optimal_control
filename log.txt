@@ -893,3 +893,45 @@ after jit. it does 32 iterations, for the flatquad model in like 0.1 seconds :)
 continued playing around with ddp. made a cleaner implementation in functional
 jax style with some extra abstraction. did some initial state sweeps. looks
 pretty nice :) i think for the moment this should be workable. 
+
+
+2024-02-14
+
+continued the implementation & some tests. made plots and brought meshcat
+visualiser back from the dead. looks all pretty nice. also removed the
+initialisation with backward shooting by a simpler one with LQR-controlled
+solution near goal state. 
+
+2024-02-14
+
+trying some more "difficult" states to sweep to. quickly the ODE integrator
+steps explode. first remedy i am trying now: set maxsteps to something
+outlandish like 10000, and set step controller dtmin to T/maxsteps.
+theoretically this should work! but maybe at the expense of accuracy. there is
+also the norm argument which might be useful especially in the backward pass: 
+
+norm: A function PyTree -> Scalar used in the error control. Precisely, step
+sizes are chosen so that norm(error / (atol + rtol * y)) is approximately one. 
+
+in the forward pass as long as the system is about unity scale the default,
+probably the 2-norm, should be good enough.
+
+alright the problem is not the ODE integrator probably but some other error.
+when sweeping from initial state 0 to Phi=pi/2, initially all goes well for low
+angles, but suddenly, the angular rate goes either way up or way down. this
+smells somehow like wrong treatment of input constraints to me. I'll plot the
+input time series next.
+
+they look quite decent, and already have significant constrained parts before
+it goes wrong, so probably we are alright there. the backward pass in iteration
+816 (first one that goes wrong) blows up to like 1e7 which the previous ones
+don't do...
+
+lowered solver tolerance on backward pass, and the particular instance of
+blowing up is removed. 
+
+finding a new problem where NaNs creep up in sol.evaluate somehow. or wait, no,
+it is the same old problem where backward pass blows up. 
+
+making plotting code for backwardpass in jax-ish, functional implementation.
+

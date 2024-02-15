@@ -52,11 +52,22 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     if len(sols_ys.shape) == 2:
 
         print('visualiser given single sol. sneakily making it look like several solutions.')
-        
+
         sols_ys = sols_ys[None, :, :]
         sols_ts = sols_ts[None, :]
 
+    # filter out the trajectories containing NaN.
+    # inf is fine since the pre-allocated solution arrays are padded with inf. 
+    # sols.ys.shape == (N_sols, N_timesteps, nx)
+    # if for one solution, any state at any timestep contains NaN, don't show it. 
+    is_usable = np.logical_not(np.isnan(sols_ys).any(axis=(1, 2)))
+    sols_ys = sols_ys[is_usable]
+    sols_ts = sols_ts[is_usable]
+
+    vis = meshcat.Visualizer()
+
     if sols_ys.shape[0] > 4000:
+
         print('meshcat visualiser: trajectory database large ({sols_ys.shape[0]})')
         print('probably you will encounter memory issues when opening the visualiser')
 
@@ -64,7 +75,6 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
         ipdb.set_trace()
 
 
-    vis = meshcat.Visualizer()
 
     # scale force cylinder length like this:
     # vis['box/cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(0.1, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))

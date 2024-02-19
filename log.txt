@@ -902,7 +902,7 @@ visualiser back from the dead. looks all pretty nice. also removed the
 initialisation with backward shooting by a simpler one with LQR-controlled
 solution near goal state. 
 
-2024-02-14
+2024-02-15
 
 trying some more "difficult" states to sweep to. quickly the ODE integrator
 steps explode. first remedy i am trying now: set maxsteps to something
@@ -934,4 +934,45 @@ finding a new problem where NaNs creep up in sol.evaluate somehow. or wait, no,
 it is the same old problem where backward pass blows up. 
 
 making plotting code for backwardpass in jax-ish, functional implementation.
+did not help to definitifely find the issue. sometimes S explodes, causing
+crazy unstable forward pass with basically random bang-bang input, messing up
+all subsequent runs.
 
+
+2024-02-19
+
+trying to investigate the effects of evaluating d/dt solution(t) instead of
+RHS(solution(t)). For the first, very easy (pretty much in linear domain)
+example we already see ripples in the forward pass solution that do not appear in the initial guess (made with LQR value function). Possibly the problems I'm seeing are due to this. 
+
+turns out, there are ALWAYS ripples at least in the omega state which, while
+not hugely messing up the state info, are not very small and certainly render
+the derivative useless. 
+
+first tried to store the costate in the forwardpass solution using the fn argument
+of SaveAt, however that does not make it to the interpolation, so is useless. 
+https://github.com/patrick-kidger/diffrax/issues/301
+
+so to do it properly we kind of need to evaluate the interpolated previous backwardpass
+during the current backwardpass to know the direction of the previous forward solution. 
+
+but here is the kicker: to do that, we need to know at what point the taylor
+expansion (from the previous backward solution) was done. To know this we have
+to know the forward solution even before that!!!
+
+so, will this just fundamentally not work unless we are willing to evaluate a
+growing number of ODE solutions summed together? This is kind of the same
+issue as  line search: To do it properly we have to have an iterate which is a
+weighted sum of all past iterates. This is trivial in the finite dimensional
+case. But in our case  the adaptive discretization messes everything up. Is
+this really a dead end? Would be very sad. 
+
+--> this "kicker" is actually not true. we only need for a particular backward
+pass the forward solution immediately before that, and the forward/backward
+solutions that produced it.
+
+To make it nicer i reorderd forward and backward pass, making current
+iteration again only depend on last iteration. was a whole day of refactoring.
+Now it works (apparently) very similarly to before but we eliminated one
+possible cause of uncontrolled numerical error buildup. Need to look more
+closely at forward/backward passes still to see where it fails. 

@@ -1,22 +1,22 @@
 2024-01-15
 
-decided to use this log again for daily stuff. 
+decided to use this log again for daily stuff.
 
 looked into value expansion version again, from DDP type solvers in continuous
 time. https://dcsl.gatech.edu/papers/acc15e.pdf here is a nice derivation for
-the HJI equation. 
+the HJI equation.
 
 also debating: if we go with this value expansion option, we will have to do
 more computation per trajectories, the state is enlarged by an (nx, nx) matrix
 (symmetric so maybe half that). is it worth it? can we effectively explore the
-state space without too much unnecessary data? 
+state space without too much unnecessary data?
 
 thinking a lot about the "fundamental limits" of this purely backward-in-time
 way of solving the problem. inevitably the bottleneck will be travelling along
 long, turnpike-type trajectories, when the fast dynamics, which are unstable in
 backward time, constantly push us away from it. Will we actually end up
 creating much more data than what would be needed? Would it be a smart(ish)
-idea to throw away *some* of the trajectories to limit dataset size? 
+idea to throw away *some* of the trajectories to limit dataset size?
 
 also, inuitively, it seems like higher dimensional problems are even harder
 from this perspective. If we want to re-start HJB characteristics away from the
@@ -26,7 +26,7 @@ that either some nearest neighbor interpolation or taylor extrapolation is
 accurate enough. But does this even work in high dimensions? Basic "curse of
 dimensionality" intuition says that as dimension increases, this type of
 nearest neighbor search becomes increasingly a bad idea: The dataset size
-needed to satisfy some fixed data density is exponential in dimensionality. 
+needed to satisfy some fixed data density is exponential in dimensionality.
 
 (another interesting question here would be to challenge the assumption that we
 need accurate V and λ to continue a HJB characteristic curve. If λ is slightly
@@ -53,11 +53,11 @@ exploring the state space with optimal trajectories, we generate much more of
 them than what we would need for training an NN. Maybe we could have made a
 similarly good dataset with much fewer DDP-generated optimal trajectories, even
 if they are a bit more expensive to calculate, but we only generate the amount
-actually needed, which probably is a lot less than the current idea. 
+actually needed, which probably is a lot less than the current idea.
 
 this makes me heavily question the purpose of the project. if we just take a
 DDP solver, why not one of the 100s that already exist? If we do our
-characteristics type thing we can already guess the conclusion*, so why do it?  
+characteristics type thing we can already guess the conclusion*, so why do it?
 
 * something like:
 
@@ -66,12 +66,12 @@ trajectories backwards. end up with no global optimality guarantee, best case
 some probabilistic asymptotic approximate thing. It works great for
 "non-multiscale", low-ish dimensional problems, for others we end up generating
 huge datasets for not much tangible benefit, all while algo complexity is
-basically O(dataset size^2). 
+basically O(dataset size^2).
 
-ways to address this: 
-- be aware that it probably won't be state of the art, have fun exploring 
-  algo details and heuristics to speed it up and stuff. 
-- connect with previously existing methods (ddp) and work from there to some 
+ways to address this:
+- be aware that it probably won't be state of the art, have fun exploring
+  algo details and heuristics to speed it up and stuff.
+- connect with previously existing methods (ddp) and work from there to some
   sort of global optimality guarantee
 - do a 180 and start a somewhat different project? (PINN? active exploration?)
 
@@ -81,7 +81,7 @@ tree or DAG like thing based on "flow" of information? use some black magic to
 speed up nearest neighbor search, like k-d tree or locality sensitive hashing?
 because pretty much no matter how we go about it, we will not only create a
 sizable data set of trajectories, but also have to do many, many
-nearest-neighbor-type searches over it. 
+nearest-neighbor-type searches over it.
 
 this was a lot of maybe incoherent rambling. sorry to my future self and
 whoever reads this. maybe the final paper will be more readable \o/
@@ -98,28 +98,28 @@ also an interesting phd thesis:
 https://gepettoweb.laas.fr/articles/amit_icra_22.html. They basically use a DDP
 type solver coupled with global value function approximation, to find infinite
 horizon optimal control over a large domain by iteratively using the learned
-value function as terminal cost. 
+value function as terminal cost.
 
 Should we try to expand this to some sort of provable global optimality?
 Because I don't think they do that there. There the claim "So, when used as a
 proxy for terminal cost functional, ∂PVPv [name of their algo] tends to drive
 the locally optimal solver toward the globally optimal solution.", but no proof
-or explanation. 
+or explanation.
 
 possible decent contribution would also be to do the infinite horizon in one
 single trajectory with some sort of time reparameterisation. reduces the number
 of approximations and weak links, and I think with adaptive solver this can
-actually be quite efficient. In fact, I think inf-horizon DDP itself would already 
-be a cool contribution, even without the "hopefully global" optimality. 
+actually be quite efficient. In fact, I think inf-horizon DDP itself would already
+be a cool contribution, even without the "hopefully global" optimality.
 
-other new interesting papers in semanticscholar folders: 
+other new interesting papers in semanticscholar folders:
 - ddp-ish value expansion
 - local -> global optimality
 - sobolev learning
-- V approx, transfer learning, etc. 
+- V approx, transfer learning, etc.
 
 
-small tidbits i thought about: 
+small tidbits i thought about:
 
 - in continuous time DDP apparently the hessian Vxx is always positive
   definite, in contrast to the more often used time-discretised version. Does
@@ -128,7 +128,7 @@ small tidbits i thought about:
 
 - NN learning: only consider data points with v(x) <= v, and sweep up v during
   training? this way we might explicitly identify the points when different
-  local solutions start conflicting, and maybe do something about it. 
+  local solutions start conflicting, and maybe do something about it.
 
 
 2024-01-17
@@ -136,59 +136,59 @@ small tidbits i thought about:
 had meeting. talked about all the concerns from last few days and got
 reassuring answer that yes, these are hard and, in practical terms, unsolved
 problems. advice: just explore around for another week and slowly try to come
-up with a sensible research question. 
+up with a sensible research question.
 
 mentioned frustration that "everything" has already been done, no "niche" left.
 answer: "own" niche can also be very small, or a contribution to extend
-existing work can also be quite small to be significant. 
+existing work can also be quite small to be significant.
 
-current options: 
+current options:
 
-- explore (probably limited) possibilities with pure PMP backward integration. 
+- explore (probably limited) possibilities with pure PMP backward integration.
   also sometimes labelled geodesic flow, geodesic spray, etc. probably only
-  simple systems, low dim, not multiscale. 
+  simple systems, low dim, not multiscale.
 
 - explore backwards PMP integration + quadratic value expansion. the appeal is
   obviously still no iterative optimisation over trajectories/inputs. but
   scalability concern due to instability and huge dataset remains -- can we
   still optimise the hell out of it? with smart proposal strategies or fancy
-  data structures? 
+  data structures?
 
 - go for a DDP like solver method, similar to PhD thesis of Amit Parag, and try
   to come up with tricks to "encourage" global optimality. Lots of ideas around
   BNNs with asymmetric loss, Sobolev learning, active learning, etc. currently
-  this does seem the most interesting to me. 
+  this does seem the most interesting to me.
 
 - actually already infinite-horizon, continuous-time DDP could be a cool
   contribution itself...?
 
-- sth else? 
+- sth else?
 
 different, mostly-orthogonal directions to expand the problem setting beyond
-inf-horizon, continuous time: 
+inf-horizon, continuous time:
 
 - some sort of approximate *global* optimality. probably though there just
-  isn't an actual shortcut to this. give up? 
+  isn't an actual shortcut to this. give up?
 - input constrained (in general dims -> QP solver finds u*)
-- state constrained (in the sense of safety limits) 
+- state constrained (in the sense of safety limits)
 - state constrained (in the sense that x is on a manifold)
 - robust (with adversary, HJI equation)
 - parameterised family of dynamics
 
 
-other than that: 
+other than that:
 
 - devoured more literature about continuous-time DDP-ish solvers, especially
-  nteresting ones to do w/ HJI/robust stuff. 
+  nteresting ones to do w/ HJI/robust stuff.
 
 - found a nice paper comparing different BNN methods to the "true" posterior
-  obtained with Hamiltonian Monte Carlo, put it in a new BNN folder. 
+  obtained with Hamiltonian Monte Carlo, put it in a new BNN folder.
 
 - found a couple more papers about what I think is essentially the same as
   pontryagin backward integration like in SA, one example was planning min-time
   flight trajectories on the actual globe with known wind field and simplified
   single integrator dynamics. that is actually a cool application, where the
-  multiscale limitations do not come into play. 
+  multiscale limitations do not come into play.
 
 Random assorted thoughts, about making DDP work in inf-horizon:
 
@@ -201,9 +201,9 @@ trajectories using DDP. If the trajectory ends inside of Xf, good. If not,
 increase the time horizon. In continuous time and w/ adaptive solvers, [i hope
 that] a "too" long time horizon will not be much of an issue, especially if
 most of the time is spent within Xf, where the ODE solver can choose large
-steps. 
+steps.
 
-And about distributions/ill conditioning/timescale separations: 
+And about distributions/ill conditioning/timescale separations:
 
 also, many of the problems we see (ill conditioning, bad distributions) arise
 from basically the fact that systems are decomposable across time scales.
@@ -211,15 +211,15 @@ Traditionally, this makes engineering solutions easier, however if we aim to
 solve the whole problem at once it becomes much more difficult. Can we somehow
 use these time-scale decomposition heuristics to maybe improve/inform our
 sampling process, while still ultimately finding the actual solution to the
-full problem? not so sure how exactly to go about this. 
+full problem? not so sure how exactly to go about this.
 
-about possible approximate global optimality: 
+about possible approximate global optimality:
 
 this seems admittedly hard and convoluted in the framework DDP + Sobolev BNN
 value function. One possiblilty: keep all trajectories in a data set. For each
 proposal, also find nearest neighbor trajectories, and for each one of them (*)
 try to do a homotopy method, moving its initial condition to the proposal while
-keeping local optimality w/ DDP.  
+keeping local optimality w/ DDP.
 
 *: To speed this up we can first do some k-means clustering of the trajectories
 in terms of lambda(x0), or in terms of some sampled points along the
@@ -238,7 +238,7 @@ system to decide if we are happy with the local solution at hand.
 2024-01-18
 
 thinking about ways to do function approximation which maybe works well given
-the structured nonsmoothness encountered in value functions. 
+the structured nonsmoothness encountered in value functions.
 
 What would happen with a standard (B)NN (and enough data of suitable
 distribution covering several distinct local solutions) is that we just kind of
@@ -248,10 +248,10 @@ separate NN for each adjacent region, and that the output of the whole model is
 the minimum of the individual models. That way we benefit from smooth
 extrapolation (which over small enough distances should work quite well with
 appropriate sobolev loss) without interference due to neighboring, distinct
-solutions. 
+solutions.
 
 How could we achieve this behaviour, even approximately? We cannot just blindly
-have N values passed to some min(.) type last layer, because of this: 
+have N values passed to some min(.) type last layer, because of this:
 
 due to the global structure of the value function, there exists a curve γ(s)
 with γ(0) arbitrarily close to the nonsmooth decision boundary from one side,
@@ -262,28 +262,28 @@ connect to the other solution, which we follow in reverse time until we reach
 the opposite side of the decision boundary). Therefore, if we apply a naive
 min(.) operator, we cannot exactly represent this because there has to be
 another switching surface switching between the left and right regions,
-somewhere along the curve, where V is actually smooth. 
+somewhere along the curve, where V is actually smooth.
 
 Therefore my next instinct is to approximate a min(.) operator with some
 smoothed version thereof, and add an extra parameter which changes the
 smoothness of it somehow. e.g. with some softmax thing. These are the
-requirements: 
+requirements:
 
 - the soft minimum selection should be a close approximation of the actual
-  minimum close to the decision boundary. 
-- the soft minimum selection should "fade out", i.e. change its selection only 
-  very smootly, when we are far from the decision boundary. 
+  minimum close to the decision boundary.
+- the soft minimum selection should "fade out", i.e. change its selection only
+  very smootly, when we are far from the decision boundary.
 - there should be no deterioration in performance if we choose 10 different
-  "classes" but only 1 or 2 are necessary. 
-- in general it should not completely break NN fitting. 
+  "classes" but only 1 or 2 are necessary.
+- in general it should not completely break NN fitting.
 
 
-in other news: 
+in other news:
 
 tried to understand some of the results on "PPO attains global optimality",
 went over my head still. their convergence rate depends on the discount factor
 though with a singularity at 1 so I doubt it is in any way applicaple to the
-(IMO much more interesting) undiscounted case. 
+(IMO much more interesting) undiscounted case.
 
 
 can we make ddp state constrained in an easy-ish way? I think I wrote this on
@@ -293,11 +293,11 @@ constraint violation \int max(0, g(x(t))) dt. Then, during the forward pass, if
 the constraint violation is nonzero, apply inputs minimising its local
 expansion, basically replacing V with V_g, otherwise apply inputs minimising
 the usual local value function. Does this work? If so, also in continuous time?
-Are there problems due to nonsmoothness on constrained arcs? 
+Are there problems due to nonsmoothness on constrained arcs?
 
 is this basically a cheap, not-thought-thorugh version of an augmented
 lagrangian type method? still want to grok those papers from Lutter et al. If
-working that would probably properly get rid of the nonsmoothness problems. 
+working that would probably properly get rid of the nonsmoothness problems.
 
 
 2024-01-22
@@ -310,7 +310,7 @@ because we can often design controllers separately over timescales (sacrificing
 optimality but making it much simpler). From this angle I thought it would be
 cool if we can somehow use this timsecale separation intuition to our benefit,
 i.e. to make learning control laws more efficient, while still solving the
-"full" non-decoupled problem. 
+"full" non-decoupled problem.
 
 Wrote a page in the overleaf idea dump about it ("Slow(er) Manifold following).
 The idea is this: Instead of the RRT-style framework I thought about for some
@@ -335,75 +335,75 @@ slow manifold is stable in backward time, instead of unstable. However this
 probably requires knowing the stable manifold in advance, which we don't in
 general. Very hard to ensure that the trajectories of the modified dynamics are
 somehow a good approximation of the unchanged dynamics with PERFECT
-initialisation. This is probably a dead end tbh. 
+initialisation. This is probably a dead end tbh.
 
 OTOH probably the full-blown inf-horizon DDP <-> BNN active learning loop would
 probably be even more scalable and data efficient. But admittedly less flashy
 and esotheric, and harder to pinpoint where exactly my "new" contribution will
-be. 
+be.
 
 Both require quadratic value expansions so maybe I should start by working this
 out properly in continuous time...
 
-So the current selection, to summarise, is this: 
+So the current selection, to summarise, is this:
 
 a) Develop "inf-horizon" continouos time DDP, implement in jax. Connect with
    active learning & Sobolev NN to efficiently find new solutions over whole
-   interesting region. Maybe some sort of "approximate" global optimality. 
+   interesting region. Maybe some sort of "approximate" global optimality.
 
 b) Try to take the "purely backwards" approach further, possibly like the notes
    just above
 
 
 at the moment I am leaning towards a) which is probably the more generally
-useful and scalable optinon. Main components of that: 
+useful and scalable optinon. Main components of that:
 
 - inf-horizon, continuous time DDP
   - theory (basically figure out those couple papers)
-  - implementation :) 
+  - implementation :)
 
 - Sobolev Bayesian NN
-  - Which flavour of "bayesianisation"? 
+  - Which flavour of "bayesianisation"?
   - Sobolev how exactly? With hessian approxiamated by random Hvp?
-  - Find some nice version that half works with nondifferentiable points? 
+  - Find some nice version that half works with nondifferentiable points?
     (see notes from Fr.)
 
 - Intermingling of the two
   - How to propose new samples?
-  - How to handle trajectory optimisation? Fixed iterations? Until converged? 
+  - How to handle trajectory optimisation? Fixed iterations? Until converged?
   - Data structure considerations? Hopefully not
-  - Reweight data, e.g. by 1/density, for training? 
+  - Reweight data, e.g. by 1/density, for training?
   - Bias somehow os we are more likely to encounter "surprising" trajectories
-    which are better than the currently known solution? 
+    which are better than the currently known solution?
 
 - Other stuff
-  - Which examples, costs, engineering tradeoff type goals? 
- 
-this gon be fun 
+  - Which examples, costs, engineering tradeoff type goals?
+
+this gon be fun
 
 basic research questions to justify these goals (is this the valid way of doing
-science? I am but a lowly engineer after all) : 
+science? I am but a lowly engineer after all) :
 
 - How can we achieve maximum sample efficiency? (by choosing correct NN and
   sampling strategy)
 - Are we able to meaningfully speed up long-horizon trajectory optimisation by
-  going to continuous time? 
+  going to continuous time?
 - To what degree can we automate the process and make it "hyperparameter-free"?
   (probably not that much tbh, I feel like optimal control is in the end just
   as much black magic as RL, perhaps with two or three less black first steps.)
 
 
-other small stuff: 
+other small stuff:
 
 - had an idea over the weekend that H(x, λ)=0 describes something useful and
   could help in interpolating the right costate (in RRT idea). convinced myself
   though that this is nothing. for all other terminal value functions, we also
-  have optimal trajectories with H=0. So this does not give much information. 
+  have optimal trajectories with H=0. So this does not give much information.
 
 - thought about other ways of modifying the backwards PMP system to make
   trajectories more well behaved. I think continuously modifying it, while
   always adjusting the V/Vx info using the local expansion, is a bad idea though,
-  can't think of a way to ensure low approximation error. 
+  can't think of a way to ensure low approximation error.
 
 
 2024-01-23
@@ -414,12 +414,12 @@ NN model which outputs k "possible" value functions Vi(x), and a smoothness
 parameter κ(x), to finally give it to a "smooth min" type function to form the
 final estimate. Scoured literature for descriptions of the "set of x where
 different equally good local solutions are globally optimal", found lots of
-names, made a section in idea dump. 
+names, made a section in idea dump.
 
 Coded up a small demo of trajectory splitting with linear V extrapolation (from
 costate), the rest constant, for really tiny "jumps". Looks okay, though I am
 unsure how to verify it more precisely. Anyway I am thinking this is not really
-the way to go. 
+the way to go.
 
 Also had thoughts about trying to implicitly represent (= learn) the lifted
 manifold, i.e. the set of (x, λ) described by our geodesic spray. However I
@@ -427,7 +427,7 @@ think this does not fundamentally solve anything, the "complexity explosion"
 with longer time horizon is still the same, finding all local value functions
 given some x is still an nx-dimensional rootfinding problem, and we make no
 progress towards efficient global optimality with pruning of suboptimal local
-solutions. Really I think I have to ditch "proper" global optimality soon :( 
+solutions. Really I think I have to ditch "proper" global optimality soon :(
 
 However, could we somehow "aid" the whole thing with engineering intuition? I
 was just thinking always that the 2D quad has one obviously "nonconvex"
@@ -448,7 +448,7 @@ only works in weird special cases...
 
 found another paper about continuous time DDP, which seems to have a nice
 derivation of the propagation of the value hessian. todo read this more
-carefully, and attempt to recreate? 
+carefully, and attempt to recreate?
 
 https://dl.acm.org/doi/pdf/10.1145/3592454
 
@@ -461,7 +461,7 @@ dims (due to general lack of global solution).
 2024-01-25
 
 been reading that paper for some time. still don't understand all the
-notational quirks exactly. 
+notational quirks exactly.
 
 have gained new intuition about the riccatti eq. this is actually really cool:
 instead of fiding the rapidly diverging backwards optimal trajectories adjacent
@@ -469,25 +469,25 @@ to our trajectory, we find a quadratic/linear parameterisation (= quadratic
 taylor expansion of V(x)) of all of them. the good thing is that even if the
 dynamics are really rapidly unstable, the associated taylor expansion stays
 approximately constant, enabling us to "skip" all the local fast dynamics, and
-skip ahead to finding out how to stabilise them locally. 
+skip ahead to finding out how to stabilise them locally.
 
 From this viewpoint it is almost nonsensical to propagate Vxx information with
-every trajectory in a purely backward PMP integration thing. 
+every trajectory in a purely backward PMP integration thing.
 
 
-viable research goal: 
+viable research goal:
 
 learned *robust* optimal control a la https://arxiv.org/pdf/2107.04507.pdf? and
 instead of a gradient GP we use a Sobolev NN for function approximation,
 enabling us to use the second derivative. Going from there to optimise active
-learning <-> TO interaction. Maybe heuristically "address" global optimality. 
+learning <-> TO interaction. Maybe heuristically "address" global optimality.
 
 for robust control there are ugly technicalities with the terminal set, because
 with an adversary we cannot stabilise all the way to the origin, because the
 adversary has no input cost and always chooses the maximally destabilising
 disturbance, whereas we do have an input cost and at some point stop caring
 about small setpoint errors if we have to incur large input cost to fix it. A
-very basic example of this is in Pachter & Weintraub. 
+very basic example of this is in Pachter & Weintraub.
 
 
 ~~~ other random idea ~~~
@@ -502,7 +502,7 @@ together gives us another source of approximation error (though I have the
 intuition that this error is somehow very small), and also it gives us an
 excuse to implement continuous time DDP, ofc with the hope that adaptive
 solvers can "skip" the long boring "turnpike" parts of the trajectory quickly
-and give effectively inf horizon optimal controls with feasible effort. 
+and give effectively inf horizon optimal controls with feasible effort.
 
 However, what if we do the following. We have a BNN with accurate uncertainty
 quantification. To find the initial guess for TO, do a forward sim with
@@ -510,33 +510,33 @@ predicted u* from BNN. Evaluating uncertainty in u is no extra work so we might
 as well do it, and stop the simulation once we are in a region where
 uncertainty is below some small threshold. Then we do the TO with the BNN
 (mean?) value function as terminal cost, over a much shorter horizon, hopefully
-only concerning the fast part of the dynamics. 
+only concerning the fast part of the dynamics.
 
 This *should* work intuitively right? If there is a "slow" manifold we expect
 to have relatively many trajectories there because they all stabilise to that
 region. Therefore we can hope there is a large region with low uncertainty
 after some active learning iterations, and that this region is quickly reached
-in the initial closed loop sim. 
+in the initial closed loop sim.
 
 Are there concerns with the terminal state changing during TO, possibly to a
 "worse" region? Intuitively, we should expect that it only changes to better
-regions. Is this true? Try a proof: 
+regions. Is this true? Try a proof:
 
 Because the initial guess is a closed loop sim, it is a suboptimal trajectory.
 Join it with the rest (from T to inf), suppose the rest is actually optimal
 (reasonable since uncertainty low there). Then we know the cost-to-go from x0
-will be lower after TO than before (bc. we've gone from suboptimal to optimal). 
+will be lower after TO than before (bc. we've gone from suboptimal to optimal).
 Does this tell us anything about the terminal state? Somehow I have the feeling
 it doesn't if we have a time horizon in physical time, without warping...
 
 We can also just check at the end whether the BNN at the new terminal state is
 still certain enough, and if not, ditch the trajectory, or re-do with longer
-horizon in the next iteration. 
+horizon in the next iteration.
 
 
 
 
-current list of very relevant other publications: 
+current list of very relevant other publications:
 
 DDP treatments in continuous time:
 
@@ -550,11 +550,11 @@ https://www.semanticscholar.org/paper/b00a864b457992c5f87a4e0e24382b33c26512f4
 https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10156422 (w/ control constraints)
 
 
-+ HJI/robustness: 
++ HJI/robustness:
 https://www.semanticscholar.org/paper/5ae21807233c95c5485da721a96cb9ff06a659de
 https://arxiv.org/pdf/2107.04507.pdf
 
-Trajectory Opt <-> Learning: 
+Trajectory Opt <-> Learning:
 https://arxiv.org/pdf/2107.04507.pdf
 https://gepettoweb.laas.fr/articles/amit_icra_22.html
 
@@ -583,7 +583,7 @@ vector field (which it is), and imagine the Vxx term which we carry with it as
 a local representation of the value level set, i.e.  the "front" of possible
 adjacent trajectories. We can imagine replacing our point by an adjacent point
 on the front, and if close enough, we should still get an accurate optimal
-trajectory. 
+trajectory.
 
 The DDP backward pass consists of essentially the same: propagating a particle
 backwards in time together with the "front" of nearby possible other points.
@@ -614,46 +614,46 @@ input sets...
 2024-01-30
 
 
-copypasting from last time: the overarching project goals as of now. 
+copypasting from last time: the overarching project goals as of now.
 
 a) Develop "inf-horizon" continouos time DDP, implement in jax. Connect with
    active learning & Sobolev NN to efficiently find new solutions over whole
-   interesting region. Maybe some sort of "approximate" global optimality. 
+   interesting region. Maybe some sort of "approximate" global optimality.
 
 at the moment I am leaning towards a) which is probably the more generally
-useful and scalable optinon. Main components of that: 
+useful and scalable optinon. Main components of that:
 
 - inf-horizon, continuous time DDP
   - theory (basically figure out those couple papers)
-  - implementation :) 
+  - implementation :)
 
 - Sobolev Bayesian NN
-  - Which flavour of "bayesianisation"? 
+  - Which flavour of "bayesianisation"?
   - Sobolev how exactly? With hessian approxiamated by random Hvp?
-  - Find some nice version that half works with nondifferentiable points? 
+  - Find some nice version that half works with nondifferentiable points?
     (see notes from Fr.)
 
 - Intermingling of the two
-  - IMO this is the actual interesting part. 
+  - IMO this is the actual interesting part.
   - How to propose new samples?
-  - How to handle trajectory optimisation? Fixed iterations? Until converged? 
+  - How to handle trajectory optimisation? Fixed iterations? Until converged?
   - Data structure considerations? Hopefully not
-  - Reweight data, e.g. by 1/density, for training? 
+  - Reweight data, e.g. by 1/density, for training?
   - Bias somehow so we are more likely to encounter "surprising" trajectories
-    which are better than the currently known solution? 
+    which are better than the currently known solution?
   - some sort of heuristic global optimality thing? maybe assuming we know about
-    the number or structure of the different "modes"? 
+    the number or structure of the different "modes"?
 
 - Other stuff
-  - Which examples, costs, engineering tradeoff type goals? 
- 
+  - Which examples, costs, engineering tradeoff type goals?
+
 
 
 been trying to grok the two main continuous time DDP papers again today. Tried
 to develop my own intuition, connect w/ characteristics approach, and see
 whether deriving the backward propagation from that angle gives us the same,
 and maybe lets me understand the papers. Got a bit further on the theory front
-but no implementation that is working yet. 
+but no implementation that is working yet.
 
 
 2024-01-31
@@ -673,7 +673,7 @@ profit from adaptive step sizes or anything like that. I really don't feel like
 "throwing away" all the nice continuous time things. Is this a sunk cost
 fallacy?
 
-Stuff to look up: 
+Stuff to look up:
 - Offline RL (learning optimal policy from fixed, suboptimal data)
 - average-reward MDP (undiscounted/inf-horizon problems)
 
@@ -683,7 +683,7 @@ in cohesive and clear form
 
 found yet another paper from Farshidian, Buchli, etc. about continuous time
 constrained trajectory optimisation: https://arxiv.org/pdf/1701.08051v2.pdf
-They state pretty clearly the advantages over NLP-based approaches: 
+They state pretty clearly the advantages over NLP-based approaches:
 
 "
     In general, NLP–based planning algorithms require the
@@ -729,18 +729,18 @@ speaking. will have to try it out. using the derivative is certainly easier
 though. but even if we do that we need the previous input anyway, and to get
 that reliably, the previous costate, and in turn to get that, either the full
 data from the last backward pass, or some interpolation of the costate seen
-during the forward pass. 
+during the forward pass.
 
 
 ideas to start working next monday (high priority):
 
-- formulate overarching goals neatly, maybe in own latex document? 
+- formulate overarching goals neatly, maybe in own latex document?
 
 - finish the backward pass implementation, debug, sanitycheck, work towards DDP
 - if it completely fails, resort to trying to understand other papers
 
-- think about active learning part and local/global heuristics. 
-- maybe start using some finished DDP implementation for other experiments? 
+- think about active learning part and local/global heuristics.
+- maybe start using some finished DDP implementation for other experiments?
 
 low priority:
 
@@ -786,7 +786,7 @@ hamiltonian about the characteristic field given by current x and lambda, and
 with it the u* map which is piecewise linear. In DOC this taylor expansion is
 formed about the iterate trajectory. But also they have no input constraints
 and no piecewise linear u*, just a linear one. Maybe read Sun&Kleiber more
-precisely again to see how they handled it? 
+precisely again to see how they handled it?
 
 then, continued the implementaiton (of our, almost-characteristics-following
 version) and got to the first run where numbers come out on the other side
@@ -794,7 +794,7 @@ juhuuu ;) On the first try the value and costate match the forward trajectory
 (which was evaluated in backward time and so is already optimal). sanity check
 passed!  The entries of the S matrix look kind of sus to be honest but then
 again it is a trajectory which initially has the uav spinning quickly so that
-is kind of to be expected. more sanity checking follows tomorrow, goodnight :) 
+is kind of to be expected. more sanity checking follows tomorrow, goodnight :)
 
 
 
@@ -802,7 +802,7 @@ is kind of to be expected. more sanity checking follows tomorrow, goodnight :)
 
 implemented the forward passs! it seems to work as expected!!!! except for some
 small questions, such as: why does S = V_xx sometimes turn
-non-positive-definite? 
+non-positive-definite?
 
 
 2024-02-07
@@ -815,7 +815,7 @@ proofs of convergence, line search etc. Went over the DOC style derivation
 again, I think I have it correct now, first implementation looks alright
 (symmetric \dot S and very close to other version). Not sure if they are both
 actually the same. Maybe the only difference is really which linearisation for
-the u* map we are using. 
+the u* map we are using.
 
 spent some time thinking about line search. in contrast to fininte-dim
 optimisation, we cannot just add arbitrarily many iterates on top of each
@@ -823,12 +823,12 @@ other, but standard line search basically requires this. by letting x+ = x +
 alpha * (descent direction) we are making x+ a linear combination of the first
 iterate and all descent directions.
 
-so we need to be somewhat smart about this. brute force solution: 
-- attempt full newton step, if some sensible descent condition holds, accept. 
+so we need to be somewhat smart about this. brute force solution:
+- attempt full newton step, if some sensible descent condition holds, accept.
 - if not, repeat backward pass, with an additional "regularization" term
   penalising ||x - x_iterate||. this gives still a LQ subproblem which we can
   solve exactly. Do the forward pass again, check descent condition. If OK,
-  return; otherwise repeat the step with a larger "closeness" penalty. 
+  return; otherwise repeat the step with a larger "closeness" penalty.
 
 Repeating the backward pass is expensive though. Other papers rely on just
 applying a scaled down version of \delta x and \delta u. But with input
@@ -845,10 +845,10 @@ V(t, x) = v(xbar(t)) + λ(xbar(t)) (x - xbar(t)) + α/2 (x - xbar(t)).T S(t, xba
 
 for some α > 1 which we may increase to increase the quadratic value term. this
 corresponds to using a larger linear feedback gain which surely will not work
-for significant α. 
+for significant α.
 
 There must be something akin to "step in the descent direction but only a
-fraction" that does not have all these issues...? how? 
+fraction" that does not have all these issues...? how?
 
 
 
@@ -856,18 +856,18 @@ fraction" that does not have all these issues...? how?
 
 did some further attempts at replicating DOC's S and s updates but to no avail.
 mostly looked at pretty plots and figured out how to record webcam timelapses
-from mjpeg streams. 
+from mjpeg streams.
 
 points to start next week (this is essentially copy pasted from last week...)
 
-- (still) formulate overarching goals neatly, maybe in own latex document? 
+- (still) formulate overarching goals neatly, maybe in own latex document?
 
 - further debug & sanitycheck the backward pass, work towards DDP
 - either decide on DOC or my implementation, or do both separately and compare
   (but stop switching every half day)
 
-- think about active learning part and local/global heuristics. 
-- maybe start using some finished DDP implementation for other experiments? 
+- think about active learning part and local/global heuristics.
+- maybe start using some finished DDP implementation for other experiments?
 
 
 
@@ -876,15 +876,15 @@ points to start next week (this is essentially copy pasted from last week...)
 re-did the derivation from the chacteristics angle without the error I made
 previously (in confusing a total and partial derivative of the hamiltonian).
 Got the same fomula I have from the DOC style derivation for \dot S. looks
-good. 
+good.
 
 did a couple sweeps (move initial state a bit, do a fixed amount of DDP
 iterations) to obtain a family of (hopefully) optimal trajectories. Next up,
 further sanity checking: Are the trajectories actually optimal? Find some way
-to see how close to a solution we are. 
+to see how close to a solution we are.
 
 But all in all this looks great. Was also happy about how quick it seems to be
-after jit. it does 32 iterations, for the flatquad model in like 0.1 seconds :) 
+after jit. it does 32 iterations, for the flatquad model in like 0.1 seconds :)
 
 
 
@@ -892,7 +892,7 @@ after jit. it does 32 iterations, for the flatquad model in like 0.1 seconds :)
 
 continued playing around with ddp. made a cleaner implementation in functional
 jax style with some extra abstraction. did some initial state sweeps. looks
-pretty nice :) i think for the moment this should be workable. 
+pretty nice :) i think for the moment this should be workable.
 
 
 2024-02-14
@@ -900,7 +900,7 @@ pretty nice :) i think for the moment this should be workable.
 continued the implementation & some tests. made plots and brought meshcat
 visualiser back from the dead. looks all pretty nice. also removed the
 initialisation with backward shooting by a simpler one with LQR-controlled
-solution near goal state. 
+solution near goal state.
 
 2024-02-15
 
@@ -908,10 +908,10 @@ trying some more "difficult" states to sweep to. quickly the ODE integrator
 steps explode. first remedy i am trying now: set maxsteps to something
 outlandish like 10000, and set step controller dtmin to T/maxsteps.
 theoretically this should work! but maybe at the expense of accuracy. there is
-also the norm argument which might be useful especially in the backward pass: 
+also the norm argument which might be useful especially in the backward pass:
 
 norm: A function PyTree -> Scalar used in the error control. Precisely, step
-sizes are chosen so that norm(error / (atol + rtol * y)) is approximately one. 
+sizes are chosen so that norm(error / (atol + rtol * y)) is approximately one.
 
 in the forward pass as long as the system is about unity scale the default,
 probably the 2-norm, should be good enough.
@@ -928,10 +928,10 @@ it goes wrong, so probably we are alright there. the backward pass in iteration
 don't do...
 
 lowered solver tolerance on backward pass, and the particular instance of
-blowing up is removed. 
+blowing up is removed.
 
 finding a new problem where NaNs creep up in sol.evaluate somehow. or wait, no,
-it is the same old problem where backward pass blows up. 
+it is the same old problem where backward pass blows up.
 
 making plotting code for backwardpass in jax-ish, functional implementation.
 did not help to definitifely find the issue. sometimes S explodes, causing
@@ -939,22 +939,45 @@ crazy unstable forward pass with basically random bang-bang input, messing up
 all subsequent runs.
 
 
+
+2024-02-16
+
+
+meeting notes. talked at length about "grand plan".
+
+suggestions for next time (in addition to what I planned to do anyways):
+
+- think about how to compare continuous time DDP to alternatives
+  (e.g. discretised DDP with Euler/RK4, or adaptive collocation+NLP)
+  and see what it can do better, and what worse
+
+- think about active learning problem/formulation.
+  do we do uncertainty sampling in V or V_x? Bhavya has some points in
+  favour of V, mostly that the problem is closer to the standard
+  formulation, V is continuous, and there is an easy rule which V is the
+  best among different local solutions (the lowest). for V_x or even u
+  it is a bit hairy in contrast.
+
+- make some sort of collection/visualisation of related works.
+
+
+
 2024-02-19
 
 trying to investigate the effects of evaluating d/dt solution(t) instead of
 RHS(solution(t)). For the first, very easy (pretty much in linear domain)
-example we already see ripples in the forward pass solution that do not appear in the initial guess (made with LQR value function). Possibly the problems I'm seeing are due to this. 
+example we already see ripples in the forward pass solution that do not appear in the initial guess (made with LQR value function). Possibly the problems I'm seeing are due to this.
 
 turns out, there are ALWAYS ripples at least in the omega state which, while
 not hugely messing up the state info, are not very small and certainly render
-the derivative useless. 
+the derivative useless.
 
 first tried to store the costate in the forwardpass solution using the fn argument
-of SaveAt, however that does not make it to the interpolation, so is useless. 
+of SaveAt, however that does not make it to the interpolation, so is useless.
 https://github.com/patrick-kidger/diffrax/issues/301
 
 so to do it properly we kind of need to evaluate the interpolated previous backwardpass
-during the current backwardpass to know the direction of the previous forward solution. 
+during the current backwardpass to know the direction of the previous forward solution.
 
 but here is the kicker: to do that, we need to know at what point the taylor
 expansion (from the previous backward solution) was done. To know this we have
@@ -965,7 +988,7 @@ growing number of ODE solutions summed together? This is kind of the same
 issue as  line search: To do it properly we have to have an iterate which is a
 weighted sum of all past iterates. This is trivial in the finite dimensional
 case. But in our case  the adaptive discretization messes everything up. Is
-this really a dead end? Would be very sad. 
+this really a dead end? Would be very sad.
 
 --> this "kicker" is actually not true. we only need for a particular backward
 pass the forward solution immediately before that, and the forward/backward
@@ -975,4 +998,4 @@ To make it nicer i reorderd forward and backward pass, making current
 iteration again only depend on last iteration. was a whole day of refactoring.
 Now it works (apparently) very similarly to before but we eliminated one
 possible cause of uncontrolled numerical error buildup. Need to look more
-closely at forward/backward passes still to see where it fails. 
+closely at forward/backward passes still to see where it fails.

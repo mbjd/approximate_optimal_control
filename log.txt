@@ -999,3 +999,22 @@ iteration again only depend on last iteration. was a whole day of refactoring.
 Now it works (apparently) very similarly to before but we eliminated one
 possible cause of uncontrolled numerical error buildup. Need to look more
 closely at forward/backward passes still to see where it fails.
+
+
+
+
+2024-02-20
+
+
+maaan I am always second guessing myself. yesterday morning I already feared
+that I am pursuing a complete "dead end" with no proper solution, which turned
+out to be false, but now I am still fearing a dead end with no real interesting
+research, only incremental improvements. Seeing how tricky it is to get the
+trajectory optimiser working, just like the last time I did this kind of stuff,
+I kind of wish I went with either the PINN style method, or the "brute force"
+backward reachability of the PMP/characteristic equations...  what should I do?
+
+
+in other news, lots of bug hunting today. more in commit message 178f9265. also
+am compiling an overview of related publications right now :) 
+

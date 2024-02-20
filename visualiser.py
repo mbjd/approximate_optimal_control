@@ -197,3 +197,7 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
 
     vis.set_animation(anim, repetitions=np.inf)
+    
+    # schrödinger fancy/ugly color scheme...
+    vis['/Background'].set_property('top_color', [0xb5/256, 0x17/256, 0x9e/256])
+    vis['/Background'].set_property('bottom_color', [0x48/256, 0x0c/256, 0xa8/256])

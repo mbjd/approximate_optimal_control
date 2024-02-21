@@ -1018,3 +1018,18 @@ backward reachability of the PMP/characteristic equations...  what should I do?
 in other news, lots of bug hunting today. more in commit message 178f9265. also
 am compiling an overview of related publications right now :) 
 
+
+2024-02-21
+
+meeting w/ Bhavya, Lenart, Miguel. go over list of similar works, seems fine
+for them. 
+
+talk about self doubting. got reassuring reply that the goal is not to make
+something great, but to make something and learn a lot in doing so :) also that
+the active learning part will work quite certainly. 
+
+meeting also with Miguel at his lab to get suggestions about getting TO to
+work. according to him: priority 1 = regularisation and/or line search, also
+making sure that the derivation behind it is correct, probably smarter to go
+with DOC style rather than "guided characteristics" style. also constraints ->
+soft constraints? would remove discontinuous RHS in backward pass. 

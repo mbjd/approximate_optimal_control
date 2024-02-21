@@ -160,7 +160,7 @@ if __name__ == '__main__':
             # 'pontryagin_solver_adaptive': True,  always adaptivee
             'pontryagin_solver_atol': 1e-5,
             'pontryagin_solver_rtol': 1e-4,
-            'pontryagin_solver_maxsteps': 1024, # nice if it is not waaay too much
+            'pontryagin_solver_maxsteps': 4096, # nice if it is not waaay too much
             # causes it not to quit when hitting maxsteps. probably still all subsequent 
             # results will be unusable due to evaluating solutions outside their domain giving NaN
             'throw': False,  

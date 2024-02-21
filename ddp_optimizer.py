@@ -354,9 +354,11 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         return (v_dot, lam_dot, S_dot_three)
 
+
+
     def backwardpass_rhs_DOC(t, state, args):
 
-        # same as the other one BUT everything linearised around forward trajectory. 
+        # same as the original one BUT everything linearised around forward trajectory. 
         # not working yet - still not sure where we are in the state space (x, \lambda)
         # and where we are in the tangent space (\delta x, \delta \lambda). 
 
@@ -369,21 +371,24 @@ def ddp_main(problem_params, algo_params, init_sol):
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
         prev_forward_sol, prev_backward_sol, forward_sol = args
 
-
         # the DOC solution linearises everything around the previous trajectory (x, lambda).
         # thus we retrieve it here which is easy now that we have all previous solutions. 
         # (other than that not implemented yet)
-        xbar_prev = prev_forward_sol.evaluate(t)[0:nx] 
-        v_xbar_prev, lam_xbar_prev, S_xbar_prev = prev_backward_sol.evaluate(t)
-        dx = xbar - xbar_prev
-        lam_forward = lam_xbar_prev + S_xbar_prev @ dx
-
         x_forward = forward_sol.evaluate(t)[0:nx]
 
-        # yet another way, maybe the nicest???
-        # this is basically f_forward from pontryagin_utils but without the separate v variable. 
-        # also the arguments are kept separate so we nicely get the four derivative combinations
-        # instead of one big matrix. 
+        # these two define our *previous* value expansion, which was used to create the forward pass
+        x_prev = prev_forward_sol.evaluate(t)[0:nx] 
+        v_prev, lam_prev, S_prev = prev_backward_sol.evaluate(t)
+
+        # so we use that expansion again to find the costate lambda used in the forward sim. 
+        dx = x_forward - x_prev
+        lam_forward = lam_prev + S_prev @ dx
+
+        # purely for calculating V - could probably be ditched. 
+        u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
+
+
+        # then we linearise the WHOLE PMP RHS around that state. "Hidden" in here is the u* map. 
         def pmp_rhs(state, costate):
 
             u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
@@ -395,19 +400,42 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # confirmed that [fx flam; gx glam] == Alin from above
         #            ( = [A11 A12; A21 A22])
+        # all evaluated at (x_forward, lam_forward) from the forward pass. 
+        # so now we have properly linearised the whole system around the forward pass. 
+        # like in the derivation we now perform the backward pass for the *linearised* system. 
+
         # f and g are defined as the pmp rhs: x_dot = f(x, lam), lam_dot = g(x, lam)
+        # maybe ditch this naming scheme to not confuse with problem parameters f and g? 
         # this removes any confusion with already present partial derivatives of H
         fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x_forward, lam_forward)
         flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
 
-        s_dot = (-S @ flam + glam) @ s
+        # arguably this v would be better calculated in forward time and later shifted so it is 0 at tf
+        # because as it stands obviously this v_dot is literally the same ODE as in forward time...
+
+        # not sure if this is actually the case mathematically... 
+        # well actually if lambda = S dx + s then indeed this is just the costate on our forward trajectory
+        s = lam  
+
+        '''
+        so this is a bit fishy. we get wildly different numbers than with the old
+        function for s_dot. This is even at the very end of a rather benign trajectory
+        where we might expect the old rhs to give the same result. why not? 
+    
+        todo tomorrow: 
+        - go over equations again in new derivation and search for mistakes
+        - do some more numerical sanity checks.
+
+        '''
+        v_dot = -l(t, x_forward, u_forward)
+        s_dot = -S @ flam @ s + glam @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
         # however with this derivation we have just 
         #  \delta \lambda(x) = S \delta x + s
         # instead of the actual lambda...
 
-        return (v_dot, lam_dot, S_dot_three)
+        return (v_dot, s_dot, S_dot)
 
     def forwardpass_rhs(t, state, args):
 
@@ -466,6 +494,7 @@ def ddp_main(problem_params, algo_params, init_sol):
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
 
         term = diffrax.ODETerm(backwardpass_rhs)
+        term = diffrax.ODETerm(backwardpass_rhs_DOC)
 
         # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
         # we are overloading this function to handle both extended and pure state. 
@@ -489,12 +518,12 @@ def ddp_main(problem_params, algo_params, init_sol):
 
         # relaxed tolerance - otherwise the backward pass needs many more steps
         # maybe it also "needs" the extra accuracy though...? 
-        relax_factor = 1.
+        relax_factor = 10.
         step_ctrl = diffrax.PIDController(
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.0001,  # preposterously small to avoid getting stuck completely
+            dtmin = 0.001,  # preposterously small to avoid getting stuck completely
 
             # additionally step to the nodes from the forward solution
             # does jump_ts do the same? --> yes, except for re-evaluation of the RHS for FSAL solvers
@@ -541,18 +570,11 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     def scan_fct(carry, inp):
 
-        # what do we need to carry? 
-        # atm I think we really only need the forward_sol. 
-
-        # later we might want to also have the previous backward sol, to 
-        # evaluate the derivative of the forward trajectory as RHS(x(t)) 
-        # instead of d/dt x(t). 
-
-        # but for that we need to initialise already with a backward sol....
-        # maybe we just need a "special" first iteration which takes a feedback
-        # controller given as lambda(x), then computes the forward sol, and first 
-        # backward sol while replacing the previous backward sol (which would be
-        # needed to calculate RHS(x(t)) ) with the feedback controller.
+        # by first doing forward and then backward sol (not other way) we make
+        # this iteration "markovian" -- each iteration only depends on the last. 
+        # (the local feedback controller responsible for the forward pass is given
+        # by the previous backward AND forward solution, from which we form our 
+        # V(x) taylor exapnsion.) 
 
         # also any step length/line search/convergence checks can be put here.
 
@@ -641,7 +663,7 @@ def ddp_main(problem_params, algo_params, init_sol):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 64
+    N_x0s = 240
 
     xf = forward_sol.evaluate(tf)[0:nx]  
     v_T = xf.T @ P_lqr @ xf
@@ -650,19 +672,31 @@ def ddp_main(problem_params, algo_params, init_sol):
     init_state = (v_T, lam_T, S_T)
 
 
+
     # prepare initial step
     # damn, this worked on like the second try, i am so good
     init_carry = initial_step(lambda x: 2 * P_lqr @ x, x0)
-    new_carry, output = scan_fct(init_carry, x0)
+    # new_carry, output = scan_fct(init_carry, x0)
+
+    forward_sol = ddp_forwardpass(init_carry[0], init_carry[1], x0)
+
+    rhs_args = (init_carry[0], init_carry[1], forward_sol)
+
+    # does the backward pass make any sense?
+    test = backwardpass_rhs(tf, init_state, rhs_args)
+    test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
+
+    ipdb.set_trace()
 
 
     # sweep the Phi and omega states from x0 to 0. 
     x0_final = x0.at[np.array([2,5])].set(0)
     # go to weird position
     x0_final = x0 + 3*np.array([10, 0, 0, 0, 10, 0])
-    x0_final = x0 + 3*np.array([0, 0, 0, 10., 0, 0])
+    x0_final = x0 + 2*np.array([0, 0, 0, 10., 0, 10])
+
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
-    x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
+    # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
     # don't sweep at all
     # x0_final = x0  
     alphas = np.linspace(0, 1,  N_x0s)
@@ -670,7 +704,9 @@ def ddp_main(problem_params, algo_params, init_sol):
     # this is kind of ugly ikr
     # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
     # after that we modify the N_iters variable 
-    iters_per_x0 = 5
+    iters_per_x0 = 2
+    # max_alpha = 91/320
+    # alphas = np.clip(alphas, 0, max_alpha)  # stop at this point & iterate at same x0 forever
     alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.
     N_iters = alphas.shape[0]
     iters_from_same_x0 = np.arange(N_iters) % iters_per_x0

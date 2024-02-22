@@ -19,10 +19,10 @@ import visualiser
 # ofc later we can add any of those components back maybe hopefully. 
 
 
-def ddp_main(problem_params, algo_params, init_sol):
+def ddp_main(problem_params, algo_params, x0):
 
     # problem_params, algo_params: the usual things
-    # init_sol: the initial guess trajectory. 
+    # x0: the initial state. 
     
     # what OCP are we trying to solve here? 
 
@@ -67,12 +67,11 @@ def ddp_main(problem_params, algo_params, init_sol):
             
     # do we have problems if this solution was calculated backwards? 
     # -> probably not, because evaluation works the same in any case.
-    forward_sol = init_sol
-    x0 = forward_sol.evaluate(0.)[0:nx]  # this stays the same in the entire function
-    x0_orig = x0
+    # forward_sol = init_sol
+    # x0 = forward_sol.evaluate(0.)[0:nx]  # this stays the same in the entire function
 
     # this is to handle case where t0>t1 (if solution was obtained backwards)
-    t0, tf = sorted([forward_sol.t0, forward_sol.t1])  
+    t0, tf = 0., problem_params['T']
 
     # write the whole iteration in a scan-type loop? 
     # which pass should we do first in each loop iteration? 
@@ -431,9 +430,10 @@ def ddp_main(problem_params, algo_params, init_sol):
         s_dot = -S @ flam @ s + glam @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
-        # however with this derivation we have just 
-        #  \delta \lambda(x) = S \delta x + s
-        # instead of the actual lambda...
+        # old version to compare:
+        # H_x = jax.jacobian(H, argnums=0)(x_forward, u_star, lam)
+        # lam_dot = -H_x + S @ (dot_xbar - H_lambda)
+        # ipdb.set_trace()
 
         return (v_dot, s_dot, S_dot)
 
@@ -494,7 +494,9 @@ def ddp_main(problem_params, algo_params, init_sol):
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
 
         term = diffrax.ODETerm(backwardpass_rhs)
-        term = diffrax.ODETerm(backwardpass_rhs_DOC)
+
+        # not working yet :(
+        # term = diffrax.ODETerm(backwardpass_rhs_DOC)
 
         # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
         # we are overloading this function to handle both extended and pure state. 
@@ -577,6 +579,22 @@ def ddp_main(problem_params, algo_params, init_sol):
         # V(x) taylor exapnsion.) 
 
         # also any step length/line search/convergence checks can be put here.
+        # here is a pseudocode sketch of that: 
+        '''
+        forward_sol = forwardpass(prev_forward_sol, prev_backward_sol)
+        cost = cost(forward_sol)
+        # prev_cost from carry
+        accept = check_descent_condition(prev_forward_sol, prev_cost, 
+                                         forward_sol, cost)
+        if not accept: 
+            forward_sol = prev_forward_sol
+            alpha = (next higher alpha in some fixed sequence)
+        
+        # but to redo the last backward pass we again need one backwardpass
+        # more than we have here...
+        backward_sol = ddp_backwardpass(prev_forward_sol, )
+            
+        '''
 
         prev_forward_sol, prev_backward_sol = carry
         x0 = inp
@@ -665,12 +683,17 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     N_x0s = 240
 
-    xf = forward_sol.evaluate(tf)[0:nx]  
-    v_T = xf.T @ P_lqr @ xf
-    lam_T = 2 * P_lqr @ xf
-    S_T = P_lqr 
-    init_state = (v_T, lam_T, S_T)
+    # xf = forward_sol.evaluate(tf)[0:nx]  
+    # v_T = xf.T @ P_lqr @ xf
+    # lam_T = 2 * P_lqr @ xf
+    # S_T = P_lqr 
+    # init_state = (v_T, lam_T, S_T)
 
+    # # does the backward pass make any sense?
+    # test = backwardpass_rhs(tf, init_state, rhs_args)
+    # test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
+
+    # ipdb.set_trace()
 
 
     # prepare initial step
@@ -682,11 +705,6 @@ def ddp_main(problem_params, algo_params, init_sol):
 
     rhs_args = (init_carry[0], init_carry[1], forward_sol)
 
-    # does the backward pass make any sense?
-    test = backwardpass_rhs(tf, init_state, rhs_args)
-    test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
-
-    ipdb.set_trace()
 
 
     # sweep the Phi and omega states from x0 to 0. 

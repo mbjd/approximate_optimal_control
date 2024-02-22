@@ -69,7 +69,7 @@ def current_weird_experiment(problem_params, algo_params):
     # this trajectory should be rather boring
     # visualiser.plot_trajectories_meshcat(init_sol)
 
-    ddp_optimizer.ddp_main(problem_params, algo_params, init_sol)
+    ddp_optimizer.ddp_main(problem_params, algo_params, x0)
     ipdb.set_trace()
 
     
@@ -143,7 +143,7 @@ if __name__ == '__main__':
         'f': f,
         'l': l,
         'h': h,
-        'T': 10,
+        'T': 10.,  # problems come up if not float
         'nx': 6,
         'state_names': ("x", "y", "Phi", "vx", "vy", "omega"),
         'nu': 2,

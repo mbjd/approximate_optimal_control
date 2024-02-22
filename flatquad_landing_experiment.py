@@ -35,7 +35,8 @@ def backward_with_hessian(problem_params, algo_params):
     Phalf_inv = np.linalg.inv(Phalf)  # only once! 
 
     maxdiff = np.abs(Phalf @ Phalf - P_lqr).max()
-    assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
+    reldiff = np.linalg.norm(Phalf @ Phalf - P_lqr) / np.linalg.norm(P_lqr)
+    assert reldiff < 1e-6, 'sqrtm(P) calculation failed or inaccurate'
 
     key = jax.random.PRNGKey(0)
 
@@ -65,8 +66,9 @@ def backward_with_hessian(problem_params, algo_params):
     # test if it worked
     xf_to_Vf = lambda x: x @ P_lqr @ x.T
     vfs =  jax.vmap(xf_to_Vf)(xfs)
+    vf = vfs[0]
 
-    # define RHS of the backward system, including 
+    # define RHS of the backward system, including Vxx
     def f_extended(t, state, args=None):
 
         # state variables = x and quadratic taylor expansion of V.
@@ -111,7 +113,12 @@ def backward_with_hessian(problem_params, algo_params):
 
     def solve_backward(x_f):
 
+        # another 'advantage' of including the hessian is that now the ODE solver
+        # actually takes the trouble of stepping rather precisely to the active
+        # set changes.
+
         # still unsure about these factors of 2 or 1/2 or 1
+        # but results look OK, Vxx stays constant-ish in the linear-ish region.
         v_f = x_f.T @ P_lqr @ x_f
         vx_f = 2 * P_lqr @ x_f
         vxx_f = P_lqr 
@@ -138,7 +145,7 @@ def backward_with_hessian(problem_params, algo_params):
         # step_ctrl_fixed = diffrax.StepTo(prev_forward_sol.ts)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
-        T = 4.
+        T = 10.
 
         backward_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
@@ -147,6 +154,87 @@ def backward_with_hessian(problem_params, algo_params):
         )
 
         return backward_sol
+
+    '''
+    the grand idea here is about this: 
+    - simulate forward with approx. optimal controller, collect N trajectories 
+      ending in a region where optimal control is known precisely enough
+    - from those states, do backward shooting, until (one of):
+      - we leave some big state space set outside of which we really dont care
+      - we are really confident that the solution is not globally optimal anymore
+      - after a couple of the fastest time constants have passed
+    - add to dataset, train BNN/NN ensemble/similar
+    - repeat
+
+    here as a first testing bed thing we just do the first step: LQR forward sim -> backward sim. 
+    seems like many of the same issues pop up as during semester project obvs. 
+    here is why I am thinkinig it *might* work suddenly: 
+    - timescale separation can be addressed by smart proposals that prioritise making
+      progress wrt the slow system first, instead of exploring the fast dynamics
+    - scalability will not fundamentally improve. but assuming the value function is smooth/simple
+      enough, maybe we can get away with a (way) underparameterised NN? which would make it faster
+      to compare against approximate value, do forward sim, everything basically.
+    - maybe we again revive the idea of "tracing" the value level sets. because if we are at some v_k
+      the only other states that are of interest are the ones with same value. maybe like this we can 
+      keep a constant amount of data instead of an ever growing one?
+    - some sort of resampling<->NN fitting loop will be inevitable, especially with larger timescale
+      separation. can we make some error bound to keep everything from compounding? intuitively: value
+      hessian, funnel type sketch will look the same even if we make small error. but concretely? 
+
+    it would be cool to have a "definitive" value function upper bound, so we can quit the 
+    backward integration when we notice we are worse. initially take some stable suboptimal 
+    controller and train a cost-to-go approximation? can LQR tell us anything like this? 
+    '''
+
+
+    # do a forward simulation with controller u(x) = u*(x, lambda(x))
+    def forward_sim_lqr(x0):
+
+        def forwardsim_rhs(t, x, args):
+            lam_x = 2 * P_lqr @ x
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            return problem_params['f'](t, x, u)
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True) 
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=20., dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+        )
+
+        return forward_sol
+
+
+    max_x0 = np.array([2, 2, 0.5, 5, 5, 0.5])
+    min_x0 = -max_x0
+    x0s = jax.random.uniform(key+5, shape=(200, 6), minval=min_x0, maxval=max_x0)
+
+    forward_sols = jax.vmap(forward_sim_lqr)(x0s)
+
+    # find the ones that enter Xf.
+    forward_xf = jax.vmap(lambda sol: sol.evaluate(sol.t1))(forward_sols)
+    forward_vf = jax.vmap(xf_to_Vf)(forward_xf)
+    enters_Xf = forward_vf <= vfs[0]  # from points before we constructed to lie on dXf
+
+    forward_sols_that_enter_Xf = jax.tree_util.tree_map(lambda z: z[enters_Xf], forward_sols)
+    visualiser.plot_trajectories_meshcat(forward_sols_that_enter_Xf)
+
+    # use that to start the backward solutions. 
+    xfs = forward_xf[enters_Xf]
+
+    # alternative: for each trajectory find the FIRST node in Xf, if available.
+    vs = jax.vmap(jax.vmap(xf_to_Vf))(forward_sols_that_enter_Xf.ys)
+    is_in_Xf = vs < vf
+    idx_of_first_state_in_Xf = np.argmax(is_in_Xf, axis=1)  # is this correct??
+    xfs = forward_sols_that_enter_Xf.ys[np.arange(vs.shape[0]), idx_of_first_state_in_Xf]
+ 
+    # to see if they are really in Xf
+    # vs[np.arange(vs.shape[0]), idx_of_first_state_in_Xf]
+
 
     # backward_sol = solve_backward(xfs[0])
     sols = jax.vmap(solve_backward)(xfs)
@@ -269,7 +357,8 @@ if __name__ == '__main__':
         Fl, Fr = u
         posx, posy, Phi, vx, vy, omega = x
 
-        state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
+        # state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
+        state_length_scales = np.array([1, 1, np.deg2rad(30), .5, .5, np.deg2rad(120)])
         Q = np.diag(1/state_length_scales**2)
         state_cost = x.T @ Q @ x  
 

@@ -32,6 +32,27 @@ def plot_trajectories(ts, ys, color='green', alpha='.1'):
 
     pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
 
+
+
+class TextTexture(geom.Texture):
+    def __init__(self, text, font_size=100, font_face='sans-serif'):
+        super(TextTexture, self).__init__()
+        self.text = text
+        # font_size will be passed to the JS side as is; however if the
+        # text width exceeds canvas width, font_size will be reduced.
+        self.font_size = font_size
+        self.font_face = font_face
+
+    def lower(self, object_data):
+        return {
+            u"uuid": self.uuid,
+            u"type": u"_text",
+            u"text": self.text,
+            u"font_size": self.font_size,
+            u"font_face": self.font_face,
+        }
+
+
 def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_indep=True, line=False):
 
     '''
@@ -93,16 +114,25 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
     arrow_length = .25
 
-    def make_quad(vis, basepath, color=None, opacity=1):
+    def make_quad(vis, basepath, color=None, opacity=1, disp_name=None):
         box_width = 1
         box_aspect = .1
         box = geom.Box([box_width*box_aspect, box_width, box_width*box_aspect**2])
 
         # show "quadrotor" as a flat-ish long box
         if color is None:
-            vis[basepath].set_object(box, geom.MeshLambertMaterial(opacity=opacity))
+            # g.MeshPhongMaterial(map=g.TextTexture('Hello, world!')
+            if disp_name is None:
+                vis[basepath].set_object(box, geom.MeshLambertMaterial(opacity=opacity))
+            else:
+                disp_name = str(disp_name)  # in case it is an int or something
+                material = geom.MeshLambertMaterial(opacity=opacity, map=TextTexture(disp_name))
+                vis[basepath].set_object(box, material)
+
+
         else:
             vis[basepath].set_object(box, geom.MeshLambertMaterial(color, opacity=opacity))
+
 
 
         # also have two lines representing the rotor forces.
@@ -173,7 +203,7 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
             hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
             make_quad(vis, quad_name, color=hexcolor, opacity=.5)
         else:  # it is None
-            make_quad(vis, quad_name)
+            make_quad(vis, quad_name, disp_name=sol_i)
 
         min_t = sols_ys[sol_i, :, -1].min()
         for t, y in zip(sols_ts[sol_i], sols_ys[sol_i]):

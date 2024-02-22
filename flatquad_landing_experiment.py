@@ -19,12 +19,13 @@ import ipdb
 import time
 import numpy as onp
 import tqdm
+from operator import itemgetter
 
 
-def current_weird_experiment(problem_params, algo_params):
-    
-    # initial couple lines from rrt_sample
 
+def backward_with_hessian(problem_params, algo_params):
+
+    # find terminal LQR controller and value function. 
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 
     # compute sqrtm of P, the value function matrix.
@@ -36,35 +37,192 @@ def current_weird_experiment(problem_params, algo_params):
     maxdiff = np.abs(Phalf @ Phalf - P_lqr).max()
     assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
 
+    key = jax.random.PRNGKey(0)
+
+    # two unit norm points
+    normal_pts = jax.random.normal(key, shape=(2, problem_params['nx']))
+    unitsphere_pts = normal_pts /  np.sqrt((normal_pts ** 2).sum(axis=1))[:, None]
+
+    # interpolate between them
+    alphas = np.linspace(0, 1, 200)[:, None]
+    pts_interp = alphas * unitsphere_pts[0] + (1-alphas) * unitsphere_pts[1]
+
+    # put back on unit sphere. 
+    pt_norms = jax.vmap(np.linalg.norm)(pts_interp)[:, None]
+    pts_interp = pts_interp / pt_norms
+
+    # different strategy: purely random ass points. 
+    normal_pts = jax.random.normal(key, shape=(200, problem_params['nx']))
+    pts_interp = normal_pts /  np.sqrt((normal_pts ** 2).sum(axis=1))[:, None]
+
+
+    # map to boundary of Xf. 
+    xfs = pts_interp @ np.linalg.inv(Phalf) * 0.01
+
+
+
+
+    # test if it worked
+    xf_to_Vf = lambda x: x @ P_lqr @ x.T
+    vfs =  jax.vmap(xf_to_Vf)(xfs)
+
+    # define RHS of the backward system, including 
+    def f_extended(t, state, args=None):
+
+        # state variables = x and quadratic taylor expansion of V.
+        x       = state['x']
+        v       = state['v']
+        costate = state['vx']
+        S       = state['vxx']
+
+        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
+
+        # RHS of the necessary conditions without the hessian. 
+        def pmp_rhs(state, costate):
+
+            u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
+            nx = problem_params['nx']
+
+            state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
+            costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
+
+            return state_dot, costate_dot
+
+        # its derivatives, for propagation of Vxx.
+        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, costate)
+        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, costate)
+
+        # we calculate this here one extra time, could be optimised
+        u_star = pontryagin_utils.u_star_2d(x, costate, problem_params)
+
+        # calculate all the RHS terms
+        v_dot = -problem_params['l'](t, x, u_star)
+        x_dot, costate_dot = pmp_rhs(x, costate)
+        S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
+
+        # and pack them in a nice dict for the state.
+        state_dot = dict()
+        state_dot['x'] = x_dot
+        state_dot['v'] = v_dot
+        state_dot['vx'] = costate_dot
+        state_dot['vxx'] = S_dot
+
+        return state_dot
+
+    def solve_backward(x_f):
+
+        # still unsure about these factors of 2 or 1/2 or 1
+        v_f = x_f.T @ P_lqr @ x_f
+        vx_f = 2 * P_lqr @ x_f
+        vxx_f = P_lqr 
+
+        state_f = {
+            'x': x_f,
+            'v': v_f,
+            'vx': vx_f, 
+            'vxx': vxx_f,
+        }
+
+        term = diffrax.ODETerm(f_extended)
+
+        relax_factor = 1.
+        step_ctrl = diffrax.PIDController(
+            rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
+            atol=relax_factor*algo_params['pontryagin_solver_atol'],
+            # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
+            dtmin = 0.005,  # just to avoid getting stuck completely
+            dtmax = 0.5,
+        )
+
+        # try this, maybe it works better \o/
+        # step_ctrl_fixed = diffrax.StepTo(prev_forward_sol.ts)
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+        T = 4.
+
+        backward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+        )
+
+        return backward_sol
+
+    # backward_sol = solve_backward(xfs[0])
+    sols = jax.vmap(solve_backward)(xfs)
+
+    def plot_sol(sol):
+
+        # adapted from plot_forward_backward in ddp_optimizer
+        
+        ts = np.linspace(sol.t0, sol.t1, 5001)
+
+        # plot the state trajectory of the forward pass, interpolation & nodes. 
+        ax1 = pl.subplot(311)
+
+        pl.plot(sol.ts, sol.ys['x'], marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
+        interp_ys = jax.vmap(sol.evaluate)(ts)
+        pl.gca().set_prop_cycle(None)
+        pl.plot(ts, interp_ys['x'], alpha=0.5)
+        pl.legend()
+
+
+        pl.subplot(312, sharex=ax1)
+        us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(
+            sol.ys['x'], sol.ys['vx'], problem_params
+        )
+        def u_t(t):
+            state_t = sol.evaluate(t)
+            return pontryagin_utils.u_star_2d(state_t['x'], state_t['vx'], problem_params)
+
+        us_interp = jax.vmap(u_t)(ts)
+
+        pl.plot(sol.ts, us, linestyle='', marker='.')
+        pl.gca().set_prop_cycle(None)
+        pl.plot(ts, us_interp, label=('u_0', 'u_1'))
+        pl.legend()
+
+
+        # plot the eigenvalues of S from the backward pass.
+        pl.subplot(313, sharex=ax1)
+
+        # eigenvalues at nodes. 
+        sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
+
+        S_eigenvalues = jax.vmap(sorted_eigs)(sol.ys['vxx'])
+        eigv_label = ['S(t) eigenvalues'] + [None] * (problem_params['nx']-1)
+        pl.semilogy(sol.ts, S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
+        # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
+        pl.semilogy(sol.ts, S_eigenvalues, color='C0')  
+
+        # eigenvalues interpolated. though this is kind of dumb seeing how the backward
+        # solver very closely steps to the non-differentiable points. 
+        sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
+        pl.semilogy(ts, sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
+        pl.legend()
+
+
+
+    # plot_sol(backward_sol)
+    # visualiser.plot_trajectories_meshcat(backward_sol)
+    pl.rcParams['figure.figsize'] = (15, 8)
+
+    '''
+    for j, _ in tqdm.tqdm(enumerate(xfs)):
+        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols))
+        pl.savefig(f'tmp/backward_{j:03d}.png')
+        pl.close('all')
+    '''
+
+    # random backward trajectory + local feedback ?!?!??!??!!!?!?
+    ipdb.set_trace()
+
+
+def current_weird_experiment(problem_params, algo_params):
+
     # get initial "easy" solution with LQR for state close to goal. 
     x0 = jax.random.normal(jax.random.PRNGKey(0), shape=(problem_params['nx'],)) * 0.1
-
-
-
-    # forward sim w/ "optimal" controller based on quadratic LQR value function
-    # but while respecting state constraints
-    def forwardsim_rhs(t, state, args):
-
-        x = state  
-
-        lam_x = 2 * P_lqr @ x
-        u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-        dot_x = problem_params['f'](t, x, u)
-
-        return dot_x
-
-    # code stolen from DDP forward pass. 
-    term = diffrax.ODETerm(forwardsim_rhs)
-
-    # same tolerance parameters used in pure unguided backward integration of whole PMP
-    step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
-    saveat = diffrax.SaveAt(steps=True, dense=True) 
-
-    init_sol = diffrax.diffeqsolve(
-        term, diffrax.Tsit5(), t0=0., t1=problem_params['T'], dt0=0.1, y0=x0,
-        stepsize_controller=step_ctrl, saveat=saveat,
-        max_steps = algo_params['pontryagin_solver_maxsteps'],
-    )
+    print(x0)
 
     # this trajectory should be rather boring
     # visualiser.plot_trajectories_meshcat(init_sol)
@@ -168,14 +326,15 @@ if __name__ == '__main__':
 
         
         
+    backward_with_hessian(problem_params, algo_params)
+    ipdb.set_trace()
 
-    current_weird_experiment(problem_params, algo_params)
+    # current_weird_experiment(problem_params, algo_params)
     # all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)
 
     # visualiser.plot_trajectories_meshcat(all_sols, colormap='viridis')
 
     # otherwise visualiser closes immediately
-    ipdb.set_trace()
 
     
 

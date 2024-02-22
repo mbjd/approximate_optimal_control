@@ -35,19 +35,24 @@ def plot_trajectories(ts, ys, color='green', alpha='.1'):
 def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_indep=True, line=False):
 
     '''
-    tiny first draft of meshcat visualisation :o
+    visualise flatquad trajectories nicely. 
 
-    this is with the 2D quad model so 3D is kind of pointless but cool to have later.
-    to do:
-     - find out why the time needs to be scaled (otw too fast)
-     - find a sensible way to plot a 'swarm' of multiple trajectories at once
-     - force arrows to show input
-     - do some 3d thing :)
-     - separate this functionality into its nice own file
+    input is one of:
+     - diffrax solution object from single solve with system state = sol.ys[:, 0:6]
+     - diffrax solution object from vmapped solve w/ same format
+     - diffrax solution object with pyTree solution, where sol.ys['x'] is the system state
+
+    time axis is always taken literally, i.e. artificial time squeezing or v/t reparameterisation
+    will mess things up. 
     '''
 
     sols_ys = sols.ys
     sols_ts = sols.ts
+
+    # unpack correctly if solution state is a dict.
+    # we only want system state in any case.
+    if type(sols.ys) == dict:
+        sols_ys = sols.ys['x']
 
     if len(sols_ys.shape) == 2:
 
@@ -73,6 +78,13 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
         # to save data, show random subsample, whatever. 
         ipdb.set_trace()
+
+    if (sols_ts < 0).any():
+        # negative time also seems to not work. Therefore, we first change -inf to +inf
+        sols_ts = sols_ts.at[np.isneginf(sols.ts)].set(np.inf)
+
+        min_t = sols_ts.min()      # which is < 0 at this point unless -inf were the only
+        sols_ts = sols.ts - min_t  # subtracting negative = adding positive. big brain
 
 
 

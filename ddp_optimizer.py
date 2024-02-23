@@ -480,7 +480,7 @@ def ddp_main(problem_params, algo_params, x0):
         lam_x = lam_xbar + S_xbar @ dx
 
         u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-        return u
+        return u, lam_x  # breaking change, this also returns lambda now. 
 
 
 
@@ -591,10 +591,20 @@ def ddp_main(problem_params, algo_params, x0):
             alpha = (next higher alpha in some fixed sequence)
         
         # but to redo the last backward pass we again need one backwardpass
-        # more than we have here...
+        # more than we have here..
+
+        # other option: already produce a wide range of stepsizes in the 
+        # backward pass. effectively do N backward passes, with different 
+        # 
         backward_sol = ddp_backwardpass(prev_forward_sol, )
+
+        
             
         '''
+
+
+        # what if...
+        prevprev_iter, prev_iter = carry
 
         prev_forward_sol, prev_backward_sol = carry
         x0 = inp
@@ -681,7 +691,10 @@ def ddp_main(problem_params, algo_params, x0):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 240
+    N_x0s = 64
+        # other option: already produce a wide range of stepsizes in the 
+        # backward pass. effectively do N backward passes, with different 
+        # 
 
     # xf = forward_sol.evaluate(tf)[0:nx]  
     # v_T = xf.T @ P_lqr @ xf
@@ -710,8 +723,9 @@ def ddp_main(problem_params, algo_params, x0):
     # sweep the Phi and omega states from x0 to 0. 
     x0_final = x0.at[np.array([2,5])].set(0)
     # go to weird position
-    x0_final = x0 + 3*np.array([10, 0, 0, 0, 10, 0])
-    x0_final = x0 + 2*np.array([0, 0, 0, 10., 0, 10])
+    x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
+    x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
+    x0_final = x0 + 4*np.array([10, 0, 0, 0, 10, 0])
 
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
@@ -722,7 +736,7 @@ def ddp_main(problem_params, algo_params, x0):
     # this is kind of ugly ikr
     # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
     # after that we modify the N_iters variable 
-    iters_per_x0 = 2
+    iters_per_x0 = 15
     # max_alpha = 91/320
     # alphas = np.clip(alphas, 0, max_alpha)  # stop at this point & iterate at same x0 forever
     alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.
@@ -814,14 +828,16 @@ def ddp_main(problem_params, algo_params, x0):
             args = (fw_prev, bw_prev)
 
             def u_t(t):
-                return forwardpass_u(t, fw.evaluate(t), args)
+                return forwardpass_u(t, fw.evaluate(t), args)[0]
 
             us_trajectory = jax.vmap(u_t)(fw.ts)
             us_interp = jax.vmap(u_t)(ts)
 
+            sumdiff = np.array([[1, 1], [1, -1]])
             pl.plot(fw.ts, us_trajectory, marker='.', linestyle='')
             pl.gca().set_prop_cycle(None)
             pl.plot(ts, us_interp, label=('u0', 'u1'))
+            pl.plot(ts, us_interp @ sumdiff.T, label=('usum', 'udiff'))
             pl.legend()
 
             # plot the eigenvalues of S from the backward pass.
@@ -843,7 +859,22 @@ def ddp_main(problem_params, algo_params, x0):
             pl.legend()
 
 
+        # try to isolate that one failure. 
+        i = 630
+        ta = 4.7
+        tb = 4.8
+        fw = jax.tree_util.tree_map(itemgetter(i), outputs['forward_sol'])
+        bw_prev = jax.tree_util.tree_map(itemgetter(i-1), outputs['backward_sol'])
+        fw_prev = jax.tree_util.tree_map(itemgetter(i-1), outputs['forward_sol'])
+        args = (fw_prev, bw_prev)
+        ts = np.linspace(ta, tb, 1001)
+        xs = jax.vmap(fw.evaluate)(ts)
+        us, lams = jax.vmap(forwardpass_u, in_axes=(None, 0, None))(0., xs, args)
+
+        ipdb.set_trace()
+
         interp_ts = np.linspace(t0, tf, 512)
+        # for j in range(100, 110): plot_forward_backward(j)
 
         # find the spot where it failed. 
         # take just state 0 (pos x) because the others are inf/NaN in same case.

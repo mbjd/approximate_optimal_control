@@ -1033,3 +1033,80 @@ work. according to him: priority 1 = regularisation and/or line search, also
 making sure that the derivation behind it is correct, probably smarter to go
 with DOC style rather than "guided characteristics" style. also constraints ->
 soft constraints? would remove discontinuous RHS in backward pass. 
+
+
+
+2024-02-23 
+
+spent all day yesterday tinkering with pure backward integration again, but
+this time including Vxx with the formula we derived a couple times now (the one
+from "third try" in idea dump specifically). It just seems too good to let go
+of it! but the fundamental problem is the instability which is as fast as the
+(stabilised) fastest dynamics. Maybe we can combine backward integration and
+trajectory optimisation somehow?
+
+made many notes and a pro/con list in idea dump to think more clearly about
+this. essentially, the tradeoff is this: TO is the more "standard" active
+learning oracle, that gives us a result at a precisely specified point, but is
+expensive and also not very reliable. PMP backward shooting gives us data at
+approximately the x0 we asked for, where the distance between the two probably
+grows exponentially with the time horizon, according to the fastest close loop
+eigenvalue. 
+
+I can think of a couple ways to do this: 
+
+- two separate iterations: initially some TO until "slow manifold" is
+  sufficiently known, after that backward shooting to quickly find fast dynamics
+
+- active learning formulation with two oracles, and some condition to choose between them
+
+- just always do both, knowing both can "fail" in some cases. 
+
+- another combined thing. if backward shooting comes *kind of* close to the
+  desired state do a forward simulation with the local quadratic value from
+  backwardpass. from the new terminal state do backward shooting again. maybe do
+  this a couple times? 
+
+
+but, all in all, the conclusion is that we still need at least a somewhat
+working trajectory optimiser. two things are severely lacking:
+
+- new, DOC derivation backwardpass (with lambda not delta lambda) is not working properly yet
+
+- no linesearch/regularisation yet, and also questions about how to implement
+  them without major refactoring. basically both need access to iteration k-2,
+  or we need to modify the scan loop from the outside somehow. shouldn't it rather 
+  be a while loop? we don't really need the in between iterations as output. but still the 
+  basic implementation questions would probably be the same.
+
+
+
+was just thinking about all the things that are left to do and it does seem
+kind of overwhelming... so here is a high-level list of goals.
+
+base goals: 
+- get DDP working (correctness, line search/regularization)
+- try second-order Sobolev NN
+- get basic active learning working w/ Sobolev NN ensemble
+  (without special regard for local solution conflicts)
+
+fancy goals: 
+- think properly about active learning setup with regards to sobolev learning. 
+- do "mixed" active learning - with characteristics and TO oracles and some decision
+- implement explicit convex optimisation for u* for general case. 
+- address "pruning" of local solutions with NN cost function
+
+
+
+
+found other possible bug - when one input is constrained and the other comes
+close to the constraint, sometimes it "chatters" randomly between where it
+(apparently) should be and between being at the constraint. is our u_star
+wrong? damn.
+
+possible remedy: replace the argmin (selecting from candidate solutions in
+u_star_2d) by some softmax smoothed thing (just a tiny bit) and see if it
+improves. bit of a hack though. 
+
+or, investigate more thoroughly and make this not happen at all! this should
+not be happening, u* (i think) is piecewise linear....

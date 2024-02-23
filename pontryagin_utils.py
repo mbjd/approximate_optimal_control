@@ -23,7 +23,7 @@ def u_star_2d(x, costate, problem_params):
         raise NotImplementedError('this ustar function is for 2d only!')
 
     # we have only time invariant problems. if not change this.
-    t = 0
+    t = 0.
     zero_u = np.zeros(problem_params['nu'])
 
     # represent H(u) with its second order taylor poly -- by assumption they are equal :)
@@ -85,6 +85,7 @@ def u_star_2d(x, costate, problem_params):
     # small optimisation maybe: here use the quadratic taylor representation calculated above?
     all_Hs = jax.vmap(H_fct)(all_candidates)
 
+
     # if the unconstrained solution is outside of the constraints, make its cost +Inf.
     # TODO for not axis-aligned constraints, change this. could probably make this automatically with vertex repr
     # is_inside = (lowerbounds <= u_star_unconstrained).all() and (u_star_unconstrained <= upperbounds).all()
@@ -127,9 +128,6 @@ def u_star_2d(x, costate, problem_params):
         pl.savefig(fname=name, dpi=300)
         pl.clf(); pl.close('all')
         print(name)
-
-
-
 
     return ustar_overall
 

@@ -22,6 +22,46 @@ import tqdm
 from operator import itemgetter
 
 
+def u_star_debugging(problem_params, algo_params):
+
+    # found this failure case randomly during ddp testing. it does appear to 
+    # show up right before things go south. not sure if it is the culprit. 
+
+    # this is pretty ugly, and i'm not exactly sure why it happens. in general
+    # there seems to be some numerical noise on the u_star, although generally 
+    # only like 1e-6 or 1e-5
+
+    x = np.array([4.538097,6.19019,-0.10679064,-2.4105127,-3.6202462,0.04513513])
+    lam = np.array([17.425396  , 22.878305  ,  0.73656803, -2.9136074 , -6.116059  ,0.28396177])
+
+    def ustar_fct(x, lam):
+        return pontryagin_utils.u_star_2d(x, lam, problem_params)
+
+    ustar = pontryagin_utils.u_star_2d(x, lam, problem_params)
+    ustar_vmap = jax.vmap(ustar_fct, in_axes=(0, 0))
+    # go in random directions a bit and plot. 
+
+    k = jax.random.PRNGKey(2)
+    direction = jax.random.normal(k, shape=(12,))
+    direction = direction / np.linalg.norm(direction)
+    xdir, lamdir = np.split(direction, [6])
+
+    alphas = np.linspace(0, 0.1, 5001)[:, None]
+
+    xs = x + alphas * xdir
+    lams = lam + alphas * lamdir
+
+    # does not go away magically after jit :(
+    ustars = ustar_vmap(xs, lams)
+    ustar_vmap = jax.jit(ustar_vmap)
+    ustars = ustar_vmap(xs, lams)
+
+    pl.plot(ustars)
+    pl.show()
+
+    ipdb.set_trace()
+
+
 
 def backward_with_hessian(problem_params, algo_params):
 
@@ -209,7 +249,7 @@ def backward_with_hessian(problem_params, algo_params):
         return forward_sol
 
 
-    max_x0 = np.array([2, 2, 0.5, 5, 5, 0.5])
+    max_x0 = np.array([2, 2, 0.5, 2, 2, 0.5]) / 4
     min_x0 = -max_x0
     x0s = jax.random.uniform(key+5, shape=(200, 6), minval=min_x0, maxval=max_x0)
 
@@ -246,7 +286,7 @@ def backward_with_hessian(problem_params, algo_params):
         ts = np.linspace(sol.t0, sol.t1, 5001)
 
         # plot the state trajectory of the forward pass, interpolation & nodes. 
-        ax1 = pl.subplot(311)
+        ax1 = pl.subplot(411)
 
         pl.plot(sol.ts, sol.ys['x'], marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
         interp_ys = jax.vmap(sol.evaluate)(ts)
@@ -255,7 +295,7 @@ def backward_with_hessian(problem_params, algo_params):
         pl.legend()
 
 
-        pl.subplot(312, sharex=ax1)
+        pl.subplot(412, sharex=ax1)
         us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(
             sol.ys['x'], sol.ys['vx'], problem_params
         )
@@ -272,7 +312,7 @@ def backward_with_hessian(problem_params, algo_params):
 
 
         # plot the eigenvalues of S from the backward pass.
-        pl.subplot(313, sharex=ax1)
+        pl.subplot(413, sharex=ax1)
 
         # eigenvalues at nodes. 
         sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
@@ -287,6 +327,14 @@ def backward_with_hessian(problem_params, algo_params):
         # solver very closely steps to the non-differentiable points. 
         sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
         pl.semilogy(ts, sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
+        pl.legend()
+
+        pl.subplot(414, sharex=ax1)
+        # and raw Vxx entries. 
+
+        vxx_entries = interp_ys['vxx'].reshape(-1, problem_params['nx']**2)
+        label = ['entries of Vxx(t)'] + [None] * (problem_params['nx']**2-1)
+        pl.plot(ts, vxx_entries, label=label, color='green', alpha=.3)
         pl.legend()
 
 
@@ -415,10 +463,11 @@ if __name__ == '__main__':
 
         
         
-    backward_with_hessian(problem_params, algo_params)
+    # backward_with_hessian(problem_params, algo_params)
+    # current_weird_experiment(problem_params, algo_params)
+    u_star_debugging(problem_params, algo_params)
     ipdb.set_trace()
 
-    # current_weird_experiment(problem_params, algo_params)
     # all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)
 
     # visualiser.plot_trajectories_meshcat(all_sols, colormap='viridis')

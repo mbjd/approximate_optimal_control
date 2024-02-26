@@ -34,29 +34,74 @@ def u_star_debugging(problem_params, algo_params):
     x = np.array([4.538097,6.19019,-0.10679064,-2.4105127,-3.6202462,0.04513513])
     lam = np.array([17.425396  , 22.878305  ,  0.73656803, -2.9136074 , -6.116059  ,0.28396177])
 
+    # for pdb
+    print(pontryagin_utils.u_star_2d(x, lam, problem_params, smooth=True))
+
     def ustar_fct(x, lam):
-        return pontryagin_utils.u_star_2d(x, lam, problem_params)
+        return pontryagin_utils.u_star_2d(x, lam, problem_params, smooth=True)
+
+    def ustar_fct_nonsmooth(x, lam):
+        return pontryagin_utils.u_star_2d(x, lam, problem_params, smooth=False)
 
     ustar = pontryagin_utils.u_star_2d(x, lam, problem_params)
     ustar_vmap = jax.vmap(ustar_fct, in_axes=(0, 0))
-    # go in random directions a bit and plot. 
+    ustar_vmap_nonsmooth = jax.vmap(ustar_fct_nonsmooth, in_axes=(0, 0))
 
+    # go in random directions a bit and plot. 
     k = jax.random.PRNGKey(2)
     direction = jax.random.normal(k, shape=(12,))
     direction = direction / np.linalg.norm(direction)
     xdir, lamdir = np.split(direction, [6])
+    xdir = 0 * xdir  # just to check if piecewise linear...
 
-    alphas = np.linspace(0, 0.1, 5001)[:, None]
+    alphas = np.linspace(0, .3, 10001)[:, None]
 
     xs = x + alphas * xdir
     lams = lam + alphas * lamdir
 
-    # does not go away magically after jit :(
-    ustars = ustar_vmap(xs, lams)
-    ustar_vmap = jax.jit(ustar_vmap)
-    ustars = ustar_vmap(xs, lams)
 
-    pl.plot(ustars)
+    def ustar_fct(x, lam): 
+        return pontryagin_utils.u_star_2d(x, lam, problem_params, debug_oups=True)
+
+    ustar_vmap = jax.vmap(ustar_fct, in_axes=(0, 0))
+
+    (ustars, debug_oups), (grads, debug_oups_grads) = jax.vmap(lambda x, lam: jax.jvp(ustar_fct, (x, lam), (lam, lamdir)))(xs, lams)
+
+    pl.subplot(211)
+    pl.plot(ustars, label='u*')
+    pl.legend()
+    pl.subplot(212)
+    pl.plot(grads, label='(du*/dx).T (x direction of sweep)')
+    pl.legend()
+
+    # ipdb.set_trace()
+    # this works only for the modified function with debug outputs!
+    # ustars_nonsmooth, oups = ustar_vmap_nonsmooth(xs, lams)
+
+
+    # pl.plot(oups['all_Hs_adjusted'] - oups['all_Hs_adjusted'].min(axis=1)[:, None], alpha=.5, label=('H unconstrained - H*', 'H1 - H*', 'H2 - H*', 'H3 - H*', 'H4 - H*'))
+    # pl.gca().set_prop_cycle(None)
+    # pl.plot(oups['all_Hs_adjusted_new'] - oups['all_Hs_adjusted_new'].min(axis=1)[:, None], alpha=.5, linestyle='--', label=('Ht unconstrained - Ht*', 'Ht1 - Ht*', 'Ht2 - Ht*', 'Ht3 - Ht*', 'Ht4 - Ht*'))
+    # pl.legend(); pl.show()
+    # ipdb.set_trace()
+
+
+    # plot the curve traced by u*
+    pl.figure()
+    pl.plot(ustars[:, 0], ustars[:, 1], color='red', label='u*')
+
+    cands = debug_oups['all_candidates']
+
+    for j in range(cands.shape[1]):
+        pl.plot(cands[:, j, 0], cands[:, j, 1], alpha=.3)
+
+    lowerbounds = problem_params['U_interval'][0]
+    upperbounds = problem_params['U_interval'][1]
+    pl.plot([lowerbounds[0], lowerbounds[0], upperbounds[0], upperbounds[0], lowerbounds[0]],
+            [lowerbounds[1], upperbounds[1], upperbounds[1], lowerbounds[1], lowerbounds[1]], 
+            color='black', label='constraints', alpha=0.2)
+    
+
     pl.show()
 
     ipdb.set_trace()
@@ -454,7 +499,7 @@ if __name__ == '__main__':
             # 'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
             # 'pontryagin_solver_adaptive': True,  always adaptivee
             'pontryagin_solver_atol': 1e-5,
-            'pontryagin_solver_rtol': 1e-4,
+            'pontryagin_solver_rtol': 1e-5,
             'pontryagin_solver_maxsteps': 4096, # nice if it is not waaay too much
             # causes it not to quit when hitting maxsteps. probably still all subsequent 
             # results will be unusable due to evaluating solutions outside their domain giving NaN
@@ -464,8 +509,8 @@ if __name__ == '__main__':
         
         
     # backward_with_hessian(problem_params, algo_params)
-    # current_weird_experiment(problem_params, algo_params)
-    u_star_debugging(problem_params, algo_params)
+    current_weird_experiment(problem_params, algo_params)
+    # u_star_debugging(problem_params, algo_params)
     ipdb.set_trace()
 
     # all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)

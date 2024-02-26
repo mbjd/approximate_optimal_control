@@ -8,7 +8,7 @@ import numpy as onp
 import scipy
 
 
-def u_star_2d(x, costate, problem_params):
+def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
 
     # calculate:
     #     u* = argmin_u l(t, x, u) + λ.T @ f(t, x, u)
@@ -82,22 +82,7 @@ def u_star_2d(x, costate, problem_params):
 
     all_candidates = np.row_stack([u_star_unconstrained, boundary_candidates])
 
-    # small optimisation maybe: here use the quadratic taylor representation calculated above?
     all_Hs = jax.vmap(H_fct)(all_candidates)
-
-
-    # if the unconstrained solution is outside of the constraints, make its cost +Inf.
-    # TODO for not axis-aligned constraints, change this. could probably make this automatically with vertex repr
-    # is_inside = (lowerbounds <= u_star_unconstrained).all() and (u_star_unconstrained <= upperbounds).all()
-    unconstrained_is_outside = np.maximum(np.max(lowerbounds - u_star_unconstrained), np.max(u_star_unconstrained - upperbounds)) > 0
-    # is_outside = np.logical_not(is_inside)
-    penalty = unconstrained_is_outside * np.inf  # this actually works. 0 if False, inf if True
-    all_Hs_adjusted = all_Hs + np.array([penalty, 0, 0, 0, 0])  # what if not 4 constraints?
-
-    # find the best candidate solution
-    best_candidate_idx = np.argmin(all_Hs_adjusted)
-
-    ustar_overall = all_candidates[best_candidate_idx]
 
     plot = False  # never again this works now
     if plot:
@@ -129,12 +114,162 @@ def u_star_2d(x, costate, problem_params):
         pl.clf(); pl.close('all')
         print(name)
 
-    return ustar_overall
+
+    if not smooth:
+        # this is the standard case, where we literally choose the best candidate solution
+
+        # if the unconstrained solution is outside of the constraints, make its cost +Inf.
+        # TODO for not axis-aligned constraints, change this. could probably make this automatically with vertex repr
+        # is_inside = (lowerbounds <= u_star_unconstrained).all() and (u_star_unconstrained <= upperbounds).all()
+        unconstrained_is_outside = np.maximum(np.max(lowerbounds - u_star_unconstrained), np.max(u_star_unconstrained - upperbounds)) > 0
+        # is_outside = np.logical_not(is_inside)
+        penalty = unconstrained_is_outside * np.inf  # this actually works. 0 if False, inf if True
+        all_Hs_adjusted = all_Hs + np.array([penalty, 0, 0, 0, 0])  # what if not 4 constraints?
+
+        # find the best candidate solution
+        best_candidate_idx = np.argmin(all_Hs_adjusted)
+
+        ustar_overall = all_candidates[best_candidate_idx]
+
+        # what if we do essentially the same thing again but with the taylor
+        # expansion centered around current u*?  this should alleviate the problem 
+        # of comparing large floats, if we drop the constant term, which we can without
+        # changing anything about the solution. 
+
+        # taylor expansion at 0: .5 u.T H_uu u + H_u(u=0) u + c
+        # to find H_u(u*), evaluate this at u* and differentiate, giving: 
+        # H_u(u*) = H_uu u* + H_u(u=0)
+        # thus the new taylor expansion is: 
+        # H(u - u*) + c = .5 (u-u*).T H_uu (u-u*) + [H_uu u* + H_u(0)] (u-u*)
+
+        # if many active sets can also do this with just the best k from the first round
+        H_u_new = H_uu @ ustar_overall + H_u
+        H_suboptimality = lambda u: 0.5 * (u - ustar_overall).T @ H_uu @ (u - ustar_overall) + H_u_new @ (u - ustar_overall)
+
+        all_Hs_new = jax.vmap(H_suboptimality)(all_candidates)
+        all_Hs_adjusted_new = all_Hs_new + np.array([penalty, 0, 0, 0, 0])
+
+        best_candidate_idx_new = np.argmin(all_Hs_adjusted_new)
+        ustar_overall = all_candidates[best_candidate_idx_new]
+
+
+        # let's hope that jit will not optimise this away somehow...
+
+        # weights = jax.nn.softmax(-all_Hs_adjusted_new / 0.000001)
+        # ustar_overall = weights.T @ all_candidates
+
+        debug_oups = {
+            'all_candidates': all_candidates,
+            'all_Hs': all_Hs,
+            'all_Hs_adjusted': all_Hs_adjusted,
+            'all_Hs_adjusted_new': all_Hs_adjusted_new,
+            'best_candidate_idx': best_candidate_idx,
+        }
+
+        # return ustar_overall_new, debug_oups
+        if debug_oups:
+            # return ustar_overall, debug_oups
+            # even if this branch is not taken jit is bothered by it and gives a TypeError...
+            return ustar_overall
+        else:
+            return ustar_overall
+    else:
+
+        # because of chattering issues with the other method though, here we
+        # explore what happens if we try to smooth out the kinks in u* as a
+        # function of (x, \lambda) 
+
+        # HOWEVER the chattering persists. the root cause is different: we
+        # tried to compare relatively large floats which are very small
+        # together, basically just an oversight concerning the limits of float
+        # arithmetic.  this is addressed in the other if case now: basically
+        # we evaluate the objective - the optimal objective again and do the
+        # comparisons based on those, which are very small and thus have great
+        # float resolution.
+
+        # this is perhaps a bit overkill with all the transcendental functions. 
+        # maybe drop in squareplus(x) = 1/2 (x + sqrt(x^2 + b)) looks like softmax. 
+
+        # the unconstrained solution can violate some constraints. calculate here how much. 
+        constraint_violations = np.concatenate([lowerbounds - u_star_unconstrained, u_star_unconstrained - upperbounds])
+        smoothing_size = 0.01
+        # this is a smooth approximation to max(all_constraint_violations)
+        softmax_violation = jax.scipy.special.logsumexp(constraint_violations/smoothing_size) * smoothing_size
+
+        # we are only interested in this violation if it is above 0, so we "clip" that with another logsumexp(0, .)
+        # large penalty to approximate constraint well enough still. 
+        penalty = 1000 * jax.scipy.special.logsumexp(np.array([0., softmax_violation])/smoothing_size)*smoothing_size
+
+        # this is now what we want to minimise among all solution candidates, 
+        all_Hs_adjusted = all_Hs + np.array([penalty, 0, 0, 0, 0])
+
+        # and with a similar smoothing operation we find a "smooth argmin" of this array. 
+        # no need for * smoothing_size here -- softmax output always sums to 1.
+        weights = jax.nn.softmax(-all_Hs_adjusted / smoothing_size)        
+
+        # like this the output is always a convex combination of candidate solutions. the weights vary smoothly
+        # wrt all parameters and approximate the "nonsmooth" solution very vell except close to active set changes. 
+        ustar_overall = weights.T @ all_candidates
+        return ustar_overall
+
+
 
 
 def u_star_general_activeset(x, costate, problem_params):
 
     raise NotImplementedError('not finished')
+
+    '''
+    was I fundamentally mistaken before about the nature of this problem? 
+
+        u* = argmin_u H(x, u, lambda) = argmin_u l(x, u) + lambda.T @ f(x, u)
+
+    obviously the whole problem changes linearly with lambda. but does that 
+    say anything about how the *solution* changes with lambda? not so sure.
+
+    the whole thing is a quadratic in u: 
+
+        H(x, u, lambda) = H + H_u u + .5 u.T H_uu u
+
+    where the RHS is evaluated at (x, 0, lambda) -- quadratic taylor expansion
+    in u about 0. l is quadratic in u (by construction) and f is affine in u
+    (control affine!) so this I am pretty sure about. 
+
+    But: H changes as a function of x in possibly weird ways! therefore if we 
+    want to solve the problem with KKT matrices, we have to recalculate the
+    KKT matrices every time from the nonlinear system :(
+
+    from a quick numerical check, it looks like: 
+     - H_u is not constant across varying (x, u, lambda)
+     - but H_uu is :) 
+
+    this first one is only true if l_uu is also constant, which in our case it
+    is. should we put that as basic assumption? or be more lax and say just
+    that we assume we can reliably calculate (and autodiff) u*(x, lambda)? 
+
+    therefore our QP looks like this: 
+
+        u* = argmin_u .5 u.T H_uu u + H_u(x, 0 lambda) u (+ H)
+        s.t. G u <= l  
+
+    H_uu is constant so no arguments. H_u is evaluated at u=0, but (x, lambda)
+    change.  The constant term H(x, 0, lambda) is irrelevant.
+
+    This does not look that bad after all. there is one specific place for our
+    parameter 
+
+        p := H_u(x, 0, lambda) 
+
+    to enter, and otherwise we have a constant QP. Now, i *think* what
+    confused  me is this: it may well be that the QP solution is piecewise
+    linear *in p*. but p as a function of (x, lambda) is NOT piecewise linear,
+    easily verified by  plotting it along some line in (x, lambda) space. This
+    is not a bad thing as long as we use the chain rule or jax correctly, and 
+    not confusing grad_p u* with grad_(x, lam) u*. 
+
+    In fact, H_u = l_u(x, u) + lambda.T @ g(x), if f(x, u) = fstate(x) + g(x) u
+    so we see neatly where the nonlinearity comes from. 
+    '''
 
     # TODO
     # - adapt constraint description to standard A x <= l

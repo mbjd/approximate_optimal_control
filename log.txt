@@ -1110,3 +1110,67 @@ improves. bit of a hack though.
 
 or, investigate more thoroughly and make this not happen at all! this should
 not be happening, u* (i think) is piecewise linear....
+
+
+
+2023-02-26
+
+investigating that u* numerical jitteryness. implemented alternative smooth
+version, which  finds a convex combination of all candidate solutions that
+closely approximates the selection of the best candidate solution, but is
+smooth, using softmax and logsumexp. does not look very much better on the
+plot,  and can output infeasible solutions. would be nicer if it was always
+feasible... but a convex combination of several solutions which may be
+infeasible can just become infeasible not much to do about that. 
+
+
+when plotting the gradients (jvp in direction of (x, lam) perturbation) they
+look even worse for the "smooth" version... this is probably not it. 
+
+even when plotting the values of H at the different candidate solutions, we
+get some numerical jitter. and of course when the different ones are rather
+close they only differ by small amounts -- quadratic in the difference between
+them. these two effects combine to make the u* function "jitter" between
+selecting different candidate solutions. 
+
+I have a feeling this is fundamental to any active set type method that
+calculates candidate solutions, and then selects the best one, because close
+to active set changes the differences in cost function are always going to be
+tiny. If the comparison between different objective values is accurate up to 
+machine eps, then the potential inaccuracy in the solution will be sqrt(eps)!
+the fundamental mistake is this: comparing two large-ish floats which are very
+close together.
+
+tried a second step where we re-center the taylor expansion around u* to
+hopefully  evaluate the different Hs to greater accuracy (bc. the interesting
+ones are right above 0, so better float accuracy.). same type of chattering
+still happens, BUT only over a 10x smaller time interval, so definitely
+progress!
+
+the individuual solution candidates do have some numerical noise which is
+probably why we're seeing the chattering. however, their individual gradients
+look absolutely perfect. therefore the only source of the problems must be the
+chattering which also chatters between different gradients. 
+
+"usual" explicit QP solvers solve this by explicitly storing the parameter
+regions over which a linear solution map is valid. Maybe we can improve it by
+pre-storing everything we can (i.e. everything except the QP parameter p =
+H_u(x, u_taylorexpansion, lambda)). 
+
+
+what also seems surprising to me is that the function u* does not even seem to
+be piecewise linear in lambda?? when only perturbing lambda not x??
+
+maybe I do need to make the general active set solver first..?
+
+
+
+
+
+okay, am back on debugging the main ddp stuff. it now doesn't fail obviously
+due to the chattering anymore, and the chattering is not visible anymore even
+with very fine interpolation. HOWEVER. it still routinely goes wrong. the
+moment it does we seem to have a very negative eigenvalue of S(t), and it
+starts being negative close to a moment where the input constraint active set
+switches. still a bit sus...
+

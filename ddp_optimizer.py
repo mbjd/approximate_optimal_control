@@ -525,7 +525,7 @@ def ddp_main(problem_params, algo_params, x0):
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.001,  # preposterously small to avoid getting stuck completely
+            dtmin = 0.02,  # preposterously small to avoid getting stuck completely
 
             # additionally step to the nodes from the forward solution
             # does jump_ts do the same? --> yes, except for re-evaluation of the RHS for FSAL solvers
@@ -812,7 +812,7 @@ def ddp_main(problem_params, algo_params, x0):
             bw = jax.tree_util.tree_map(itemgetter(i), outputs['backward_sol'])
 
             # plot the state trajectory of the forward pass, interpolation & nodes. 
-            ax1 = pl.subplot(311)
+            ax1 = pl.subplot(221)
 
             pl.plot(fw.ts, fw.ys, marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
             interp_ys = jax.vmap(fw.evaluate)(ts)
@@ -821,7 +821,7 @@ def ddp_main(problem_params, algo_params, x0):
             pl.legend()
 
             # plot the input used for the forward pass. 
-            pl.subplot(312, sharex=ax1)
+            pl.subplot(222, sharex=ax1)
 
             fw_prev = jax.tree_util.tree_map(itemgetter(i-1), outputs['forward_sol'])
             bw_prev = jax.tree_util.tree_map(itemgetter(i-1), outputs['backward_sol'])
@@ -841,7 +841,7 @@ def ddp_main(problem_params, algo_params, x0):
             pl.legend()
 
             # plot the eigenvalues of S from the backward pass.
-            pl.subplot(313, sharex=ax1)
+            pl.subplot(223, sharex=ax1)
 
             # eigenvalues at nodes. 
             sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
@@ -853,12 +853,20 @@ def ddp_main(problem_params, algo_params, x0):
 
             # eigenvalues interpolated. though this is kind of dumb seeing how the backward
             # solver very closely steps to the non-differentiable points. 
-            sorted_eigs_t = lambda t: sorted_eigs(itemgetter(2)(bw.evaluate(ts)))
-            S_eigenvalues_interp = jax.vmap(sorted_eigs)(jax.vmap(bw.evaluate)(ts)[2])
+            S_interp = jax.vmap(bw.evaluate)(ts)[2]
+            S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
             pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
             pl.legend()
 
+            pl.subplot(224, sharex=ax1)
+            # raw entries of S(t)
+            St = bw.ys[2].reshape(-1, 6*6)
+            pl.plot(bw.ts, St, marker='.', linestyle='--', alpha=.2, color='black')
+            pl.plot(ts, S_interp.reshape(-1, 6*6), alpha=.2, color='black')
 
+
+        plot_forward_backward(400)
+        
         # try to isolate that one failure. 
         i = 630
         ta = 4.7
@@ -871,12 +879,11 @@ def ddp_main(problem_params, algo_params, x0):
         xs = jax.vmap(fw.evaluate)(ts)
         us, lams = jax.vmap(forwardpass_u, in_axes=(None, 0, None))(0., xs, args)
 
-        ipdb.set_trace()
-
         interp_ts = np.linspace(t0, tf, 512)
         # for j in range(100, 110): plot_forward_backward(j)
 
         # find the spot where it failed. 
+        # except if it fails due to instabilit
         # take just state 0 (pos x) because the others are inf/NaN in same case.
         # take second state of each trajectory because first one is initial state
         # and always defined. 
@@ -886,12 +893,12 @@ def ddp_main(problem_params, algo_params, x0):
         is_valid = np.logical_and(isfinite, np.logical_not(isnan)) 
         last_valid_idx = np.max(is_valid * np.arange(is_valid.shape[0]))
 
-        for j in np.arange(last_valid_idx - 3, last_valid_idx + 3):
-            try:
-                plot_forward_backward(j)
-            except Error as e:
-                print(f'oops index {j} probably out of bounds')
-                print(e)
+        # for j in np.arange(last_valid_idx - 3, last_valid_idx + 3):
+        #     try:
+        #         plot_forward_backward(j)
+        #     except Error as e:
+        #         print(f'oops index {j} probably out of bounds')
+        #         print(e)
 
         # plot the final solution - ODE solver nodes...
         pl.figure('final solution')
@@ -1035,6 +1042,18 @@ def ddp_main(problem_params, algo_params, x0):
                 sols = jax.vmap(ddp_forwardpass, in_axes=(None, None, 0))(fw, bw, x0s)
                 visualiser.plot_trajectories_meshcat(sols)
  
+
+        # show negative S eigenvalues. 
+        eigs = lambda S: np.linalg.eig(S)[0].real
+
+        all_eigs = jax.vmap(jax.vmap(eigs))(outputs['backward_sol'].ys[2])
+        min_eigs = all_eigs.min(axis=2)
+
+        pl.figure()
+        N_sols, N_steps = min_eigs.shape
+        for sol_i in range(N_sols):
+            pl.plot(outputs['backward_sol'].ts[sol_i], min_eigs[sol_i], c=pl.colormaps['viridis'](sol_i/N_sols), alpha=.2)
+
 
 
 

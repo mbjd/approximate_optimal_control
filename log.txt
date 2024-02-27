@@ -1174,3 +1174,55 @@ moment it does we seem to have a very negative eigenvalue of S(t), and it
 starts being negative close to a moment where the input constraint active set
 switches. still a bit sus...
 
+
+
+2024-02-27
+
+wrote some stuff about mpqp. in case i need it i now know how to prune the
+active sets that are never optimal (by solving an LP feasibility problem for
+each one). 
+
+
+back at debugging positive definiteness. scoured through all ct-ddp papers i
+could find, and it doesn't look like any of them claim that the hessian stays
+positive definite. 
+
+can we use sqrtm(S) instead as an ODE state? but probably ugly things would
+happen if the ODE wants to make it non-pd regardless...
+
+apparently the ricatti eq. itself does result in pd solutions if inputs are
+pd. 
+
+managed to rewrite both the ricatti eq. and our Sdot in a way that makes it
+obvious they are one and the same (write the quadratic in terms of S as  [1;
+S]' [some matrix] [1; S]). so in theory I think the solutions should stay
+positive definite as long as the input cost hessian l_uu and thus H_uu are. 
+
+
+also, tried regularisation. no scheduling of any sort, just constant penalty
+of distance to previous trajectory, weighted with Q matrix. seems to do what
+it should. choosing the scaling of the penalty term dynamically will be the
+far greater challenge. 
+
+
+
+trying to understand what precisely doesn't work about the new DOC RHS
+function. changing the old one step by step to hopefully either arrive at the
+(correct) new version, or to find the change that breaks it. 
+
+got pretty far actually, without changing the look of the solutions at all.
+everything is now in terms of linearisations at the forward trajectory. but
+still it might precisely correspond to the neater DOC derivation. 
+
+still getting similar instability issues, it almost looks like again it is
+caused by chattering at the constraint switching time... there are some papers
+about optimisation constrained ODE solving in the cs/numerics folder which
+might after all be not a bad idea. basically they reframe the ODE with
+optimisation problem in its RHS as a DAE with the corresponding KKT system.
+But the KKT system has to be changed on active set changes and detecting this
+event is apparently not so trivial. still, maybe we can coax diffrax into
+doing this???
+
+after looking at all forward-backward plots it might also be that accepting
+the full step messes us up. a couple iterations before disaster there are
+already some oscillations which look menacing...

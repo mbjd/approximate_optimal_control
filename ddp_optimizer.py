@@ -175,6 +175,22 @@ def ddp_main(problem_params, algo_params, x0):
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
         prev_forward_sol, prev_backward_sol, forward_sol = args
 
+        # current state and optimal input 
+        # *according to backward-pass costate currently being solved for*
+        x_forward = forward_sol.evaluate(t)[0:nx]
+        u_star = pontryagin_utils.u_star_2d(x_forward, lam, problem_params)
+
+        # calculate everything from the previous forward trajectory. 
+        # these two define our *previous* value expansion, which was used to create the forward pass
+        x_prev = prev_forward_sol.evaluate(t)[0:nx] 
+        v_prev, lam_prev, S_prev = prev_backward_sol.evaluate(t)
+
+        # so we use that expansion again to find the costate lambda used in the forward sim. 
+        dx = x_forward - x_prev
+        lam_forward = lam_prev + S_prev @ dx
+
+        # purely for calculating V - could probably be ditched. 
+        u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
 
         regularise = False
         if regularise:
@@ -196,75 +212,29 @@ def ddp_main(problem_params, algo_params, x0):
         else:
             H = lambda x, u, λ: l(0., x, u) + λ.T @ f(0., x, u)
 
-        # current state and optimal input 
-        # *according to backward-pass costate currently being solved for*
-        xbar = forward_sol.evaluate(t)[0:nx]
-        u_star = pontryagin_utils.u_star_2d(xbar, lam, problem_params)
 
         # this partial derivative we can do by hand :) H is linear in lambda.
         H_lam_fct = jax.jacobian(H, argnums=2)
 
-        H_lambda = f(t, xbar, u_star)
+        # H_lambda = f(t, x_forward, u_star)
 
-        H_x = jax.jacobian(H, argnums=0)(xbar, u_star, lam)
+        # replace by correct linearisation
+        df_dlam = jax.jacobian(lambda lam: f(0., x_forward, pontryagin_utils.u_star_2d(x_forward, lam, problem_params)))(lam_forward)
+        H_lambda = f(t, x_forward, u_forward) + df_dlam @ (lam - lam_forward)
 
-        # TODO do one of these: 
+        # H_x = jax.jacobian(H, argnums=0)(x_forward, u_star, lam)
+        du_dlam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)
+        # lam we insert directly -- H being linear in lambda it is the same as linearisation about forward trajectory
+        H_x = jax.jacobian(H, argnums=0)(x_forward, u_forward + du_dlam @ (lam - lam_forward), lam)
+
+        # here we have two choices. a) is obviously the "more correct" one
+        # lots of extra comments here removed -- see fbe716cc for before 
         # a) evaluate RHS that was used to generate the forward trajectory
         # b) approximate with d/dt of interpolated solution
         use_RHS = True
 
-        # ~~~ option a) ~~~
+        dot_xbar_rhs = forwardpass_rhs(t, x_forward, (prev_forward_sol, prev_backward_sol))
 
-        # on a high level: we want the costate/input used when generating the
-        # forward trajectory, so that we can accurately tell which direction it 
-        # came from, without differentiating the polynomial interpolation wrt time. 
-
-        # for this we would need the previous backward pass, to evaluate at the 
-        # previous forward trajectory here, essentially "recreating" the last 
-        # forwrad rollout 1:1. which I'd argue is not really overkill, because we 
-        # need to evaluate it at different time points anyway, therefore re-evaluating.
-
-        # or we could find some way to store lambda(t) as a polynomial interpolation
-        # too, which would remove the issues with d/dt of an interpolation too, and 
-        # also avoid interpolating nondifferentiable points that can be in u(t)
-
-        # maybe that could be done with the SaveAt object in diffrax? 
-        # https://docs.kidger.site/diffrax/api/saveat/
-        # there is the 'fn' option... default fn = lambda t, y, args: y
-        # instead we could say fn = lambda t, y, args: y, lambda_prev_backwardpass(y)
-        # this would probably incur additional evaluations of the backward solution
-        # just like the "obvious" approach of passing directly the whole backward sol. 
-        # advantage:    we don't pass the whole backwardsol, there is only one backward
-        #               sol at a time and we keep bookkeeping to a minimum
-        # disadvantage: we incur additinal approximation error due to forming an interpolation
-        #               of the lambda trajectory, instead of re-evaluating the precise backwardpass
-        #               at the state trajectory. not sure if this is significant though.
-
-        # -> this idea is ditched, whatever fn returns is stored in ys but not in the interpolation
-        # https://github.com/patrick-kidger/diffrax/issues/301
-        
-        # therefore we kind of need to go "all the way": evaluate the RHS of the previous
-        # forward pass again. This is the reason we do the backward pass first, so we can 
-        # work with info from current and last iteration and not yet another one before. 
-        dot_xbar_rhs = forwardpass_rhs(t, xbar, (prev_forward_sol, prev_backward_sol))
-
-
-        
-
-        # here, somehow do this: 
-        # if it is the initial step: 
-        #     dot_xbar = system_dynamics(t, x, u*(x, lambda(x)))
-        # otherwise:
-        #     dot_xbar = (the thing above with the previous solutions)
-        # with init as a static argument for jitting (how did that work again?)
-
-        # maybe with jax.lax switch/cond? 
-
-        # OR write an entirely separate version that is responsible for the init step
-        # or another cheap hack: for the first iteration fall back to option b, the 
-        # time-differentiation of the interpolated solution? 
-
-        # ~~~ option b) ~~~
         dot_xbar_differentiation = forward_sol.derivative(t)[0:nx]
 
         if use_RHS:
@@ -273,57 +243,11 @@ def ddp_main(problem_params, algo_params, x0):
             dot_xbar = dot_xbar_differentiation
 
         # the money shot, derivation & explanations in dump, section 3.5.*
-        v_dot = -l(t, xbar, u_star) + lam.T @ (dot_xbar - H_lambda)
-        # maybe ^ equivalent to -l(t, xbar, u_prev?)
+        v_dot = -l(t, x_forward, u_star) + lam.T @ (dot_xbar - H_lambda)
+        # maybe ^ equivalent to -l(t, x_forward, u_prev?)
 
+        # at least for this now everything should be in terms of taylor expansions around current trajectory right? 
         lam_dot = -H_x + S @ (dot_xbar - H_lambda)
-
-        # # other derivation in idea dump, second try, DOC inspired. 
-        # # all second partial derivatives of the pre-optimised hamiltonian. 
-        # H_opt_xx = jax.hessian(H_opt, argnums=0)(xbar, lam)
-        # H_opt_xlam = jax.jacobian(jax.jacobian(H_opt, argnums=0), argnums=1)(xbar, lam)
-        # # H_opt_lamx = jax.jacobian(jax.jacobian(H_opt, argnums=1), argnums=0)(xbar, lam)
-        # H_opt_lamlam = jax.hessian(H_opt, argnums=1)(xbar, lam)
-
-        # # purely along characteristic curve, no correction term here. 
-        # # still unsure whether or not this makes it wrong (see idea dump)
-        # # indeed it seems there are differences between this and the other one which are
-        # # more than just numerical noise (about 1.5% at one particular point)
-        # S_dot = -H_opt_xx - H_opt_xlam @ S - (H_opt_xlam @ S).T - S.T @ H_opt_lamlam @ S
-
-
-        # these are basically manual differentiation rules applied to the function
-        #  (x, lam)  ->  ( H_x(x, u*(x, lam), lam), (H_x(x, u*(x, lam), lam) )
-        # and in the end we get its jacobian and call it A_lin, a 2*nx square matrix.
-        # kind of dumb in retrospect -- hence below this I do it all with jax in one step.
-
-        # H_xx = jax.jacobian(H_x_fct, argnums=0)(xbar, u_star, lam)
-        # H_xu = jax.jacobian(H_x_fct, argnums=1)(xbar, u_star, lam)  
-        # H_xlam = jax.jacobian(H_x_fct, argnums=2)(xbar, u_star, lam)
-        # # H_ux == H_xu.T etc
-
-        # H_lamx = jax.jacobian(H_lam_fct, argnums=0)(xbar, u_star, lam)
-        # H_lamu = jax.jacobian(H_lam_fct, argnums=1)(xbar, u_star, lam)
-        # H_lamlam = jax.jacobian(H_lam_fct, argnums=2)(xbar, u_star, lam)
-        # 
-        # u_star_x = jax.jacobian(pontryagin_utils.u_star_2d, argnums=0)(xbar, lam, problem_params)
-        # u_star_lam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(xbar, lam, problem_params)
-
-        # # the matrix governing the evolution of (\delta x, \delta \lambda) in the linearised 
-        # # pontryagin BVP (see notes in idea dump)
-        # Alin = np.block([[H_lamx, H_lamlam], [-H_xx, -H_xlam]]) + np.vstack([H_lamu, -H_xu]) @ np.hstack([u_star_x, u_star_lam])
-
-        # # because the derivation uses those to shorten notation...
-        # # also I have two different short notations for the same thing...
-        # A11 = Alin[0:nx, 0:nx]
-        # A12 = Alin[0:nx, nx:]
-        # A21 = Alin[nx:, 0:nx]
-        # A22 = Alin[nx:, nx:]
-
-        # s = lam
-        # Sdotnew = A21 + A22 @ S - S @ A11 - S @ A12 @ S
-        # sdotnew = (-S @ A12 + A22) @ s  # this one appears to be wrong though. lam_dot makes better plots.
-
 
         # yet another way, maybe the nicest???
         # this is basically f_forward from pontryagin_utils but without the separate v variable. 
@@ -341,8 +265,19 @@ def ddp_main(problem_params, algo_params, x0):
         # confirmed that [fx flam; gx glam] == Alin from above
         # f and g are defined as the pmp rhs: x_dot = f(x, lam), lam_dot = g(x, lam)
         # this removes any confusion with already present partial derivatives of H
-        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(xbar, lam)
-        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(xbar, lam)
+
+        # but is it correct to use the new backward pass costate lam here? just replace it with lam_forward?
+
+        # should we also evaluate the whole pmp_rhs at (x_forward, lam_forward) instead and 
+        # "jump" to lam via taylor expansion, like function_lam(x_forward, lam_forward) @ (lam - lam_forward)...
+        # probably yes. BUT will we have to do an extra order of differentiation? 
+        # maybe maybe not... 
+
+        # is this the spot where "proper" DDP would have this extra derivative which is mostly dropped?
+
+        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x_forward, lam_forward)
+        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
+        # ipdb.set_trace()
 
         # Sdotnew = Sdot_three at least. it is literally the same formula :) 
         # Sdot_three from 'characteristics' derivation with (finally I think) derivation of Sdot. 
@@ -363,7 +298,7 @@ def ddp_main(problem_params, algo_params, x0):
         # Sdot_rel_diff = np.linalg.norm(Sdotnew - S_dot) / np.linalg.norm(Sdotnew)
 
         # however, sdotnew and lam_dot are markedly different. 
-        # this is despite the two relevant directions (d/dt xbar and H_lambda) being almost the same (worst ratio .997)
+        # this is despite the two relevant directions (d/dt x_forward and H_lambda) being almost the same (worst ratio .997)
         # are they even comparable? the early, characteristics type derivation only has a \lambda variable. 
         # in the new DOC derivation, we have lambda AND \delta lambda, the latter one being what we are finding in the linear BVP. 
         # still a bit of understanding left to be gained here. 
@@ -551,7 +486,7 @@ def ddp_main(problem_params, algo_params, x0):
         term = diffrax.ODETerm(backwardpass_rhs)
 
         # not working yet :(
-        term = diffrax.ODETerm(backwardpass_rhs_DOC)
+        # term = diffrax.ODETerm(backwardpass_rhs_DOC)
 
         # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
         # we are overloading this function to handle both extended and pure state. 
@@ -580,7 +515,7 @@ def ddp_main(problem_params, algo_params, x0):
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.002,  # preposterously small to avoid getting stuck completely
+            dtmin = 0.02,  # preposterously small to avoid getting stuck completely
 
             # additionally step to the nodes from the forward solution
             # does jump_ts do the same? --> yes, except for re-evaluation of the RHS for FSAL solvers
@@ -746,7 +681,7 @@ def ddp_main(problem_params, algo_params, x0):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 4
+    N_x0s = 320
 
 
     # prepare initial step
@@ -768,7 +703,7 @@ def ddp_main(problem_params, algo_params, x0):
     # does the backward pass make any sense?
     test = backwardpass_rhs(tf, init_state, rhs_args)
     test1 = backwardpass_rhs_DOC(tf, init_state, rhs_args)
-    ipdb.set_trace()
+    # ipdb.set_trace()
     # test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
 
     # ipdb.set_trace()
@@ -780,7 +715,7 @@ def ddp_main(problem_params, algo_params, x0):
     # go to weird position
     x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
     x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
-    x0_final = x0 + 0.1*np.array([10, 0, 0, 0, 10, 0])
+    x0_final = x0 + 4*np.array([10, 0, 0, 0, 10, 0])
 
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
@@ -791,7 +726,7 @@ def ddp_main(problem_params, algo_params, x0):
     # this is kind of ugly ikr
     # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
     # after that we modify the N_iters variable 
-    iters_per_x0 = 15
+    iters_per_x0 = 4
     # max_alpha = 91/320
     # alphas = np.clip(alphas, 0, max_alpha)  # stop at this point & iterate at same x0 forever
     alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.

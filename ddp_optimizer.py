@@ -175,6 +175,27 @@ def ddp_main(problem_params, algo_params, x0):
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
         prev_forward_sol, prev_backward_sol, forward_sol = args
 
+
+        regularise = False
+        if regularise:
+            # redefine the stage cost and hamiltonian to include an additional
+            # term penalising deviations from the previous trajectory. 
+
+            # this is copied from get_termial_lqr so no check again here if it is an equilibrium.
+            x_eq = problem_params['x_eq']
+            u_eq = problem_params['u_eq']
+            Q = jax.hessian(l, argnums=1)(0., x_eq, u_eq)  # we just take this as state cost weights. 
+            R = jax.hessian(l, argnums=2)(0., x_eq, u_eq)
+
+            def H(x, u, λ):
+                # t is constant in this whole function which is "redefined" at every RHS evaluation
+                x_deviation = x - prev_forward_sol.evaluate(t)[0:nx]
+                u_deviation = None  # ignore this for now
+                deviation_penalty = 1. * x_deviation.T @ Q @ x_deviation
+                return l(0., x, u) + deviation_penalty + λ.T @ f(0., x, u)
+        else:
+            H = lambda x, u, λ: l(0., x, u) + λ.T @ f(0., x, u)
+
         # current state and optimal input 
         # *according to backward-pass costate currently being solved for*
         xbar = forward_sol.evaluate(t)[0:nx]
@@ -182,6 +203,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # this partial derivative we can do by hand :) H is linear in lambda.
         H_lam_fct = jax.jacobian(H, argnums=2)
+
         H_lambda = f(t, xbar, u_star)
 
         H_x = jax.jacobian(H, argnums=0)(xbar, u_star, lam)
@@ -327,6 +349,14 @@ def ddp_main(problem_params, algo_params, x0):
         # Sdotnew is from the pontryagin BVP -> linearisation path. 
         S_dot_three = gx + glam @ S - S @ fx - S @ flam @ S
 
+        # = IS.T @ A_lin_alt @ IS
+        # with 
+        IS = np.vstack([np.eye(nx), S])
+        A_lin_alt = np.block([[gx, glam], [-fx, flam]])
+        # what if, for regularisation, we just add a small diagonal term to flam? 
+
+ 
+
         # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
         # S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
         # Sdotnew_rel_asymmetry = np.linalg.norm(Sdotnew - Sdotnew.T) / np.linalg.norm(Sdotnew)
@@ -350,6 +380,8 @@ def ddp_main(problem_params, algo_params, x0):
         # asymmetry_gradient = 4 * (S - S.T)
         # baumgarte_timeconstant = 0.5  # seconds (or other time units)
         # S_dot_three = S_dot_three + asymmetry_gradient / baumgarte_timeconstant
+
+        # ipdb.set_trace()
 
         return (v_dot, lam_dot, S_dot_three)
 
@@ -426,8 +458,31 @@ def ddp_main(problem_params, algo_params, x0):
         - do some more numerical sanity checks.
 
         '''
+
+
+        # taylor expansion correction to adjust for the fact that we don't want u_forward, lam_forward, but
+        # u, lam currently being solved for. but in the taylor expansion around the forward trajectory...
+        xdot_forward = f(0., x_forward, u_forward)
+
+        # u_optimal_taylor = u_forward + jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params) @ (lam - lam_forward)
+        # xdot_optimal = f(0., x_forward, u_forward) + jax.jacobian(f, argnums=2)(0., x_forward, u_forward) @ (u_optimal_taylor - u_forward)
+
+        # lam_dot = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) + S @ (xdot_forward - xdot_optimal)
+        # lam_dot1 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) - S @ jax.jacobian(f, argnums=2)(0., x_forward, u_forward) @ (u_optimal_taylor - u_forward)
+        # lam_dot2 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) - S @ (jax.jacobian(f, argnums=2)(0., x_forward, u_forward) @ (jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)) @ (lam - lam_forward)) 
+
+        # df_du = jax.jacobian(f, argnums=2)(0., x_forward, u_forward)
+        # du_dlam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)
+        # lam_dot3 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) - S @ (df_du) @ (du_dlam) @ (lam - lam_forward)
+
+        df_dlam = jax.jacobian(lambda lam: f(0., x_forward, pontryagin_utils.u_star_2d(x_forward, lam, problem_params)))(lam_forward)
+        lam_dot4 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) + S @ (df_dlam) @ (lam - lam_forward)
+
+
+
         v_dot = -l(t, x_forward, u_forward)
-        s_dot = -S @ flam @ s + glam @ (s - lam_forward)
+        s_dot = lam_dot4
+        # s_dot = -S @ flam @ s + glam @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
         # old version to compare:
@@ -496,7 +551,7 @@ def ddp_main(problem_params, algo_params, x0):
         term = diffrax.ODETerm(backwardpass_rhs)
 
         # not working yet :(
-        # term = diffrax.ODETerm(backwardpass_rhs_DOC)
+        term = diffrax.ODETerm(backwardpass_rhs_DOC)
 
         # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
         # we are overloading this function to handle both extended and pure state. 
@@ -525,7 +580,7 @@ def ddp_main(problem_params, algo_params, x0):
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.02,  # preposterously small to avoid getting stuck completely
+            dtmin = 0.002,  # preposterously small to avoid getting stuck completely
 
             # additionally step to the nodes from the forward solution
             # does jump_ts do the same? --> yes, except for re-evaluation of the RHS for FSAL solvers
@@ -691,22 +746,7 @@ def ddp_main(problem_params, algo_params, x0):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 64
-        # other option: already produce a wide range of stepsizes in the 
-        # backward pass. effectively do N backward passes, with different 
-        # 
-
-    # xf = forward_sol.evaluate(tf)[0:nx]  
-    # v_T = xf.T @ P_lqr @ xf
-    # lam_T = 2 * P_lqr @ xf
-    # S_T = P_lqr 
-    # init_state = (v_T, lam_T, S_T)
-
-    # # does the backward pass make any sense?
-    # test = backwardpass_rhs(tf, init_state, rhs_args)
-    # test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
-
-    # ipdb.set_trace()
+    N_x0s = 4
 
 
     # prepare initial step
@@ -714,9 +754,24 @@ def ddp_main(problem_params, algo_params, x0):
     init_carry = initial_step(lambda x: 2 * P_lqr @ x, x0)
     # new_carry, output = scan_fct(init_carry, x0)
 
+
     forward_sol = ddp_forwardpass(init_carry[0], init_carry[1], x0)
 
+    xf = forward_sol.evaluate(tf)[0:nx]  
+    v_T = xf.T @ P_lqr @ xf
+    lam_T = 2 * P_lqr @ xf
+    S_T = P_lqr 
+    init_state = (v_T, lam_T, S_T)
+
     rhs_args = (init_carry[0], init_carry[1], forward_sol)
+
+    # does the backward pass make any sense?
+    test = backwardpass_rhs(tf, init_state, rhs_args)
+    test1 = backwardpass_rhs_DOC(tf, init_state, rhs_args)
+    ipdb.set_trace()
+    # test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
+
+    # ipdb.set_trace()
 
 
 
@@ -725,7 +780,7 @@ def ddp_main(problem_params, algo_params, x0):
     # go to weird position
     x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
     x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
-    x0_final = x0 + 4*np.array([10, 0, 0, 0, 10, 0])
+    x0_final = x0 + 0.1*np.array([10, 0, 0, 0, 10, 0])
 
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
@@ -1044,17 +1099,23 @@ def ddp_main(problem_params, algo_params, x0):
  
 
         # show negative S eigenvalues. 
+        # this as an image would be much cooler, with interpolation...
         eigs = lambda S: np.linalg.eig(S)[0].real
 
-        all_eigs = jax.vmap(jax.vmap(eigs))(outputs['backward_sol'].ys[2])
-        min_eigs = all_eigs.min(axis=2)
+        # bit of a mouthful
+        S_interp = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(interp_ts))(outputs['backward_sol'])[2]
 
-        pl.figure()
-        N_sols, N_steps = min_eigs.shape
-        for sol_i in range(N_sols):
-            pl.plot(outputs['backward_sol'].ts[sol_i], min_eigs[sol_i], c=pl.colormaps['viridis'](sol_i/N_sols), alpha=.2)
+        all_min_eigs = jax.vmap(jax.vmap(eigs))(S_interp).min(axis=2)
+        # adjust max index here to where completely weird stuff starts to happen
 
-
+        # clip it so we can observe the zero crossing
+        eig_clip = 50
+        pl.figure('smallest eigenvalue of S(t) (red = negative)')
+        pl.imshow(np.clip(all_min_eigs.T, -eig_clip, eig_clip), cmap='seismic_r', vmin=-eig_clip, vmax=eig_clip)
+        pl.colorbar(); pl.tight_layout()
+        pl.xlabel('iteration')
+        pl.ylabel('t')
+ 
 
 
         # latest debugging spree

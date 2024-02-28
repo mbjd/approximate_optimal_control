@@ -258,8 +258,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # morph this continuously to the DOC version :) 
         # -H_x = d/dt costate from the *last* backward pass. 
-        xdot_optimal = H_lambda  # this is already with the correct taylor expansion from above.
-        lam_dot = -H_x + S @ (xdot_forward - xdot_optimal)
+        # lam_dot = -H_x + S @ (xdot_forward - xdot_optimal)
         lam_dot = -H_x + S @ (-df_dlam @ (lam - lam_forward))
 
         # DOC on the other hand says:
@@ -267,10 +266,6 @@ def ddp_main(problem_params, algo_params, x0):
         # lam_dot = -S @ flam @ s + glam @ (s - lam_forward) 
         # this is the only part which is still clearly different from the 
         # 'from the ground' DOC solution...
-
-
-
-
 
 
         # yet another way, maybe the nicest???
@@ -310,12 +305,16 @@ def ddp_main(problem_params, algo_params, x0):
 
         # = IS.T @ A_lin_alt @ IS
         # with 
-        IS = np.vstack([np.eye(nx), S])
-        A_lin_alt = np.block([[gx, glam], [-fx, flam]])
+        # IS = np.vstack([np.eye(nx), S])
+        # A_lin_alt = np.block([[gx, glam], [-fx, flam]])
         # what if, for regularisation, we just add a small diagonal term to flam? 
 
-        # DOC solution (after fixing mistake....)
-        lam_dot = (glam - S @ flam) @ (lam - lam_forward)
+        # DOC solution (after fixing mistake....) (after fixing other mistake......)
+        # why should this not be correct???
+        # if delta derivation, then we have: 
+        # d/d deltalambda = (glam - S flam) deltalambda
+        # lam_dot = -H_x + (glam - S @ flam) @ (lam - lam_forward)
+        # let's not worry about this for too long now, the other version works though I don't know why..
 
 
         # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
@@ -351,8 +350,7 @@ def ddp_main(problem_params, algo_params, x0):
     def backwardpass_rhs_DOC(t, state, args):
 
         # same as the original one BUT everything linearised around forward trajectory. 
-        # not working yet - still not sure where we are in the state space (x, \lambda)
-        # and where we are in the tangent space (\delta x, \delta \lambda). 
+        # not working yet - we get results but the trajectories are very slow
 
         # v = cost to go, lam = costate = value gradient, S = value hessian
         v, lam, S = state  
@@ -390,60 +388,21 @@ def ddp_main(problem_params, algo_params, x0):
 
             return state_dot, costate_dot
 
+        x_dot_forward, costate_dot_forward = pmp_rhs(x_forward, lam_forward)
+
         # confirmed that [fx flam; gx glam] == Alin from above
         #            ( = [A11 A12; A21 A22])
         # all evaluated at (x_forward, lam_forward) from the forward pass. 
-        # so now we have properly linearised the whole system around the forward pass. 
-        # like in the derivation we now perform the backward pass for the *linearised* system. 
 
         # f and g are defined as the pmp rhs: x_dot = f(x, lam), lam_dot = g(x, lam)
-        # maybe ditch this naming scheme to not confuse with problem parameters f and g? 
         # this removes any confusion with already present partial derivatives of H
         fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x_forward, lam_forward)
         flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
 
-        # arguably this v would be better calculated in forward time and later shifted so it is 0 at tf
-        # because as it stands obviously this v_dot is literally the same ODE as in forward time...
-
-        # not sure if this is actually the case mathematically... 
-        # well actually if lambda = S dx + s then indeed this is just the costate on our forward trajectory
         s = lam  
 
-        '''
-        so this is a bit fishy. we get wildly different numbers than with the old
-        function for s_dot. This is even at the very end of a rather benign trajectory
-        where we might expect the old rhs to give the same result. why not? 
-    
-        todo tomorrow: 
-        - go over equations again in new derivation and search for mistakes
-        - do some more numerical sanity checks.
-
-        '''
-
-
-        # taylor expansion correction to adjust for the fact that we don't want u_forward, lam_forward, but
-        # u, lam currently being solved for. but in the taylor expansion around the forward trajectory...
-        xdot_forward = f(0., x_forward, u_forward)
-
-        # u_optimal_taylor = u_forward + jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params) @ (lam - lam_forward)
-        # xdot_optimal = f(0., x_forward, u_forward) + jax.jacobian(f, argnums=2)(0., x_forward, u_forward) @ (u_optimal_taylor - u_forward)
-
-        # lam_dot = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) + S @ (xdot_forward - xdot_optimal)
-        # lam_dot1 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) - S @ jax.jacobian(f, argnums=2)(0., x_forward, u_forward) @ (u_optimal_taylor - u_forward)
-        # lam_dot2 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) - S @ (jax.jacobian(f, argnums=2)(0., x_forward, u_forward) @ (jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)) @ (lam - lam_forward)) 
-
-        # df_du = jax.jacobian(f, argnums=2)(0., x_forward, u_forward)
-        # du_dlam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)
-        # lam_dot3 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) - S @ (df_du) @ (du_dlam) @ (lam - lam_forward)
-
-        df_dlam = jax.jacobian(lambda lam: f(0., x_forward, pontryagin_utils.u_star_2d(x_forward, lam, problem_params)))(lam_forward)
-        lam_dot4 = -jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward) + S @ (df_dlam) @ (lam - lam_forward)
-
-
-
         v_dot = -l(t, x_forward, u_forward)
-        s_dot = lam_dot4
-        # s_dot = -S @ flam @ s + glam @ (s - lam_forward)
+        s_dot = costate_dot_forward + (glam - S @ flam) @ (lam - lam_forward)  # still wrong! see notes. add -H_x and maybe others.
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
         # old version to compare:
@@ -739,7 +698,7 @@ def ddp_main(problem_params, algo_params, x0):
     # go to weird position
     x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
     x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
-    x0_final = x0 + 4*np.array([10, 0, 0, 0, 10, 0])
+    x0_final = x0 + 1*np.array([10, 0, 0, 0, 10, 0])
 
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
@@ -750,7 +709,7 @@ def ddp_main(problem_params, algo_params, x0):
     # this is kind of ugly ikr
     # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
     # after that we modify the N_iters variable 
-    iters_per_x0 = 4
+    iters_per_x0 = 8
     alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.
     N_iters = alphas.shape[0]
     iters_from_same_x0 = np.arange(N_iters) % iters_per_x0

@@ -1241,4 +1241,34 @@ pretty smart. but for the moment let's ignore this.
 
 
 found a mistake in DOC derivation! fixed it, in dump section 4.6.2,  "Backward
-pass with actual λ instead of δλ". tried running it, got interesting results. no wild instability anymore, instead the trajectories all seem to be very chilled out, without the aggressive down-braking maneuver that showed up before. very weird. 
+pass with actual λ instead of δλ". tried running it, got interesting results.
+no wild instability anymore, instead the trajectories all seem to be very
+chilled out, without the aggressive down-braking maneuver that showed up
+before. very weird.
+
+
+
+thinking about a possible change in perspective. up until now the general goal
+was this: find the optimal control law, using TO and/or characteristics, as
+efficiently as possible.
+
+maybe efficiency first is kind of dumb? maybe it would be nicer to start with
+the "brute force" backward PMP reachability type methods first? which also
+gives us a grasp on global optimality if we always analyse value level sets.
+this would be essentially an adaptation of standard dynamic programming /
+bellman recursion to continuous time, which certainly has its kinks but the
+general structure and also probably complexity should be about the same as
+discrete time DP.
+
+and then from there, see how much we can optimise and "cheat" our way around
+the limitations for physical systems which, far from the origin, have a clear
+timescale separation going on, but while still retaining the benefits of the
+full optimal control law close to the origin. 
+
+is this dumb? tbh if we do this and then end up speeding up the exploration
+along slow  manifolds using TO we will probably arrive at exactly the same
+thing we're building right now. 
+
+
+played around with backward integration and time-value reparameterisation
+again. got not much further than a couple of plots though...

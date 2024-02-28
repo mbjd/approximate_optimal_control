@@ -178,7 +178,6 @@ def ddp_main(problem_params, algo_params, x0):
         # current state and optimal input 
         # *according to backward-pass costate currently being solved for*
         x_forward = forward_sol.evaluate(t)[0:nx]
-        u_star = pontryagin_utils.u_star_2d(x_forward, lam, problem_params)
 
         # calculate everything from the previous forward trajectory. 
         # these two define our *previous* value expansion, which was used to create the forward pass
@@ -191,6 +190,9 @@ def ddp_main(problem_params, algo_params, x0):
 
         # purely for calculating V - could probably be ditched. 
         u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
+
+        # not used anymore except in v_dot. -> also removed there
+        # u_star = pontryagin_utils.u_star_2d(x_forward, lam, problem_params) 
 
         regularise = False
         if regularise:
@@ -234,6 +236,7 @@ def ddp_main(problem_params, algo_params, x0):
         use_RHS = True
 
         dot_xbar_rhs = forwardpass_rhs(t, x_forward, (prev_forward_sol, prev_backward_sol))
+        xdot_forward = f(0., x_forward, u_forward)  # should be the same...
 
         dot_xbar_differentiation = forward_sol.derivative(t)[0:nx]
 
@@ -243,11 +246,32 @@ def ddp_main(problem_params, algo_params, x0):
             dot_xbar = dot_xbar_differentiation
 
         # the money shot, derivation & explanations in dump, section 3.5.*
-        v_dot = -l(t, x_forward, u_star) + lam.T @ (dot_xbar - H_lambda)
-        # maybe ^ equivalent to -l(t, x_forward, u_prev?)
+        # this is basically a shitty estimate of the cost-to-go on the forward trajectory...
+        # v_dot = -l(t, x_forward, u_star) + lam.T @ (dot_xbar - H_lambda)
+        # so we might as well just do it directly.
+        # after all we do want a taylor expansion of the cost-to-go on the
+        # forward trajectory, not this weird other functin depending on u*(lam backward)
+        v_dot = -l(t, x_forward, u_forward)
 
         # at least for this now everything should be in terms of taylor expansions around current trajectory right? 
         lam_dot = -H_x + S @ (dot_xbar - H_lambda)
+
+        # morph this continuously to the DOC version :) 
+        # -H_x = d/dt costate from the *last* backward pass. 
+        xdot_optimal = H_lambda  # this is already with the correct taylor expansion from above.
+        lam_dot = -H_x + S @ (xdot_forward - xdot_optimal)
+        lam_dot = -H_x + S @ (-df_dlam @ (lam - lam_forward))
+
+        # DOC on the other hand says:
+        # still not sure why this makes any sort of sense....
+        # lam_dot = -S @ flam @ s + glam @ (s - lam_forward) 
+        # this is the only part which is still clearly different from the 
+        # 'from the ground' DOC solution...
+
+
+
+
+
 
         # yet another way, maybe the nicest???
         # this is basically f_forward from pontryagin_utils but without the separate v variable. 
@@ -290,7 +314,9 @@ def ddp_main(problem_params, algo_params, x0):
         A_lin_alt = np.block([[gx, glam], [-fx, flam]])
         # what if, for regularisation, we just add a small diagonal term to flam? 
 
- 
+        # DOC solution (after fixing mistake....)
+        lam_dot = (glam - S @ flam) @ (lam - lam_forward)
+
 
         # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
         # S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
@@ -681,7 +707,7 @@ def ddp_main(problem_params, algo_params, x0):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 320
+    N_x0s = 64
 
 
     # prepare initial step
@@ -710,8 +736,6 @@ def ddp_main(problem_params, algo_params, x0):
 
 
 
-    # sweep the Phi and omega states from x0 to 0. 
-    x0_final = x0.at[np.array([2,5])].set(0)
     # go to weird position
     x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
     x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
@@ -727,8 +751,6 @@ def ddp_main(problem_params, algo_params, x0):
     # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
     # after that we modify the N_iters variable 
     iters_per_x0 = 4
-    # max_alpha = 91/320
-    # alphas = np.clip(alphas, 0, max_alpha)  # stop at this point & iterate at same x0 forever
     alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.
     N_iters = alphas.shape[0]
     iters_from_same_x0 = np.arange(N_iters) % iters_per_x0
@@ -912,7 +934,7 @@ def ddp_main(problem_params, algo_params, x0):
 
 
         pl.figure('states vs iterations stats')
-        N_t = 10
+        N_t = 30
         ts = np.linspace(t0, tf, N_t)
 
         def all_states_t(t):
@@ -921,17 +943,21 @@ def ddp_main(problem_params, algo_params, x0):
         # this has shape (N_t, N_iters, nx)
         all_statevecs = jax.vmap(all_states_t)(ts)
 
+        # norm over statevec dimension but norm/numel over time
+        all_trajnorms = np.linalg.norm(all_statevecs, axis=(0,2)) / all_statevecs.shape[0]
 
 
-        pl.subplot(311)
+
+        ax = pl.subplot(311)
         # update norm
         # difference of state vectors between iterations, norm across both time and state axis. 
         update_norm = np.linalg.norm(np.diff(all_statevecs, axis=1), axis=(0, 2)) / N_t
         pl.semilogy(update_norm, label='update norm, averaged over t')
+        pl.semilogy(update_norm / all_trajnorms[:-1], label='relative update norm, averaged over t')
         pl.legend()
         pl.xlabel('iterations')
 
-        pl.subplot(312)
+        pl.subplot(312, sharex=ax)
         # just for one iteration. 
         def PMP_residuals_iter(k, Nt):
             backsol = jax.tree_util.tree_map(lambda x: x[k], outputs['backward_sol']) 
@@ -952,15 +978,16 @@ def ddp_main(problem_params, algo_params, x0):
         # averaged over time axis. 
         mean_PMP_residuals = np.linalg.norm(all_PMP_residuals, axis=1) / Nt_fine
         pl.semilogy(mean_PMP_residuals, label='PMP residual, averaged over t')
+        pl.semilogy(mean_PMP_residuals / all_trajnorms, label='relative PMP residual, averaged over t')
         pl.legend()
 
 
-        pl.subplot(313)
+        pl.subplot(313, sharex=ax)
         v0s = jax.vmap(lambda sol: sol.evaluate(0.)[0])(outputs['backward_sol'])
         pl.plot(v0s, label='v(0)')
         pl.xlabel('iterations')
         pl.legend()
-
+        
         # same data, but in a parametric form. 
         # same plot twice: markers plus translucent line. 
         pl.figure('PMP error vs update norm')
@@ -1053,64 +1080,6 @@ def ddp_main(problem_params, algo_params, x0):
  
 
 
-        # latest debugging spree
-        '''
-        ts = np.linspace(t0, tf, 512)
-
-        # returns the input time series for one particular solution.
-        # instead of the solution we pass the index (first axis in each leaf of sols pytree)
-        # so we can access the previous solution too, to replicate exactly the forward pass.
-        # if we jit this the whole thing crashes and just says "Killed" -- are we using too much memory?
-        def idx_to_us(idx):
-            prev_forward_sol = jax.tree_util.tree_map(itemgetter(idx-1), outputs['forward_sol'])
-            current_backward_sol = jax.tree_util.tree_map(itemgetter(idx), outputs['backward_sol'])
-            current_forward_sol = jax.tree_util.tree_map(itemgetter(idx), outputs['forward_sol'])
-            args = (prev_forward_sol, current_backward_sol)
-
-            t=1.1
-            
-            def u_t(t):
-                return forwardpass_u(t, current_forward_sol.evaluate(t), args)
-
-            us = jax.vmap(u_t)(ts)
-            return us
-
-
-        # plot angular rates
-        N=50
-        for j in (15, 16):
-            pl.figure()
-            idx = 800 + j  
-
-            # plot the forward trajectory.
-            pl.subplot(411)
-            pl.gca().set_prop_cycle(None)
-            pl.plot(outputs['forward_sol'].ts[j], outputs['forward_sol'].ys[j, :, 2], alpha=j/N, label='Phi')
-            pl.plot(outputs['forward_sol'].ts[j], outputs['forward_sol'].ys[j, :, 5], alpha=j/N, label='omega')
-            pl.legend()
-
-            pl.subplot(412)
-            pl.plot(outputs['backward_sol'].ts[j], outputs['backward_sol'].ys[1][j], label=problem_params['state_names'])
-            pl.ylabel('costates')
-
-            # plot the input 
-            pl.subplot(413)
-            pl.gca().set_prop_cycle(None)
-            us = idx_to_us(idx)
-            pl.plot(us, alpha=j/N, label=('u1', 'u2'))
-
-            pl.subplot(414)
-            # plot the backwardpass data.
-            pl.plot(outputs['backward_sol'].ts[j], outputs['backward_sol'].ys[2][j].reshape(256, -1), color='C0', alpha=.2)
-            # todo replace hardcoded 256 with maxsteps
-
-
-        # it goes wrong for the first time at index 816. 
-
-
-            # us = 
-
-        '''
 
 
         pl.show()

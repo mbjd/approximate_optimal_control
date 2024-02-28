@@ -1226,3 +1226,19 @@ doing this???
 after looking at all forward-backward plots it might also be that accepting
 the full step messes us up. a couple iterations before disaster there are
 already some oscillations which look menacing...
+
+
+
+2024-02-28
+
+
+put the explicit convex optimisation notes in latex. found a paper presenting
+the same concept, checking if some active set is ever optimal by solving an
+LP. they also have a nice method to do extensive enumeration with a
+tree-pruning strategy allowing them to skip over many active sets, knowing in
+advance they are not optimal. if we scale to larger examples this might be
+pretty smart. but for the moment let's ignore this. 
+
+
+found a mistake in DOC derivation! fixed it, in dump section 4.6.2,  "Backward
+pass with actual λ instead of δλ". tried running it, got interesting results. no wild instability anymore, instead the trajectories all seem to be very chilled out, without the aggressive down-braking maneuver that showed up before. very weird. 

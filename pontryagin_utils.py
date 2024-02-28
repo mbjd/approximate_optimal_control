@@ -153,10 +153,46 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         ustar_overall = all_candidates[best_candidate_idx_new]
 
 
-        # let's hope that jit will not optimise this away somehow...
+        # maybe we are better off using the KKT conditions directly? 
+        # they are, for problem min_x f(x) s.t. g(x) <= 0:
+        # 1. stationarity
+        #   f_x(x*) + mu.T g_x(x*) = 0
+        # basically gradient zero, but with constraints. 
+        # mu is a lagrange multiplier. if equality constraints, additional one. 
+        # 2. primal feasibility
+        #   g(x*) <= 0.
+        # 3. dual feasibility
+        #   mu >= 0.
+        # 4. complementary slackness.
+        #   mu.T @ g(x*) = 0
+        # or simply stated: for each constraint, either the lagrange multiplier
+        # is 0, or the constraint function is 0 (<=> constraint active), but not both
+        # <sketch with boundary of quadrant in g-mu space highlighted as fat line>
 
-        # weights = jax.nn.softmax(-all_Hs_adjusted_new / 0.000001)
-        # ustar_overall = weights.T @ all_candidates
+        # can we for each solution compute some "KKT violation" penalty? 
+        # basically like 10000 * max violation to any of these equations. 
+        # maybe that is numerically better than just lowest cost. 
+        # at least any cost comparisons or evaluations are out, and only the gradient remains.
+
+        # probably being the KKT solution for some active set already implies primal
+        # feasibility so we might ditch checking that. 
+
+        # primal feasibility rules out infeasible points obviously.
+        # what is the intuitive purpose of the other two? 
+
+        # mu <= 0 would mean that a constraint is not active but in the wrong
+        # direction, i.e. violated. meaning, we have assumed a constraint is
+        # active but  can improve the objective by deactivating it, without it
+        # being violated. geometrically, the downward direction points to the
+        # interior of the feasible set, removing the need for that particular
+        # boundary.
+
+        # finally complementary slackness. if a candidate solution violates it, 
+        # then what? then on one hand, the constraint is satisfied thus inactive. 
+        # on the other hand, mu>0 means that we still "tilt" the cost function 
+        # in the direction of that constraint, making us solve a different problem
+        # than what we should. is this also already implied by only looking
+        # at active set KKT solutions?
 
         debug_oups = {
             'all_candidates': all_candidates,

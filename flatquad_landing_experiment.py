@@ -190,11 +190,16 @@ def backward_with_hessian(problem_params, algo_params):
         # and pack them in a nice dict for the state.
         state_dot = dict()
         state_dot['x'] = x_dot
+        state_dot['t'] = 1.
         state_dot['v'] = v_dot
         state_dot['vx'] = costate_dot
         state_dot['vxx'] = S_dot
 
-        return state_dot
+        # don't forget to adjust integration boundaries and dt0 when changing 
+        # physical time
+        # return state_dot
+        # v/t rescaling
+        return jax.tree_util.tree_map(lambda z: z / -np.sqrt(-v_dot), state_dot)
 
     def solve_backward(x_f):
 
@@ -210,6 +215,7 @@ def backward_with_hessian(problem_params, algo_params):
 
         state_f = {
             'x': x_f,
+            't': 0,
             'v': v_f,
             'vx': vx_f, 
             'vxx': vxx_f,
@@ -233,7 +239,7 @@ def backward_with_hessian(problem_params, algo_params):
         T = 10.
 
         backward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+            term, diffrax.Tsit5(), t0=v_f, t1=10., dt0=vf/10, y0=state_f,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
         )
@@ -327,16 +333,20 @@ def backward_with_hessian(problem_params, algo_params):
     def plot_sol(sol):
 
         # adapted from plot_forward_backward in ddp_optimizer
+        # this works regardless of v/t reparameterisation. 
+        # all the x axes are physical times as stored in sol.ys['t']
+        # all interpolations are done with ODE solver "t", so whatever independent
+        # variable we happen to have
         
-        ts = np.linspace(sol.t0, sol.t1, 5001)
+        interp_ts = np.linspace(sol.t0, sol.t1, 5001)
 
         # plot the state trajectory of the forward pass, interpolation & nodes. 
         ax1 = pl.subplot(411)
 
-        pl.plot(sol.ts, sol.ys['x'], marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
-        interp_ys = jax.vmap(sol.evaluate)(ts)
+        pl.plot(sol.ys['t'], sol.ys['x'], marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
+        interp_ys = jax.vmap(sol.evaluate)(interp_ts)
         pl.gca().set_prop_cycle(None)
-        pl.plot(ts, interp_ys['x'], alpha=0.5)
+        pl.plot(interp_ys['t'], interp_ys['x'], alpha=0.5)
         pl.legend()
 
 
@@ -348,11 +358,11 @@ def backward_with_hessian(problem_params, algo_params):
             state_t = sol.evaluate(t)
             return pontryagin_utils.u_star_2d(state_t['x'], state_t['vx'], problem_params)
 
-        us_interp = jax.vmap(u_t)(ts)
+        us_interp = jax.vmap(u_t)(interp_ts)
 
-        pl.plot(sol.ts, us, linestyle='', marker='.')
+        pl.plot(sol.ys['t'], us, linestyle='', marker='.')
         pl.gca().set_prop_cycle(None)
-        pl.plot(ts, us_interp, label=('u_0', 'u_1'))
+        pl.plot(interp_ys['t'], us_interp, label=('u_0', 'u_1'))
         pl.legend()
 
 
@@ -364,14 +374,14 @@ def backward_with_hessian(problem_params, algo_params):
 
         S_eigenvalues = jax.vmap(sorted_eigs)(sol.ys['vxx'])
         eigv_label = ['S(t) eigenvalues'] + [None] * (problem_params['nx']-1)
-        pl.semilogy(sol.ts, S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
+        pl.semilogy(sol.ys['t'], S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
         # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
-        pl.semilogy(sol.ts, S_eigenvalues, color='C0')  
+        pl.semilogy(sol.ys['t'], S_eigenvalues, color='C0')  
 
         # eigenvalues interpolated. though this is kind of dumb seeing how the backward
         # solver very closely steps to the non-differentiable points. 
         sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
-        pl.semilogy(ts, sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
+        pl.semilogy(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
         pl.legend()
 
         pl.subplot(414, sharex=ax1)
@@ -379,7 +389,7 @@ def backward_with_hessian(problem_params, algo_params):
 
         vxx_entries = interp_ys['vxx'].reshape(-1, problem_params['nx']**2)
         label = ['entries of Vxx(t)'] + [None] * (problem_params['nx']**2-1)
-        pl.plot(ts, vxx_entries, label=label, color='green', alpha=.3)
+        pl.plot(interp_ys['t'], vxx_entries, label=label, color='green', alpha=.3)
         pl.legend()
 
 
@@ -508,8 +518,8 @@ if __name__ == '__main__':
 
         
         
-    # backward_with_hessian(problem_params, algo_params)
-    current_weird_experiment(problem_params, algo_params)
+    backward_with_hessian(problem_params, algo_params)
+    # current_weird_experiment(problem_params, algo_params)
     # u_star_debugging(problem_params, algo_params)
     ipdb.set_trace()
 

@@ -74,6 +74,7 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     # we only want system state in any case.
     if type(sols.ys) == dict:
         sols_ys = sols.ys['x']
+        sols_ts = sols.ys['t']
 
     if len(sols_ys.shape) == 2:
 
@@ -90,7 +91,11 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     sols_ys = sols_ys[is_usable]
     sols_ts = sols_ts[is_usable]
 
-    vis = meshcat.Visualizer()
+    if vis is None:
+        vis = meshcat.Visualizer()
+    else:
+        print('using given visualiser. pray that the typing duck approves of it')
+        print(f'it looks like this: {vis}')
 
     if sols_ys.shape[0] > 4000:
 
@@ -106,7 +111,6 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
         min_t = sols_ts.min()      # which is < 0 at this point unless -inf were the only
         sols_ts = sols.ts - min_t  # subtracting negative = adding positive. big brain
-
 
 
     # scale force cylinder length like this:
@@ -241,5 +245,6 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     vis.set_animation(anim, repetitions=np.inf)
     
     # schrödinger fancy/ugly color scheme...
-    vis['/Background'].set_property('top_color', [0xb5/256, 0x17/256, 0x9e/256])
-    vis['/Background'].set_property('bottom_color', [0x48/256, 0x0c/256, 0xa8/256])
+    # vis['/Background'].set_property('top_color', [0xb5/256, 0x17/256, 0x9e/256])
+    # vis['/Background'].set_property('bottom_color', [0x48/256, 0x0c/256, 0xa8/256])
+    return vis

@@ -112,32 +112,24 @@ def ddp_main(problem_params, algo_params, x0):
 
     def backwardpass_rhs_init(t, state, args):
 
-        # same as the other one, except with different source of the 
+        # same as the other one (backwardpass_rhs), except with different source of the 
         # function lambda(x) used in the forward pass.
 
-        v, lam, S = state  
+        # all explanations & comments there.
+
+        v, s, S = state  
 
         # these would be the arguments are for the non-init version. 
         # prev_forward_sol, prev_backward_sol, forward_sol = args
+        # <do some magic to find lambda and u used during forwardpass>
 
-        # instead here we have: 
+        # instead here we have simply: 
         forward_sol, lambda_fct = args
 
-        xbar = forward_sol.evaluate(t)[0:nx]
-        lambda_bar = lambda_fct(xbar)
+        x_forward = forward_sol.evaluate(t)[0:nx]
+        lam_forward = lambda_fct(x_forward)
 
-        # this is the optimally controlled system, according to the costate currently
-        # being solved for in the backward pass
-        u_star = pontryagin_utils.u_star_2d(xbar, lam, problem_params)
-
-        H_lambda = f(t, xbar, u_star)
-        H_x = jax.jacobian(H, argnums=0)(xbar, u_star, lam)
-
-        # this is the substitude for forwardpass_rhs in the other version
-        # here we basically just evaluate the RHS used during the forward pass
-        u_star_bar = pontryagin_utils.u_star_2d(xbar, lambda_bar, problem_params)
-        dot_xbar = f(t, xbar, u_star_bar)
-
+        u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
 
         def pmp_rhs(state, costate):
 
@@ -148,17 +140,17 @@ def ddp_main(problem_params, algo_params, x0):
 
             return state_dot, costate_dot
 
-        # confirmed that [fx flam; gx glam] == Alin from above
-        # f and g are defined as the pmp rhs: x_dot = f(x, lam), lam_dot = g(x, lam)
-        # this removes any confusion with already present partial derivatives of H
-        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(xbar, lam)
-        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(xbar, lam)
+        x_dot_forward, costate_dot_forward = pmp_rhs(x_forward, lam_forward)
 
-        v_dot = -l(t, xbar, u_star) + lam.T @ (dot_xbar - H_lambda)
-        lam_dot = -H_x + S @ (dot_xbar - H_lambda)
+
+        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x_forward, lam_forward)
+        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
+
+        v_dot = -l(t, x_forward, u_forward)
+        s_dot = costate_dot_forward + (glam - S @ flam) @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
-        return (v_dot, lam_dot, S_dot)
+        return (v_dot, s_dot, S_dot)
 
     def backwardpass_rhs_old(t, state, args):
 

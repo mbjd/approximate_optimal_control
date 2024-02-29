@@ -317,6 +317,27 @@ def u_star_general_activeset(x, costate, problem_params):
     #     G u <= l
     # the other u_star_2d only handles box constraints.
 
+    '''
+    some new-ish thoughts. 
+    we can easily write down all KKT matrices for all active sets. we can then do 
+    one of two things. 
+    1) explicitly invert each KKT matrix, to find the linear map from parameter 
+       to solution (and lagrange multipliers) as a nice matrix. 
+    2) store all KKT systems and solve online. 
+
+    2 is certainly better numerically (matrix inversion bad!!!) but we will
+    have to store differently sized matrices in some pytree thing. OTOH, with 1
+    we might incur some numerical error but have a nice collection of equally sized 
+    matrices we can store in an array of shape (N_activesets, dim(u)+dim(mu), dim(p)).
+    
+    checking KKT conditions afterwards should be the same regardless. I am pretty 
+    sure now that directly checking KKT conditions is miles better than taking 
+    the lowest-cost solution inside constraints, because for two close solutions
+    with distance d, the objective only differs like d^2, whereas the KKT residuals
+    (i think) are all linear-ish. therefore much better numerically. for another day :)
+
+    '''
+
     # convert old to new: lb <= x  <=> -I @ x <= lb
     # lowerbounds = problem_params['U_interval'][0]
     # upperbounds = problem_params['U_interval'][1]

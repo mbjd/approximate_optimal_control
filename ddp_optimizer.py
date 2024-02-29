@@ -215,9 +215,6 @@ def ddp_main(problem_params, algo_params, x0):
             H = lambda x, u, λ: l(0., x, u) + λ.T @ f(0., x, u)
 
 
-        # this partial derivative we can do by hand :) H is linear in lambda.
-        H_lam_fct = jax.jacobian(H, argnums=2)
-
         # H_lambda = f(t, x_forward, u_star)
 
         # replace by correct linearisation
@@ -226,8 +223,14 @@ def ddp_main(problem_params, algo_params, x0):
 
         # H_x = jax.jacobian(H, argnums=0)(x_forward, u_star, lam)
         du_dlam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)
+        # this has confused me for some time. this H_x being defined here was H_x but with (according to linearisation)
+        # optimal input depending on current lambda, not lambda forward. this is probably why the equation 
+        # afterwards worked only when we removed the g_lambda term...
         # lam we insert directly -- H being linear in lambda it is the same as linearisation about forward trajectory
-        H_x = jax.jacobian(H, argnums=0)(x_forward, u_forward + du_dlam @ (lam - lam_forward), lam)
+        H_x_wrong = jax.jacobian(H, argnums=0)(x_forward, u_forward + du_dlam @ (lam - lam_forward), lam)
+
+        # here the actual one.
+        H_x = jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward)
 
         # here we have two choices. a) is obviously the "more correct" one
         # lots of extra comments here removed -- see fbe716cc for before 
@@ -298,16 +301,12 @@ def ddp_main(problem_params, algo_params, x0):
         flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
         # ipdb.set_trace()
 
-        # Sdotnew = Sdot_three at least. it is literally the same formula :) 
-        # Sdot_three from 'characteristics' derivation with (finally I think) derivation of Sdot. 
-        # Sdotnew is from the pontryagin BVP -> linearisation path. 
-        # S_dot_three = gx + glam @ S - S @ fx - S @ flam @ S
+        S_dot_three = gx + glam @ S - S @ fx - S @ flam @ S
 
-        # = I_S.T @ A_lin_alt @ I_S
-        # with 
-        I_S = np.vstack([np.eye(nx), S])
-        A_lin_alt = np.block([[gx, glam], [-fx, -flam]])
-        S_dot_three = I_S.T @ A_lin_alt @ I_S
+        # or to write it in nice block form...
+        # I_S = np.vstack([np.eye(nx), S])
+        # A_lin_alt = np.block([[gx, glam], [-fx, -flam]])
+        # S_dot_three = I_S.T @ A_lin_alt @ I_S
         # ipdb.set_trace()
 
 
@@ -318,34 +317,14 @@ def ddp_main(problem_params, algo_params, x0):
         # if delta derivation, then we have: 
         # d/d deltalambda = (glam - S flam) deltalambda
         # lam_dot = -H_x + (glam - S @ flam) @ (lam - lam_forward)
-        # let's not worry about this for too long now, the other version works though I don't know why..
 
 
-        # both look pretty close to each other, and also both symmetric up to relative error of about 1e-8 :) 
-        # S_dot_rel_asymmetry = np.linalg.norm(S_dot - S_dot.T) / np.linalg.norm(S_dot)
-        # Sdotnew_rel_asymmetry = np.linalg.norm(Sdotnew - Sdotnew.T) / np.linalg.norm(Sdotnew)
-        # Sdot_rel_diff = np.linalg.norm(Sdotnew - S_dot) / np.linalg.norm(Sdotnew)
+        # if we just drop g_lambad it works! indeed flam = df_dlam, even though
+        # we defined two different f's or are they the same after all???
+        lam_dot_old = -H_x_wrong + (-S @ flam) @ (lam - lam_forward)
 
-        # however, sdotnew and lam_dot are markedly different. 
-        # this is despite the two relevant directions (d/dt x_forward and H_lambda) being almost the same (worst ratio .997)
-        # are they even comparable? the early, characteristics type derivation only has a \lambda variable. 
-        # in the new DOC derivation, we have lambda AND \delta lambda, the latter one being what we are finding in the linear BVP. 
-        # still a bit of understanding left to be gained here. 
-
-        # S_dot slightly off of being symmetric unfortunately. 
-        # so, artificially "symmetrize" them here? or baumgarte type stabilisation? 
-        # let's do nothing for the moment and wait until it bites us in the ass :) 
-
-        # let us try to do gradient descent on ||A-A'||^2. 
-        # matrixcalculus.org tells us that the gradient of that expression wrt A is: 
-        # 2 (A - A') - 2 (A' - A) = 2 A - 2 A' - 2 A' + 2 A = 4 (A - A').
-
-        # somehow this makes things worse even after flipping the sign twice
-        # asymmetry_gradient = 4 * (S - S.T)
-        # baumgarte_timeconstant = 0.5  # seconds (or other time units)
-        # S_dot_three = S_dot_three + asymmetry_gradient / baumgarte_timeconstant
-
-        # ipdb.set_trace()
+        # update, having to drop lambda was probably due to H_x already having some (lam-lam_forward) in it
+        lam_dot = -H_x + (glam -S @ flam) @ (lam - lam_forward)
 
         return (v_dot, lam_dot, S_dot_three)
 
@@ -383,6 +362,8 @@ def ddp_main(problem_params, algo_params, x0):
 
 
         # then we linearise the WHOLE PMP RHS around that state. "Hidden" in here is the u* map. 
+        # very important to linearise that also around the forward trajectory, NOT using the costate
+        # currently being solved for, lam
         def pmp_rhs(state, costate):
 
             u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
@@ -406,8 +387,11 @@ def ddp_main(problem_params, algo_params, x0):
         s = lam  
 
         v_dot = -l(t, x_forward, u_forward)
-        s_dot = costate_dot_forward + (glam - S @ flam) @ (lam - lam_forward)  # still wrong! see notes. add -H_x and maybe others.
+        s_dot = costate_dot_forward + (glam - S @ flam) @ (lam - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
+
+
+        # s_dot = -H_x + (-S @ flam) @ (lam - lam_forward)
 
         # old version to compare:
         # H_x = jax.jacobian(H, argnums=0)(x_forward, u_star, lam)
@@ -505,6 +489,7 @@ def ddp_main(problem_params, algo_params, x0):
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
             dtmin = 0.02,  # preposterously small to avoid getting stuck completely
+            dtmax = 0.5
 
             # additionally step to the nodes from the forward solution
             # does jump_ts do the same? --> yes, except for re-evaluation of the RHS for FSAL solvers
@@ -583,10 +568,24 @@ def ddp_main(problem_params, algo_params, x0):
 
 
         # what if...
-        prevprev_iter, prev_iter = carry
+        # prevprev_iter, prev_iter = carry
 
         prev_forward_sol, prev_backward_sol = carry
-        x0 = inp
+        x0, j = inp
+
+        # what happens if we set the "fast states" of x0 to the already 
+        # "stabilised" fast states of the previous iteration? 
+        # to maybe stay on the "turnpike manifold"
+        # but only when the x0 changes <=> when it is "sub-iteration" j=0
+        fast_idx = np.array([2, 5])
+        updated_x0 = prev_forward_sol.evaluate(.3)
+        do_update = j == 0
+        updated_x0 = jax.lax.select(do_update, updated_x0, x0)
+
+        # but update only fast states
+        # x0 = x0.at[fast_idx].set(updated_x0[fast_idx])
+
+
 
         # the whole DDP loop is it not beautiful <3 
         forward_sol = ddp_forwardpass(prev_forward_sol, prev_backward_sol, x0)
@@ -670,7 +669,7 @@ def ddp_main(problem_params, algo_params, x0):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 64
+    N_x0s = 8
 
 
     # prepare initial step
@@ -702,7 +701,7 @@ def ddp_main(problem_params, algo_params, x0):
     # go to weird position
     x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
     x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
-    x0_final = x0 + 1*np.array([10, 0, 0, 0, 10, 0])
+    x0_final = x0 + .2*np.array([10, 0, 0, 0, 10, 0])
 
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
@@ -721,7 +720,7 @@ def ddp_main(problem_params, algo_params, x0):
     x0s = x0 * (1-alphas) + x0_final * alphas
 
     start_t = time.time()
-    final_carry, outputs = jax.lax.scan(scan_fct, init_carry, x0s)
+    final_carry, outputs = jax.lax.scan(scan_fct, init_carry, (x0s, iters_from_same_x0))
     print(f'first run (with jit): {time.time() - start_t}')
 
     # start_t = time.time()

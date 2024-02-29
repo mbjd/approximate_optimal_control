@@ -1272,3 +1272,30 @@ thing we're building right now.
 
 played around with backward integration and time-value reparameterisation
 again. got not much further than a couple of plots though...
+
+
+
+2024-02-29
+
+
+cooked up some thoughts yesterday evening. if we treat trajectory optimisation
+not as the omnipotent tool (which it is probably not) but as a heuristic to speed up the brute force backward PMP reachability computations, then we are probably better off. let me explain.
+
+as discussed the two methods (TO and backwards PMP reachability) have
+complementary benefits. Long turnpike trajectories in multiscale systems
+completely mess up the backwards PMP approach due to frequent resampling, and
+a data generation which is more dense than what would be needed for NN
+fitting, which is needed to even find the slow, turnpike-like trajectories.
+
+TO can do that very nicely however! I am proposing a two-step scheme like this. 
+
+1. collect, with TO, a database of many trajectories, from x0 where the fast
+   states are either zero or "already stabilised". point being, we are interested in long trajectories mainly. 
+
+2. using backward PMP, "largest underestimator" type NN, and growing the dataset
+   as increasing value level sets, approximate the full backward reachability computation. the advantage is that now that we have a good approximation of the value function on and close to the "slow manifold" we can relatively easily find optimal trajectories to other, close states with pure PMP backward shooting, without (huge) sensitivity problems (i.e. we propose some x0, simulate forward with approximate optimal controller, find optimal trajectory in backwards time, and probably we land close-ish to the state we started). Viewed from another lens, we can now circumvent the problem of having to generate "too many" trajectories for the purpose of finding the turnpike, because we already have it. instead we can do a relatively sparse sampling of those trajectories, until the BNN has enough data to be confident but not (much) more. See sketch. 
+
+
+flashy title: using optimal trajectories to speed up backwards PMP
+reachability level set optimal control computation in multiscale dynamical
+systems. hehe

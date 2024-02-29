@@ -1299,3 +1299,14 @@ TO can do that very nicely however! I am proposing a two-step scheme like this.
 flashy title: using optimal trajectories to speed up backwards PMP
 reachability level set optimal control computation in multiscale dynamical
 systems. hehe
+
+
+found the mistakes!!! what I called H_x in the code was not actually H_x. now
+the two backwardpass rhs's should be the same. though I almost feel like it is
+more brittle and fails sooner now... at least we now have a theoretical basis 
+for doing line search or regularisation. 
+
+am making a new plotting function to see if the lambdas and S matrices
+actually look like gradients and hessians of v, at least in the direction of
+the individual trajectory. looks quite alright. tbh if this wasn't correct
+we'd probably have bigger problems that showed up sooner

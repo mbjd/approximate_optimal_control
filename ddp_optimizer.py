@@ -652,7 +652,7 @@ def ddp_main(problem_params, algo_params, x0):
         return init_forward_sol, init_backward_sol 
 
 
-    N_x0s = 8
+    N_x0s = 12
 
 
     # prepare initial step
@@ -683,7 +683,7 @@ def ddp_main(problem_params, algo_params, x0):
     # go to weird position
     x0_final = x0 + 2*np.array([10, 0, 0.5, 10., 0, 10])
     x0_final = x0 + 2*np.array([10, -10, 0, 0, 0, 0])
-    x0_final = x0 + .2*np.array([10, 0, 0, 0, 10, 0])
+    x0_final = x0 + 1*np.array([10, 0, 0, -10, -10, 0])
 
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
@@ -739,10 +739,6 @@ def ddp_main(problem_params, algo_params, x0):
             pl.legend()
 
             pl.subplot(223, sharex=ax0)
-            pl.ylabel('S(t) - raw entries')
-            pl.plot(sol.ts, sol.ys[2].reshape(-1, nx*nx), color='black', alpha=0.2)
-
-            pl.subplot(224, sharex=ax0)
             S_eigenvalues = jax.vmap(lambda S: np.sort(np.linalg.eig(S)[0].real))(sol.ys[2])
             eigv_label = ['S(t) eigenvalues'] + [None] * (nx-1)
             pl.semilogy(sol.ts, S_eigenvalues, color='C0', label=eigv_label)
@@ -755,6 +751,10 @@ def ddp_main(problem_params, algo_params, x0):
             # hard to say which one of these is better to use...
             S_asym_rel = jax.vmap(lambda S: np.linalg.norm(S-S.T)/np.linalg.norm(S))(sol.ys[2])
             pl.semilogy(sol.ts, S_asym_rel, color='C1', label='norm(S-S.T)/norm(S)')
+
+            pl.subplot(224, sharex=ax0)
+            pl.ylabel('S(t) - raw entries')
+            pl.plot(sol.ts, sol.ys[2].reshape(-1, nx*nx), color='black', alpha=0.2)
             pl.legend()
             
         def plot_forward_backward(i):
@@ -819,6 +819,91 @@ def ddp_main(problem_params, algo_params, x0):
             St = bw.ys[2].reshape(-1, 6*6)
             pl.plot(bw.ts, St, marker='.', linestyle='--', alpha=.2, color='black')
             pl.plot(ts, S_interp.reshape(-1, 6*6), alpha=.2, color='black')
+
+
+        def plot_taylor_sanitycheck(i):
+
+            # see if the lambda = vx and S = vxx are remotely plausible. 
+
+            pl.figure(f'taylor sanity check {i}')
+
+            # does a part of both of the above functions plus the retrieval of the solutions.
+            ts = np.linspace(t0, tf, 5001)
+
+            fw = jax.tree_util.tree_map(itemgetter(i), outputs['forward_sol'])
+            bw = jax.tree_util.tree_map(itemgetter(i), outputs['backward_sol'])
+
+            
+
+            interp_fw = jax.vmap(fw.evaluate)(ts)
+            interp_bw = jax.vmap(bw.evaluate)(ts)
+
+            bw_ys_at_fw_t = jax.vmap(bw.evaluate)(fw.ts)
+
+            # plot v(x(t)) alone
+            ax1 = pl.subplot(311)
+            pl.plot(fw.ts, bw_ys_at_fw_t[0], linestyle='', marker='.', color='C0')
+            pl.plot(ts, interp_bw[0], linestyle='--', alpha=.5, label='v(x(t))', color='C0')
+            pl.legend()
+
+            # plot v(x(t)) and small lines showing its total derivative wrt t
+            # d/dt v(x(t)) = dv/dx dx/dt = lambda.T @ f
+            pl.subplot(312, sharex=ax1)
+            pl.plot(fw.ts, bw_ys_at_fw_t[0], linestyle='', marker='.', alpha=1, color='C0')
+            pl.plot(ts, interp_bw[0], linestyle='--', alpha=.5, label='v(x(t))', color='C0')
+
+            xs = fw.ys
+            vs, lambdas, Ss = jax.vmap(bw.evaluate)(fw.ts)
+            us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(xs, lambdas, problem_params)
+            fs = jax.vmap(f, in_axes=(None, 0, 0))(0., xs, us)
+
+            # the total time derivative of v we're after
+            v_ts = jax.vmap(np.dot)(lambdas, fs)
+
+            # for each of the derivatives, plot a small line. 
+
+            def line_params(t, v, v_t):
+                line_len = 0.1
+                diffvec_unscaled = np.array([1, v_t])
+                diffvec = line_len * diffvec_unscaled / np.linalg.norm(diffvec_unscaled)
+
+                # nan in between to break up lines. 
+                xs = np.array([t-diffvec[0], t+diffvec[0], np.nan])
+                ys = np.array([v-diffvec[1], v+diffvec[1], np.nan])
+                return xs, ys
+
+            xs, ys = jax.vmap(line_params)(fw.ts, vs, v_ts)
+            pl.plot(xs.flatten(), ys.flatten(), label='d/dt v(x(t))', color='C1')
+
+
+            # now the hessians, def the hardest part...
+            pl.subplot(313, sharex=ax1)
+            pl.plot(fw.ts, bw_ys_at_fw_t[0], linestyle='', marker='.', alpha=1, color='C0')
+            pl.plot(ts, interp_bw[0], linestyle='--', alpha=.1, label='v(x(t))', color='C0')
+
+            # should we just directly plug in a couple of t's in the taylor approximation? 
+            # via x(t)? or via taylor approx of that? 
+
+            def line_params_hessian(t, bw_y):
+                t_len = 1.
+                dts = np.concatenate([np.linspace(-t_len, +t_len, 20), np.array([np.nan])])
+                ts = t + dts
+
+                # this is not technically a taylor expansion anymore...
+                # could approximate with fw.derivative pretty nicely though...
+                dxs = jax.vmap(fw.evaluate)(ts) - fw.evaluate(t)
+
+                vs_taylor = jax.vmap(lambda dx: bw_y[0] + bw_y[1] @ dx + 0.5 * dx.T @ bw_y[2] @ dx)(dxs)
+
+                return ts, vs_taylor
+
+            xs, ys = jax.vmap(line_params_hessian)(fw.ts, bw_ys_at_fw_t)
+
+            pl.plot(xs.flatten(), ys.flatten(), alpha=.5, color='C1')
+
+            pl.legend()
+
+        plot_taylor_sanitycheck(2)
 
 
         plot_forward_backward(400)

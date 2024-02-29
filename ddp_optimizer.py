@@ -160,7 +160,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         return (v_dot, lam_dot, S_dot)
 
-    def backwardpass_rhs(t, state, args):
+    def backwardpass_rhs_old(t, state, args):
 
         # ALL these dynamics are being specified as if time was running forward.
         # flipping the integration boundaries and starting with dt < 0 in the 
@@ -330,13 +330,15 @@ def ddp_main(problem_params, algo_params, x0):
 
 
 
-    def backwardpass_rhs_DOC(t, state, args):
+    def backwardpass_rhs(t, state, args):
 
         # same as the original one BUT everything linearised around forward trajectory. 
-        # not working yet - we get results but the trajectories are very slow
+        # derivation with all mistakes fixed in idea dump, 4.6 "different derivation" bzw
+        # 4.6.1. "Backward pass with actual λ instead of δλ".
 
-        # v = cost to go, lam = costate = value gradient, S = value hessian
-        v, lam, S = state  
+        # v = cost to go, s = value gradient/costate, S = value hessian (all on forward trajectory)
+        # so we have the taylor expansion: V(x_forward+dx) = v(x_forward) + s dx + .5 dx.T S dx.
+        v, s, S = state  
 
         # different previous solutions are organised like this: 
         # iteration     | k-1                | k
@@ -344,20 +346,16 @@ def ddp_main(problem_params, algo_params, x0):
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
         prev_forward_sol, prev_backward_sol, forward_sol = args
 
-        # the DOC solution linearises everything around the previous trajectory (x, lambda).
-        # thus we retrieve it here which is easy now that we have all previous solutions. 
-        # (other than that not implemented yet)
+        # unpack the forward trajectory
         x_forward = forward_sol.evaluate(t)[0:nx]
 
-        # these two define our *previous* value expansion, which was used to create the forward pass
+        # ...and also the value expansion used to create that
+        # (which we need to recreate the input)
         x_prev = prev_forward_sol.evaluate(t)[0:nx] 
         v_prev, lam_prev, S_prev = prev_backward_sol.evaluate(t)
-
-        # so we use that expansion again to find the costate lambda used in the forward sim. 
         dx = x_forward - x_prev
         lam_forward = lam_prev + S_prev @ dx
 
-        # purely for calculating V - could probably be ditched. 
         u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
 
 
@@ -384,19 +382,12 @@ def ddp_main(problem_params, algo_params, x0):
         fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x_forward, lam_forward)
         flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
 
-        s = lam  
 
+        # the magic formulas. first is obvious, others derived in idea dump. 
+        # remember that s = lambda is the costate we find by integrating this RHS
         v_dot = -l(t, x_forward, u_forward)
-        s_dot = costate_dot_forward + (glam - S @ flam) @ (lam - lam_forward)
+        s_dot = costate_dot_forward + (glam - S @ flam) @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
-
-
-        # s_dot = -H_x + (-S @ flam) @ (lam - lam_forward)
-
-        # old version to compare:
-        # H_x = jax.jacobian(H, argnums=0)(x_forward, u_star, lam)
-        # lam_dot = -H_x + S @ (dot_xbar - H_lambda)
-        # ipdb.set_trace()
 
         return (v_dot, s_dot, S_dot)
 
@@ -456,10 +447,10 @@ def ddp_main(problem_params, algo_params, x0):
         # forward sol   | prev_forward_sol   | forward_sol
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
 
-        term = diffrax.ODETerm(backwardpass_rhs)
+        # term = diffrax.ODETerm(backwardpass_rhs_old)
 
         # not working yet :(
-        # term = diffrax.ODETerm(backwardpass_rhs_DOC)
+        term = diffrax.ODETerm(backwardpass_rhs)
 
         # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
         # we are overloading this function to handle both extended and pure state. 
@@ -689,10 +680,9 @@ def ddp_main(problem_params, algo_params, x0):
     rhs_args = (init_carry[0], init_carry[1], forward_sol)
 
     # does the backward pass make any sense?
-    test = backwardpass_rhs(tf, init_state, rhs_args)
-    test1 = backwardpass_rhs_DOC(tf, init_state, rhs_args)
+    test = backwardpass_rhs_old(tf, init_state, rhs_args)
+    test1 = backwardpass_rhs(tf, init_state, rhs_args)
     # ipdb.set_trace()
-    # test_DOC = backwardpass_rhs_DOC(tf, init_state, rhs_args)
 
     # ipdb.set_trace()
 

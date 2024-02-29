@@ -301,13 +301,17 @@ def ddp_main(problem_params, algo_params, x0):
         # Sdotnew = Sdot_three at least. it is literally the same formula :) 
         # Sdot_three from 'characteristics' derivation with (finally I think) derivation of Sdot. 
         # Sdotnew is from the pontryagin BVP -> linearisation path. 
-        S_dot_three = gx + glam @ S - S @ fx - S @ flam @ S
+        # S_dot_three = gx + glam @ S - S @ fx - S @ flam @ S
 
-        # = IS.T @ A_lin_alt @ IS
+        # = I_S.T @ A_lin_alt @ I_S
         # with 
-        # IS = np.vstack([np.eye(nx), S])
-        # A_lin_alt = np.block([[gx, glam], [-fx, flam]])
-        # what if, for regularisation, we just add a small diagonal term to flam? 
+        I_S = np.vstack([np.eye(nx), S])
+        A_lin_alt = np.block([[gx, glam], [-fx, -flam]])
+        S_dot_three = I_S.T @ A_lin_alt @ I_S
+        # ipdb.set_trace()
+
+
+        lam_dot = -H_x + S @ (-df_dlam @ (lam - lam_forward))
 
         # DOC solution (after fixing mistake....) (after fixing other mistake......)
         # why should this not be correct???

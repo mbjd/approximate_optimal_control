@@ -518,8 +518,8 @@ if __name__ == '__main__':
 
         
         
-    # backward_with_hessian(problem_params, algo_params)
-    current_weird_experiment(problem_params, algo_params)
+    backward_with_hessian(problem_params, algo_params)
+    # current_weird_experiment(problem_params, algo_params)
     # u_star_debugging(problem_params, algo_params)
     ipdb.set_trace()
 

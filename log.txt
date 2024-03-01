@@ -1290,10 +1290,22 @@ fitting, which is needed to even find the slow, turnpike-like trajectories.
 TO can do that very nicely however! I am proposing a two-step scheme like this. 
 
 1. collect, with TO, a database of many trajectories, from x0 where the fast
-   states are either zero or "already stabilised". point being, we are interested in long trajectories mainly. 
+states are either zero or "already stabilised". point being, we are interested
+in long trajectories mainly. 
 
-2. using backward PMP, "largest underestimator" type NN, and growing the dataset
-   as increasing value level sets, approximate the full backward reachability computation. the advantage is that now that we have a good approximation of the value function on and close to the "slow manifold" we can relatively easily find optimal trajectories to other, close states with pure PMP backward shooting, without (huge) sensitivity problems (i.e. we propose some x0, simulate forward with approximate optimal controller, find optimal trajectory in backwards time, and probably we land close-ish to the state we started). Viewed from another lens, we can now circumvent the problem of having to generate "too many" trajectories for the purpose of finding the turnpike, because we already have it. instead we can do a relatively sparse sampling of those trajectories, until the BNN has enough data to be confident but not (much) more. See sketch. 
+2. using backward PMP, "largest underestimator" type NN, and growing the
+dataset as increasing value level sets, approximate the full backward
+reachability computation. the advantage is that now that we have a good
+approximation of the value function on and close to the "slow manifold" we can
+relatively easily find optimal trajectories to other, close states with pure
+PMP backward shooting, without (huge) sensitivity problems (i.e. we propose
+some x0, simulate forward with approximate optimal controller, find optimal
+trajectory in backwards time, and probably we land close-ish to the state we
+started). Viewed from another lens, we can now circumvent the problem of
+having to generate "too many" trajectories for the purpose of finding the
+turnpike, because we already have it. instead we can do a relatively sparse
+sampling of those trajectories, until the BNN has enough data to be confident
+but not (much) more. See sketch. 
 
 
 flashy title: using optimal trajectories to speed up backwards PMP
@@ -1310,3 +1322,69 @@ am making a new plotting function to see if the lambdas and S matrices
 actually look like gradients and hessians of v, at least in the direction of
 the individual trajectory. looks quite alright. tbh if this wasn't correct
 we'd probably have bigger problems that showed up sooner
+
+
+
+
+2024-03-01
+
+did some experiments where I tried to find the root cause of the negative S
+eigenvalues. did the following
+- define the backwardpass also in terms of the cholesky factor of S
+- plot det(S) after running
+
+unfortunately I never got to the failure case because now it fails much
+sooner, when S grows very large on a long-ish time interval where both inputs
+are at the upper constraint. 
+
+though, i could always test the same thing in the current
+backward_with_hessian  example in flatquad_landing_experiment.py -- there we
+do see negative hessians regularly. next week \_o_/
+
+am really debating whether it is worth it to continue working on the TO stuff.
+on one hand, it would be very cool to get it to run, and as talked about just
+above, would undoubtedly be able to accelerate the "pure" PMP backward
+reachability approach. On the other hand, I've now invested 2 months into
+this! well, looked back into log and commits, and I've only really started
+this one month ago. january was spent entirely thinking about backwards PMP
+type things. so maybe the sunk cost fallacy is not huge here after all :) 
+
+but more practically, it would be cool to start working on the learning part.
+should I just go ahead and do this with backward PMP regardless? there are
+still many nontrivial questions to be answered there, even if we completely
+forget DDP stuff: 
+
+- which new points to propose? 
+  2 main strategies. a) sample statespace points and select good ones or b) 
+  start in the "interesting set" (BNN uncertain within value sublevel set) and 
+  explore it with some MCMC type thing
+
+- how to do bayesian NN? 
+  ensemble, stein, others? probably ensemble should be enough for a start
+
+- 2nd order Sobolev 
+  this I think is actually what I think could be the nicest of all things. Calculating
+  Vxx amounts to having feedback gains, enabling us to treat the nonliear system with 
+  linear systems tools, instead of just having control inputs at some points. given that
+  most usual systems *are* pretty close to their linearisations over large-ish regions
+  we should expect to make a decent improvement on brute force backward reachability 
+  by doing this. maybe, who knows \o/
+
+- local/global? 
+  by now I think I have a decent grasp on this. If we learn V(x) as successive value sublevel sets this should be pretty natural. 
+  the question is then how quickly can we "fill" this sublevel set with data, especially in the direction 
+  of slow manifold/turnpike trajectories. but I think it should be manageable, we just have to live with 
+  dataset size O(timescale ratio) multiplied with whatever complexity we assume in 
+  terms of state space dimensionality. 
+
+- better strategy for u*? 
+  the current one works after the hack to minimise numerical chattering. certainly 
+  cleaner would be active set enumeration + selection of the solution with smallest KKT residual.
+  from there there are millions of mpqp tricks, pruning of never-optimal active sets, 
+  decision tree structure, actual active set method running online but with precomputed 
+  KKT systems of some sort. 
+  even fancier, the suggestion of patrick kidger, where we extend diffrax with 
+  more flexible event handling, detect an active set change, and somehow give the
+  active set to the RHS in args. as a boolean vector? as a finished linear map from 
+  parameter to u*? Lots to be done there still. but probably best to put this on the 
+  back burner as the solutions here are kind of the most obvious. 

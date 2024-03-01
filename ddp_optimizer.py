@@ -472,7 +472,7 @@ def ddp_main(problem_params, algo_params, x0):
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
             dtmin = 0.002,  # preposterously small to avoid getting stuck completely
-            dtmax = 0.5
+            dtmax = 0.05
 
             # additionally step to the nodes from the forward solution
             # does jump_ts do the same? --> yes, except for re-evaluation of the RHS for FSAL solvers
@@ -542,8 +542,11 @@ def ddp_main(problem_params, algo_params, x0):
 
         # other option: already produce a wide range of stepsizes in the 
         # backward pass. effectively do N backward passes, with different 
-        # 
-        backward_sol = ddp_backwardpass(prev_forward_sol, )
+        # regularisation/steplength parameters.
+        # maybe this is even more efficient than doing them separately? 
+        # because we can reuse the evaluations of the backwardpass RHS if 
+        # we manage to modify it appropriately after the fact 
+
 
         
             
@@ -812,6 +815,10 @@ def ddp_main(problem_params, algo_params, x0):
             S_interp = jax.vmap(bw.evaluate)(ts)[2]
             S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
             pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
+
+            dets = np.prod(S_eigenvalues_interp, axis=1)
+            pl.semilogy(ts, dets, color='C1', label='det(S) = prod(eigs(S))')
+
             pl.legend()
 
             pl.subplot(224, sharex=ax1)

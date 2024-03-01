@@ -1324,3 +1324,20 @@ worked out the corresponding update L' which gemini did like 90%
 looks pretty neat, cholesky solution matches original one almost perfectly. am
 not getting to the point where there were negative eigs anymore... instead it
 just stops the backward pass at some weird ass t > 0 
+
+other possible thing: also keep logdet(S) as a state, find its RHS and
+calculate it  numerically. then after the fact compare with logdet(S) =
+prod(eigenvalues(S)). 
+
+actually it is quite easy. in case we need it sometime
+logdetS_dot = jax.jacobian(lambda dt: np.linalg.slogdet(S + dt * S_dot)[1])(0.)
+
+in some situations it seems to do that just as the input constraint active set
+goes from both upper bounds to one upper bound. in others there is a sudden
+"blow up" in entries of S and eigenvalues, before it stops working. still not
+exactly sure what concretely causes the integration to stop prematurely. po
+
+observation: eigenvalues of S seem to go up much more quickly than otherwise
+when both (upper) constraints are active. which makes a lot of sense as we are
+really dealing with an uncontrolled system, growing dispersions should be
+expected (until we hit the region where we can change inputs again)

@@ -397,7 +397,10 @@ def ddp_main(problem_params, algo_params, x0):
 
         LLT = L @ L.T
 
-        invL = np.linalg.inv(L)  # triangular inverse. is it smart about that?
+        # triangular inverse. is it smart about that?
+        # this is the one spot where a singularity can somehow enter. probably
+        # this happens if the underlying ODE actually points to non-pd S (so)
+        invL = np.linalg.inv(L)  
 
         M = invL @ (gx + glam @ LLT - LLT @ fx - LLT @ flam @ LLT) @ invL.T
         # not technically a mask but we need this to solve the equation:
@@ -405,7 +408,14 @@ def ddp_main(problem_params, algo_params, x0):
         LT_mask = np.tril(np.ones((nx, nx)), k=-1) + 0.5 * np.eye(nx) 
         M_LT = M * LT_mask  # pointwise! 
         L_dot = L @ M_LT
-        # ipdb.set_trace()
+
+        # override:)
+        # L_dot = np.zeros_like(L)
+
+        # if we also want to keep track of logdet(S)?
+        # d/dt logdet(S) = d/dS logdet(S) \dot S... but inner product between vectorised matrices? 
+        # probably we can be lazy and give the work to jax like this: 
+        # logdetS_dot = jax.jacobian(lambda dt: np.linalg.slogdet(S + dt * S_dot)[1])(0.)
 
         return (v_dot, s_dot, S_dot, L_dot)
 
@@ -498,7 +508,7 @@ def ddp_main(problem_params, algo_params, x0):
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.002,  # preposterously small to avoid getting stuck completely
+            dtmin = 0.0002,  # preposterously small to avoid getting stuck completely
             dtmax = 0.5
 
             # additionally step to the nodes from the forward solution
@@ -815,10 +825,10 @@ def ddp_main(problem_params, algo_params, x0):
             args = (fw_prev, bw_prev)
 
             def u_t(t):
-                return forwardpass_u(t, fw.evaluate(t), args)[0]
+                return forwardpass_u(t, fw.evaluate(t), args)
 
-            us_trajectory = jax.vmap(u_t)(fw.ts)
-            us_interp = jax.vmap(u_t)(ts)
+            us_trajectory, lams_trajectory = jax.vmap(u_t)(fw.ts)
+            us_interp, lams_interp = jax.vmap(u_t)(ts)
 
             sumdiff = np.array([[1, 1], [1, -1]])
             pl.plot(fw.ts, us_trajectory, marker='.', linestyle='')
@@ -844,18 +854,52 @@ def ddp_main(problem_params, algo_params, x0):
             pl.semilogy(bw.ts, S_eigenvalues_cholesky, color='C1', marker='.', linestyle='', label=eigv_label, alpha=.6)
             pl.semilogy(bw.ts, S_eigenvalues_cholesky, color='C1', alpha=.6)  
 
-            # # eigenvalues interpolated. though this is kind of dumb seeing how the backward
-            # # solver very closely steps to the non-differentiable points. 
+
+            # eigenvalues interpolated. though this is kind of dumb seeing how the backward
+            # solver very closely steps to the non-differentiable points. 
             S_interp = jax.vmap(bw.evaluate)(ts)[2]
-            # S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
-            # pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
+            S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
+            pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
+
+            pl.plot(ts, np.prod(S_eigenvalues_interp, axis=1), label='prod(eigs)', color='C2')
+            dets = jax.vmap(np.linalg.det)(S_interp)
+            pl.plot(ts, dets, label='det(S)', color='C3')
             pl.legend()
 
             pl.subplot(224, sharex=ax1)
             # raw entries of S(t)
             St = bw.ys[2].reshape(-1, 6*6)
-            pl.plot(bw.ts, St, marker='.', linestyle='--', alpha=.2, color='black')
-            pl.plot(ts, S_interp.reshape(-1, 6*6), alpha=.2, color='black')
+            entry_label = ['S(t) entries'] + [None] * (nx**2-1)
+            pl.plot(bw.ts, St, marker='.', linestyle='--', alpha=.05, color='black')
+            pl.plot(ts, S_interp.reshape(-1, 6*6), alpha=.05, color='black')
+
+            # also, feedback gains. 
+            # total du/dx = partial du/dx + du/dlam dlam/dx  = du/dlam S
+
+            def du_dx(t):
+
+                x = fw.evaluate(t)
+                xbar = fw_prev.evaluate(t)
+                dx = x - xbar
+                v_xbar, lam_xbar, S_xbar, _ = bw_prev.evaluate(t)
+
+                # maybe easier (before i was writing out the total derivative by hand....)
+                dudx_total = jax.jacobian(lambda x: pontryagin_utils.u_star_2d(x, lam_xbar + S_xbar @ (x - xbar), problem_params))(x)
+
+                return dudx_total
+
+            # this is probably not very informative
+            # gains = jax.vmap(du_dx)(ts)
+            # pl.plot(ts, gains[:, 0, :], label=['du_1/dx'] + 5 * [None], color='C1')
+            # pl.plot(ts, gains[:, 1, :], label=['du_2/dx'] + 5 * [None], color='C2')
+            # pl.legend()
+
+            ipdb.set_trace()
+ 
+
+            
+
+        plot_forward_backward(30)
 
 
         def plot_taylor_sanitycheck(i):

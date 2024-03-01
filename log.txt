@@ -1310,3 +1310,17 @@ am making a new plotting function to see if the lambdas and S matrices
 actually look like gradients and hessians of v, at least in the direction of
 the individual trajectory. looks quite alright. tbh if this wasn't correct
 we'd probably have bigger problems that showed up sooner
+
+
+
+
+2024-03-01
+
+
+trying to find out why the backward pass results in non-positive-definite S. 
+am trying to solve for the cholesky factor L (S = L L.T with L lower tri).
+worked out the corresponding update L' which gemini did like 90%
+
+looks pretty neat, cholesky solution matches original one almost perfectly. am
+not getting to the point where there were negative eigs anymore... instead it
+just stops the backward pass at some weird ass t > 0 

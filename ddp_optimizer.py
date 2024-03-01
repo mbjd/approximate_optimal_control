@@ -91,7 +91,7 @@ def ddp_main(problem_params, algo_params, x0):
         # call this function with same arguments as backwardpass RHS, it is 
         # basically a dumbed down version of that. 
 
-        v, lam, S = state  
+        v, lam, S, _ = state  
         prev_forward_sol = args
 
 
@@ -117,7 +117,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # all explanations & comments there.
 
-        v, s, S = state  
+        v, s, S, L = state  
 
         # these would be the arguments are for the non-init version. 
         # prev_forward_sol, prev_backward_sol, forward_sol = args
@@ -150,7 +150,21 @@ def ddp_main(problem_params, algo_params, x0):
         s_dot = costate_dot_forward + (glam - S @ flam) @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
-        return (v_dot, s_dot, S_dot)
+        LLT = L @ L.T
+
+        invL = np.linalg.inv(L)  # triangular inverse. is it smart about that?
+
+        M = invL @ (gx + glam @ LLT - LLT @ fx - LLT @ flam @ LLT) @ invL.T
+        # not technically a mask but we need this to solve the equation:
+        # z + z.T = M  (s.t. z lower triangular)
+        LT_mask = np.tril(np.ones((nx, nx)), k=-1) + 0.5 * np.eye(nx) 
+        M_LT = M * LT_mask  # pointwise! 
+        L_dot = L @ M_LT
+        # ipdb.set_trace()
+
+        return (v_dot, s_dot, S_dot, L_dot)
+
+        # return (v_dot, s_dot, S_dot)
 
     def backwardpass_rhs_old(t, state, args):
 
@@ -330,7 +344,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # v = cost to go, s = value gradient/costate, S = value hessian (all on forward trajectory)
         # so we have the taylor expansion: V(x_forward+dx) = v(x_forward) + s dx + .5 dx.T S dx.
-        v, s, S = state  
+        v, s, S, L = state  
 
         # different previous solutions are organised like this: 
         # iteration     | k-1                | k
@@ -344,7 +358,7 @@ def ddp_main(problem_params, algo_params, x0):
         # ...and also the value expansion used to create that
         # (which we need to recreate the input)
         x_prev = prev_forward_sol.evaluate(t)[0:nx] 
-        v_prev, lam_prev, S_prev = prev_backward_sol.evaluate(t)
+        v_prev, lam_prev, S_prev, _ = prev_backward_sol.evaluate(t)
         dx = x_forward - x_prev
         lam_forward = lam_prev + S_prev @ dx
 
@@ -381,7 +395,19 @@ def ddp_main(problem_params, algo_params, x0):
         s_dot = costate_dot_forward + (glam - S @ flam) @ (s - lam_forward)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S
 
-        return (v_dot, s_dot, S_dot)
+        LLT = L @ L.T
+
+        invL = np.linalg.inv(L)  # triangular inverse. is it smart about that?
+
+        M = invL @ (gx + glam @ LLT - LLT @ fx - LLT @ flam @ LLT) @ invL.T
+        # not technically a mask but we need this to solve the equation:
+        # z + z.T = M  (s.t. z lower triangular)
+        LT_mask = np.tril(np.ones((nx, nx)), k=-1) + 0.5 * np.eye(nx) 
+        M_LT = M * LT_mask  # pointwise! 
+        L_dot = L @ M_LT
+        # ipdb.set_trace()
+
+        return (v_dot, s_dot, S_dot, L_dot)
 
     def forwardpass_rhs(t, state, args):
 
@@ -394,7 +420,7 @@ def ddp_main(problem_params, algo_params, x0):
         # introduce a tuple or even dict state to access solution more clearly
         xbar = prev_forward_sol.evaluate(t)[0:nx] 
         dx = x - xbar
-        v_xbar, lam_xbar, S_xbar = prev_backward_sol.evaluate(t)
+        v_xbar, lam_xbar, S_xbar, _ = prev_backward_sol.evaluate(t)
         # this defines a local quadratic value function: 
         # v(xbar + dx) = v + lam.T dx + 1/2 dx.T S dx
         # we need the first gradient of this quadratic value function. 
@@ -418,7 +444,7 @@ def ddp_main(problem_params, algo_params, x0):
         # introduce a tuple or even dict state to access solution more clearly
         xbar = prev_forward_sol.evaluate(t)[0:nx] 
         dx = x - xbar
-        v_xbar, lam_xbar, S_xbar = prev_backward_sol.evaluate(t)
+        v_xbar, lam_xbar, S_xbar, _ = prev_backward_sol.evaluate(t)
         # this defines a local quadratic value function: 
         # v(xbar + dx) = v + lam.T dx + 1/2 dx.T S dx
         # we need the first gradient of this quadratic value function. 
@@ -462,7 +488,8 @@ def ddp_main(problem_params, algo_params, x0):
         # or not, because this is just a function of the forward solution
         # which can be calculated outside whenever we want. 
 
-        init_state = (v_T, lam_T, S_T)
+        L_T = np.linalg.cholesky(S_T)
+        init_state = (v_T, lam_T, S_T, L_T)
 
         # relaxed tolerance - otherwise the backward pass needs many more steps
         # maybe it also "needs" the extra accuracy though...? 
@@ -633,6 +660,9 @@ def ddp_main(problem_params, algo_params, x0):
         S_T = P_lqr 
 
         init_state = (v_T, lam_T, S_T)
+        L_T = np.linalg.cholesky(S_T)
+        # ipdb.set_trace()
+        init_state = (v_T, lam_T, S_T, L_T)
 
         relax_factor = 1.
         step_ctrl = diffrax.PIDController(
@@ -667,12 +697,13 @@ def ddp_main(problem_params, algo_params, x0):
     v_T = xf.T @ P_lqr @ xf
     lam_T = 2 * P_lqr @ xf
     S_T = P_lqr 
-    init_state = (v_T, lam_T, S_T)
+    L = np.linalg.cholesky(S_T)
+    init_state = (v_T, lam_T, S_T, L)
 
     rhs_args = (init_carry[0], init_carry[1], forward_sol)
 
     # does the backward pass make any sense?
-    test = backwardpass_rhs_old(tf, init_state, rhs_args)
+    # test = backwardpass_rhs_old(tf, init_state, rhs_args)
     test1 = backwardpass_rhs(tf, init_state, rhs_args)
     # ipdb.set_trace()
 
@@ -803,15 +834,21 @@ def ddp_main(problem_params, algo_params, x0):
             sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
             S_eigenvalues = jax.vmap(sorted_eigs)(bw.ys[2])
             eigv_label = ['S(t) eigenvalues'] + [None] * (nx-1)
-            pl.semilogy(bw.ts, S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
+            pl.semilogy(bw.ts, S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label, alpha=.6)
             # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
-            pl.semilogy(bw.ts, S_eigenvalues, color='C0')  
+            pl.semilogy(bw.ts, S_eigenvalues, color='C0', alpha=.6)  
 
-            # eigenvalues interpolated. though this is kind of dumb seeing how the backward
-            # solver very closely steps to the non-differentiable points. 
+            sorted_eigs_L = lambda L: np.sort(np.linalg.eig(L @ L.T)[0].real)
+            S_eigenvalues_cholesky = jax.vmap(sorted_eigs_L)(bw.ys[3])
+            eigv_label = ['L(t) L.T(t) eigenvalues'] + [None] * (nx-1)
+            pl.semilogy(bw.ts, S_eigenvalues_cholesky, color='C1', marker='.', linestyle='', label=eigv_label, alpha=.6)
+            pl.semilogy(bw.ts, S_eigenvalues_cholesky, color='C1', alpha=.6)  
+
+            # # eigenvalues interpolated. though this is kind of dumb seeing how the backward
+            # # solver very closely steps to the non-differentiable points. 
             S_interp = jax.vmap(bw.evaluate)(ts)[2]
-            S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
-            pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
+            # S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
+            # pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
             pl.legend()
 
             pl.subplot(224, sharex=ax1)
@@ -853,7 +890,7 @@ def ddp_main(problem_params, algo_params, x0):
             pl.plot(ts, interp_bw[0], linestyle='--', alpha=.5, label='v(x(t))', color='C0')
 
             xs = fw.ys
-            vs, lambdas, Ss = jax.vmap(bw.evaluate)(fw.ts)
+            vs, lambdas, Ss, _ = bw_ys_at_fw_t
             us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(xs, lambdas, problem_params)
             fs = jax.vmap(f, in_axes=(None, 0, 0))(0., xs, us)
 
@@ -903,7 +940,7 @@ def ddp_main(problem_params, algo_params, x0):
 
             pl.legend()
 
-        plot_taylor_sanitycheck(2)
+        # plot_taylor_sanitycheck(2)
 
 
         plot_forward_backward(400)

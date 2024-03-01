@@ -471,7 +471,7 @@ def ddp_main(problem_params, algo_params, x0):
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.02,  # preposterously small to avoid getting stuck completely
+            dtmin = 0.002,  # preposterously small to avoid getting stuck completely
             dtmax = 0.5
 
             # additionally step to the nodes from the forward solution

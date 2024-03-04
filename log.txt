@@ -1415,3 +1415,35 @@ found no mistakes...
 
 does this correspond intuitively to the fact that the feedback can be locally
 unstable in some directions at some points? 
+
+alright, thought about it some more. am now pretty sure that this is a thing
+that happens normally. drew a picture to convince myself -- a great variety of
+2D, single-integrator navigation-type examples will do, as long as there is
+some sort of nonconvexity in the cost funciton. so, forget this, negative
+hessian eigenvalues are okay too! 
+
+
+found a couple additional papers applying pretty much my ideas (backward
+characteristics following, level set, remeshing) to 2D and 3D single
+integrator navigation examples. pretty cool for inspiration. but higher state space 
+dimension will certainly bring its challenges. 
+
+atm I am doubting if we will get sobolev to learn an accurate hessian. It (the
+function x -> Vxx(x)) will definitely be nondifferentiable at some points,
+though continuous. this will be a bit of a challenge for the NN (maybe). if we
+then do the resampling step of forward simulating with approximate V, then
+backward simulating with the PMP, we carry with us this wrong hessian for all
+time. ways to remedy this could include: 
+ 
+ - accepting the inaccuracy and only using the hessian as a "small hint" for how 
+   the value function should roughly look like
+
+ - writing some analysis to show that the error becomes less significant with
+   longer time horizon (akin to continuous time, finite horizon LQR for LTI
+   system -- quite soon the influence of P(T) vanishes)
+ 
+ - making sure that the sobolev NN *does* actually approximate the hessian precisely!
+   maybe this works better if we have separate NNs, one for V(x) and one for lambda, 
+   with just one additional order of sobolevisation? but not shure why this is just
+   a wild guess based on intuition and would make other things harder too. 
+

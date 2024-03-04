@@ -53,7 +53,7 @@ class TextTexture(geom.Texture):
         }
 
 
-def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, t_is_indep=True, line=False):
+def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, color=None, line=False):
 
     '''
     visualise flatquad trajectories nicely. 
@@ -199,14 +199,26 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     # inv_opacities = (shortest_traj_dists - shortest_traj_dists.min()) / (shortest_traj_dists.max() - shortest_traj_dists.min())
     # opacities = 1 - inv_opacities
 
+    assert not (colormap is not None and color is not None), 'cannot specify both color and colormap. choose one.'
+
     for sol_i in tqdm.tqdm(range(N_sols)):
-        quad_name = f'quad_{sol_i}'
+
+        # this is just a hacky way to get different names if we re-use the same vis 
+        # for plotting multiple vmapped sols. otherwise we choose the same names again
+        # and overwrite the previous vis paths. essentially we make a "folder" for each
+        # different vmapped sols object. 
+        quad_name = f'{id(sols)}/quad_{sol_i}'
 
         if colormap is not None:
             color = pl.colormaps[colormap](sol_i/N_sols)
             r, g, b, a = color
             hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
-            make_quad(vis, quad_name, color=hexcolor, opacity=.5)
+            make_quad(vis, quad_name, color=hexcolor, opacity=a)
+        elif color is not None:
+            # color 
+            r, g, b = color
+            hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
+            make_quad(vis, quad_name, color=hexcolor)
         else:  # it is None
             make_quad(vis, quad_name, disp_name=sol_i)
 
@@ -217,10 +229,15 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
             if np.any(y == np.inf):
                 break
 
+            # this is not used anymore. for any time reparametersation, use a dict state with 
+            # state['x'] = system state and state['t'] = physical time. if type(sol.ys) == dict
+            # this form of state will be assumed (see start of function)
+            '''
             if not t_is_indep:
                 # assume instead that t is in the last 'extended state' variable. 
                 # will fail silently (and produce very weird visualisation) if this some other variable
                 t = y[-1]
+            '''
 
             # apparently we have 30 fps and the animation time is in frames
             anim_t = 30*float(t)
@@ -243,6 +260,7 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
             raise NotImplementedError('lines not supported yet :(.')
 
 
+    # this un-animates any previous ones sadly :(
     vis.set_animation(anim, repetitions=np.inf)
     
     # schrödinger fancy/ugly color scheme...

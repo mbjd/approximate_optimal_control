@@ -143,14 +143,15 @@ def backward_with_hessian(problem_params, algo_params):
 
 
     # map to boundary of Xf. 
-    xfs = pts_interp @ np.linalg.inv(Phalf) * 0.01
+    xfs_uniform = pts_interp @ np.linalg.inv(Phalf) * 0.01
+
 
 
 
 
     # test if it worked
     xf_to_Vf = lambda x: x @ P_lqr @ x.T
-    vfs =  jax.vmap(xf_to_Vf)(xfs)
+    vfs =  jax.vmap(xf_to_Vf)(xfs_uniform)
     vf = vfs[0]
 
     # define RHS of the backward system, including Vxx
@@ -230,8 +231,13 @@ def backward_with_hessian(problem_params, algo_params):
         # don't forget to adjust integration boundaries and dt0 when changing 
         # physical time
         # return state_dot
-        # v/t rescaling
-        return jax.tree_util.tree_map(lambda z: z / -np.sqrt(-v_dot), state_dot)
+        # v/t rescaling -- somehow the usual one won't work nicely anymore
+        # return jax.tree_util.tree_map(lambda z: z / v_dot, state_dot)
+        # the sqrt one does
+        # return jax.tree_util.tree_map(lambda z: z / -np.sqrt(-v_dot), state_dot)
+
+        # but so does this:
+        return state_dot
 
     def solve_backward(x_f):
 
@@ -270,10 +276,8 @@ def backward_with_hessian(problem_params, algo_params):
         # step_ctrl_fixed = diffrax.StepTo(prev_forward_sol.ts)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
-        T = 10.
-
         backward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=v_f, t1=10., dt0=vf/10, y0=state_f,
+            term, diffrax.Tsit5(), t0=0., t1=-5, dt0=-0.1, y0=state_f,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
         )
@@ -383,6 +387,10 @@ def backward_with_hessian(problem_params, algo_params):
 
     # backward_sol = solve_backward(xfs[0])
     sols = jax.vmap(solve_backward)(xfs)
+    sols_orig = jax.vmap(solve_backward)(xfs_uniform)
+
+    visualiser.plot_trajectories_meshcat(sols_orig, color=(1., 0., 0.))
+    visualiser.plot_trajectories_meshcat(sols, color=(0., 1., 0.))
 
 
 

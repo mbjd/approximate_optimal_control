@@ -1388,3 +1388,17 @@ forget DDP stuff:
   active set to the RHS in args. as a boolean vector? as a finished linear map from 
   parameter to u*? Lots to be done there still. but probably best to put this on the 
   back burner as the solutions here are kind of the most obvious. 
+
+
+
+2024-03-04
+
+am investigating non-positive-definite vxx with pure backward integration. added 
+the state logdet(S) to the ODE, with RHS very trivially evaluated with jax: 
+
+\dot logdet(S) = d/dt logdet(S + s \dot S) 
+
+as expected we get many small steps when det(S) is close to 0, i.e. logdet
+approaches -infty. which it still does! so unfortunately it seems like the
+determinant turning negative is not just a fluke but actually what happens for
+the solution of these ODEs. 

@@ -162,6 +162,8 @@ def backward_with_hessian(problem_params, algo_params):
         costate = state['vx']
         S       = state['vxx']
 
+        nx = problem_params['nx']
+
         H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
 
         # RHS of the necessary conditions without the hessian. 
@@ -187,6 +189,30 @@ def backward_with_hessian(problem_params, algo_params):
         x_dot, costate_dot = pmp_rhs(x, costate)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
 
+
+        # alternatively: 
+        I_S = np.vstack([np.eye(nx), S])
+        A_lin_alt = np.block([[gx, glam], [-fx, -flam]])
+        S_dot_bigmatrix = I_S.T @ A_lin_alt @ I_S
+
+        # yet another version, standard riccati form. 
+        A = glam
+        AT = -fx
+        R = flam
+        Q = gx
+
+        # which of these is now supposed to be positive definite? 
+        # and which are actually p.d.? (it looks like Q<0 ...)
+        # and what about the solution? 
+        S_dot_ricatti = Q + A @ S + S @ AT - S @ R @ S
+
+        ipdb.set_trace()
+
+        # literally evaluating the derivative to integrate it again...
+        # i hope that this will cause the integrator to choose smaller
+        # steps when it would otherwise erroneously make S non-pd. 
+        logdet_S_dot = jax.jacobian(lambda dt: np.linalg.slogdet(S + dt * S_dot)[1])(0.)
+
         # and pack them in a nice dict for the state.
         state_dot = dict()
         state_dot['x'] = x_dot
@@ -194,6 +220,7 @@ def backward_with_hessian(problem_params, algo_params):
         state_dot['v'] = v_dot
         state_dot['vx'] = costate_dot
         state_dot['vxx'] = S_dot
+        state_dot['vxx_logdet'] = logdet_S_dot 
 
         # don't forget to adjust integration boundaries and dt0 when changing 
         # physical time
@@ -212,6 +239,7 @@ def backward_with_hessian(problem_params, algo_params):
         v_f = x_f.T @ P_lqr @ x_f
         vx_f = 2 * P_lqr @ x_f
         vxx_f = P_lqr 
+        vxx_logdet_f = np.linalg.slogdet(vxx_f)[1]
 
         state_f = {
             'x': x_f,
@@ -219,6 +247,7 @@ def backward_with_hessian(problem_params, algo_params):
             'v': v_f,
             'vx': vx_f, 
             'vxx': vxx_f,
+            'vxx_logdet': vxx_logdet_f,
         }
 
         term = diffrax.ODETerm(f_extended)
@@ -312,10 +341,30 @@ def backward_with_hessian(problem_params, algo_params):
     enters_Xf = forward_vf <= vfs[0]  # from points before we constructed to lie on dXf
 
     forward_sols_that_enter_Xf = jax.tree_util.tree_map(lambda z: z[enters_Xf], forward_sols)
-    visualiser.plot_trajectories_meshcat(forward_sols_that_enter_Xf)
+    # visualiser.plot_trajectories_meshcat(forward_sols_that_enter_Xf)
 
     # use that to start the backward solutions. 
     xfs = forward_xf[enters_Xf]
+
+    test_rhs = True
+    if test_rhs:
+        x_f = xfs[0]
+        v_f = x_f.T @ P_lqr @ x_f
+        vx_f = 2 * P_lqr @ x_f
+        vxx_f = P_lqr 
+        vxx_logdet_f = np.linalg.slogdet(vxx_f)[1]
+
+        state_f = {
+            'x': x_f,
+            't': 0,
+            'v': v_f,
+            'vx': vx_f, 
+            'vxx': vxx_f,
+            'vxx_logdet': vxx_logdet_f,
+        }
+
+        print(f_extended(0., state_f, None))
+
 
     # alternative: for each trajectory find the FIRST node in Xf, if available.
     vs = jax.vmap(jax.vmap(xf_to_Vf))(forward_sols_that_enter_Xf.ys)
@@ -382,6 +431,14 @@ def backward_with_hessian(problem_params, algo_params):
         # solver very closely steps to the non-differentiable points. 
         sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
         pl.semilogy(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
+
+        # product of all eigenvalues = det(S)
+        dets = np.prod(S_eigenvalues, axis=1)
+        pl.semilogy(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
+
+        dets_integ = np.exp(sol.ys['vxx_logdet'])
+        pl.semilogy(sol.ys['t'], dets_integ, color='C2', marker='.', label='exp logdet(S)', alpha=.5)
+
         pl.legend()
 
         pl.subplot(414, sharex=ax1)
@@ -404,6 +461,25 @@ def backward_with_hessian(problem_params, algo_params):
         pl.savefig(f'tmp/backward_{j:03d}.png')
         pl.close('all')
     '''
+
+    # find out where vxx < 0. 
+    vxx_0s = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)['vxx'] 
+    min_eig_0s = jax.vmap(lambda S: np.linalg.eig(S)[0].real.min())(vxx_0s) 
+    neg_idx = np.where(min_eig_0s < 0)[0]
+    print(neg_idx)
+
+    neg_idx = (3, 6, 9, 12, 18)
+    for j in neg_idx[0:5]:
+        print(j)
+        pl.figure(str(j))
+        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols))
+        # pl.savefig(f'tmp/{j:04d}_with_logdet.png')
+        # pl.close('all')
+
+    pl.show()
+    
+
+
 
     # random backward trajectory + local feedback ?!?!??!??!!!?!?
     ipdb.set_trace()

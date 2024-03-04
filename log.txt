@@ -1402,3 +1402,16 @@ as expected we get many small steps when det(S) is close to 0, i.e. logdet
 approaches -infty. which it still does! so unfortunately it seems like the
 determinant turning negative is not just a fluke but actually what happens for
 the solution of these ODEs. 
+
+okay, new info. if we compare the ricatti equation to standard form, we see
+that the Q matrix (constant term in quadratic rhs) is very non-pd when both
+upper input constraints are active. y dis? 
+
+maybe this is just a thing that happens (for general systems and "unsuitably")
+defined costs... Maybe we just have to live with the fact that the value
+hessian is sometimes not positive definite? I have double checked that we have
+the correct derivatives forming the Q and R matrix for the ricatti eq and
+found no mistakes...
+
+does this correspond intuitively to the fact that the feedback can be locally
+unstable in some directions at some points? 

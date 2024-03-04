@@ -67,14 +67,15 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     will mess things up. 
     '''
 
-    sols_ys = sols.ys
-    sols_ts = sols.ts
 
     # unpack correctly if solution state is a dict.
     # we only want system state in any case.
     if type(sols.ys) == dict:
         sols_ys = sols.ys['x']
         sols_ts = sols.ys['t']
+    else:
+        sols_ys = sols.ys
+        sols_ts = sols.ts
 
     if len(sols_ys.shape) == 2:
 

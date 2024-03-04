@@ -190,6 +190,7 @@ def backward_with_hessian(problem_params, algo_params):
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
 
 
+        '''
         # alternatively: 
         I_S = np.vstack([np.eye(nx), S])
         A_lin_alt = np.block([[gx, glam], [-fx, -flam]])
@@ -201,17 +202,19 @@ def backward_with_hessian(problem_params, algo_params):
         R = flam
         Q = gx
 
-        # which of these is now supposed to be positive definite? 
-        # and which are actually p.d.? (it looks like Q<0 ...)
-        # and what about the solution? 
+        # here a minus would appear because of the time reversal! 
+        # so even if taken literally we have Q<0, R<=0 then with 
+        # the time axis reversed we actually get Q>0, R>=0. 
+        # which is the standard assumption for ricatti equations. 
         S_dot_ricatti = Q + A @ S + S @ AT - S @ R @ S
+        '''
 
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
         # literally evaluating the derivative to integrate it again...
         # i hope that this will cause the integrator to choose smaller
         # steps when it would otherwise erroneously make S non-pd. 
-        logdet_S_dot = jax.jacobian(lambda dt: np.linalg.slogdet(S + dt * S_dot)[1])(0.)
+        # logdet_S_dot = jax.jacobian(lambda dt: np.linalg.slogdet(S + dt * S_dot)[1])(0.)
 
         # and pack them in a nice dict for the state.
         state_dot = dict()
@@ -219,8 +222,10 @@ def backward_with_hessian(problem_params, algo_params):
         state_dot['t'] = 1.
         state_dot['v'] = v_dot
         state_dot['vx'] = costate_dot
+        # state_dot['vxx'] = S_dot  
+        # same but allows for clearer checking of conditions. 
         state_dot['vxx'] = S_dot
-        state_dot['vxx_logdet'] = logdet_S_dot 
+        # state_dot['vxx_logdet'] = logdet_S_dot * 0
 
         # don't forget to adjust integration boundaries and dt0 when changing 
         # physical time
@@ -247,7 +252,7 @@ def backward_with_hessian(problem_params, algo_params):
             'v': v_f,
             'vx': vx_f, 
             'vxx': vxx_f,
-            'vxx_logdet': vxx_logdet_f,
+            # 'vxx_logdet': vxx_logdet_f,
         }
 
         term = diffrax.ODETerm(f_extended)
@@ -360,10 +365,10 @@ def backward_with_hessian(problem_params, algo_params):
             'v': v_f,
             'vx': vx_f, 
             'vxx': vxx_f,
-            'vxx_logdet': vxx_logdet_f,
+            # 'vxx_logdet': vxx_logdet_f,
         }
 
-        print(f_extended(0., state_f, None))
+        oup = f_extended(0., state_f, None)
 
 
     # alternative: for each trajectory find the FIRST node in Xf, if available.
@@ -378,6 +383,96 @@ def backward_with_hessian(problem_params, algo_params):
 
     # backward_sol = solve_backward(xfs[0])
     sols = jax.vmap(solve_backward)(xfs)
+
+
+
+    def ricatti_rhs_eigenvalues(ode_state):
+        # find out if the matrices Q and R in the ricatti equation are actually pd. 
+        # state variables = x and quadratic taylor expansion of V.
+        x       = ode_state['x']
+        t       = ode_state['t']
+        v       = ode_state['v']
+        costate = ode_state['vx']
+        S       = ode_state['vxx']
+
+        nx = problem_params['nx']
+
+
+        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
+
+        # RHS of the necessary conditions without the hessian. 
+        def pmp_rhs(state, costate):
+
+            u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
+            nx = problem_params['nx']
+
+            state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
+            costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
+
+            return state_dot, costate_dot
+
+        # its derivatives, for propagation of Vxx.
+        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, costate)
+        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, costate)
+
+        # we calculate this here one extra time, could be optimised
+        u_star = pontryagin_utils.u_star_2d(x, costate, problem_params)
+
+        # calculate all the RHS terms
+        v_dot = -problem_params['l'](t, x, u_star)
+        x_dot, costate_dot = pmp_rhs(x, costate)
+        S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
+
+
+        # alternatively: 
+        I_S = np.vstack([np.eye(nx), S])
+        A_lin_alt = np.block([[gx, glam], [-fx, -flam]])
+        S_dot_bigmatrix = I_S.T @ A_lin_alt @ I_S
+
+        # yet another version, standard riccati form. 
+        A = glam
+        AT = -fx
+        R = flam
+        Q = gx
+
+        # to account for time reversal...
+        R_standard = -R
+        Q_standard = -Q
+
+
+        if False:
+            # unfortunately this looks almost the same....
+            # other derivation which I thought was wrong -- maybe it is correct after all? 
+            def H_opt(xlam): 
+                x, λ = np.split(xlam, [problem_params['nx']])
+                u_star = pontryagin_utils.u_star_2d(x, λ, problem_params)
+                return H(x, u_star, λ)
+
+            H_opt_hessian = jax.hessian(H_opt)(np.concatenate([ode_state['x'], ode_state['vx']]))
+
+            # again same form as other ricatti eqs in 'bigmatrix' form. 
+            # -H_opt_hessian = [Q, A; A' -R]
+            S_dot_maybewrong = -I_S.T @ H_opt_hessian @ I_S
+
+            # again we omit/add a minus because of time reversal. 
+            Q_standard = H_opt_hessian[0:6, 0:6]
+            R_standard = -H_opt_hessian[6:12, 6:12]
+
+
+        # now the condition is: both of these matrices should be s.p.d. 
+        R_st_eigvs = np.linalg.eigh(R_standard)[0].sort()
+        Q_st_eigvs = np.linalg.eigh(Q_standard)[0].sort()
+
+        oups = {
+            # these relative asymmetries are both between 0 and like 1e-10 so definitely nothing to worry about
+            # 'Q_asym': np.linalg.norm(Q_standard - Q_standard.T) / np.linalg.norm(Q_standard),
+            # 'R_asym': np.linalg.norm(R_standard - R_standard.T) / np.linalg.norm(R_standard),
+            'Q_eigs': Q_st_eigvs,
+            'R_eigs': R_st_eigvs,
+        }
+
+        return oups
+    
 
     def plot_sol(sol):
 
@@ -423,31 +518,45 @@ def backward_with_hessian(problem_params, algo_params):
 
         S_eigenvalues = jax.vmap(sorted_eigs)(sol.ys['vxx'])
         eigv_label = ['S(t) eigenvalues'] + [None] * (problem_params['nx']-1)
-        pl.semilogy(sol.ys['t'], S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
+
+        eig_plot_fct = pl.plot  # = pl.semilogy
+
+        eig_plot_fct(sol.ys['t'], S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
         # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
-        pl.semilogy(sol.ys['t'], S_eigenvalues, color='C0')  
+        eig_plot_fct(sol.ys['t'], S_eigenvalues, color='C0')  
 
         # eigenvalues interpolated. though this is kind of dumb seeing how the backward
         # solver very closely steps to the non-differentiable points. 
         sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
-        pl.semilogy(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
+        eig_plot_fct(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
 
         # product of all eigenvalues = det(S)
         dets = np.prod(S_eigenvalues, axis=1)
-        pl.semilogy(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
+        eig_plot_fct(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
 
-        dets_integ = np.exp(sol.ys['vxx_logdet'])
-        pl.semilogy(sol.ys['t'], dets_integ, color='C2', marker='.', label='exp logdet(S)', alpha=.5)
+        # dets_integ = np.exp(sol.ys['vxx_logdet'])
+        # pl.semilogy(sol.ys['t'], dets_integ, color='C2', marker='.', label='exp logdet(S)', alpha=.5)
 
         pl.legend()
 
         pl.subplot(414, sharex=ax1)
         # and raw Vxx entries. 
-
         vxx_entries = interp_ys['vxx'].reshape(-1, problem_params['nx']**2)
         label = ['entries of Vxx(t)'] + [None] * (problem_params['nx']**2-1)
         pl.plot(interp_ys['t'], vxx_entries, label=label, color='green', alpha=.3)
         pl.legend()
+
+
+        # or, pd-ness of the ricatti equation terms.
+        # oups = jax.vmap(ricatti_rhs_eigenvalues)(sol.ys)
+
+        # for j, k in enumerate(oups.keys()):
+        #     # this is how we do it dadaTadadadaTada this is how we do it
+        #     label = k # if len(oups[k].shape) == 1 else [k] + [None] * (oups[k].shape[1]-1) 
+        #     pl.plot(sol.ys['t'], oups[k], label=label, color=f'C{j}', alpha=.5)
+
+        pl.legend()
+        # ipdb.set_trace()
 
 
 
@@ -466,11 +575,11 @@ def backward_with_hessian(problem_params, algo_params):
     vxx_0s = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)['vxx'] 
     min_eig_0s = jax.vmap(lambda S: np.linalg.eig(S)[0].real.min())(vxx_0s) 
     neg_idx = np.where(min_eig_0s < 0)[0]
-    print(neg_idx)
+    # print(neg_idx)
 
     neg_idx = (3, 6, 9, 12, 18)
     for j in neg_idx[0:5]:
-        print(j)
+        # print(j)
         pl.figure(str(j))
         plot_sol(jax.tree_util.tree_map(itemgetter(j), sols))
         # pl.savefig(f'tmp/{j:04d}_with_logdet.png')

@@ -19,6 +19,11 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
     # all linearisations etc are done about u=0 (arbitrary choice)
     # l_const we can neglect
 
+    # should we specify a custom jacobian-vector product of this function? 
+    # or manually make an implementation that returns value and jacobian? 
+    # because it can pretty much be taken from the PWA solution map
+    # but not sure if it's worth the effort
+
     if not problem_params['nu'] == 2:
         raise NotImplementedError('this ustar function is for 2d only!')
 

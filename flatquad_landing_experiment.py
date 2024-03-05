@@ -31,6 +31,18 @@ def u_star_debugging(problem_params, algo_params):
     # there seems to be some numerical noise on the u_star, although generally 
     # only like 1e-6 or 1e-5
 
+    # alright, fixed it by a cheap hack. reason is that we are comparing 
+    # objective values for different candidate solutions. if the candidates are 
+    # close with small distance d, then the objective differences are O(d^2). 
+    # this causes float inaccuracies to be significant. 
+
+    # fixed it by re-evaluating only the difference to the optimum in a second 
+    # round of comparison. the numerical "chatter" is still here but only in a 
+    # much smaller region close to the active set changes. 
+
+    # in a future "proper" implementation we should just take the KKT conditions
+    # which IIRC are all linear-ish instead of quadratic. 
+
     x = np.array([4.538097,6.19019,-0.10679064,-2.4105127,-3.6202462,0.04513513])
     lam = np.array([17.425396  , 22.878305  ,  0.73656803, -2.9136074 , -6.116059  ,0.28396177])
 
@@ -179,8 +191,13 @@ def backward_with_hessian(problem_params, algo_params):
             return state_dot, costate_dot
 
         # its derivatives, for propagation of Vxx.
-        fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, costate)
-        flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, costate)
+        # fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, costate)
+        # flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, costate)
+
+        # certified this is the same. maybe more efficient? 
+        full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, costate)
+        (fx, flam), (gx, glam) = full_jacobian
+
 
         # we calculate this here one extra time, could be optimised
         u_star = pontryagin_utils.u_star_2d(x, costate, problem_params)
@@ -389,8 +406,8 @@ def backward_with_hessian(problem_params, algo_params):
     sols = jax.vmap(solve_backward)(xfs)
     sols_orig = jax.vmap(solve_backward)(xfs_uniform)
 
-    visualiser.plot_trajectories_meshcat(sols_orig, color=(1., 0., 0.))
-    visualiser.plot_trajectories_meshcat(sols, color=(0., 1., 0.))
+    visualiser.plot_trajectories_meshcat(sols_orig, color=(.9, .7, .7))
+    visualiser.plot_trajectories_meshcat(sols, color=(.7, .7, .9))
 
 
 
@@ -567,6 +584,30 @@ def backward_with_hessian(problem_params, algo_params):
         # ipdb.set_trace()
 
 
+    def plot_us(sols, rotate=True, c='C0'):
+
+        # plot all the u trajectories of a vmapped solutions object.
+
+        # we flatten them here -- the inf padding breaks up the plot nicely
+        all_xs = sols_orig.ys['x'].reshape(-1, 6)
+        all_lams = sols_orig.ys['vx'].reshape(-1, 6)
+        us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(all_xs, all_lams, problem_params)
+
+        diff_and_sum = np.array([[1, -1], [1, 1]]).T
+        if rotate: 
+            us = us @ diff_and_sum
+            pl.xlabel('u0 - u1')
+            pl.ylabel('u0 + u1')
+        else:
+            pl.xlabel('u0')
+            pl.ylabel('u1')
+
+
+        pl.plot(us[:, 0], us[:, 1], alpha=0.1, marker='.', c=c)
+
+    plot_us(sols_orig, c='C0')
+    plot_us(sols, c='C1')
+    pl.show()
 
     # plot_sol(backward_sol)
     # visualiser.plot_trajectories_meshcat(backward_sol)

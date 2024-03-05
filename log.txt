@@ -1447,3 +1447,51 @@ time. ways to remedy this could include:
    with just one additional order of sobolevisation? but not shure why this is just
    a wild guess based on intuition and would make other things harder too. 
 
+
+
+
+2023-03-05
+
+
+set the goal of making a very basic mockup of the backward shooting, NN
+ensemble fitting, forward simulation loop. recently I've been thinking about
+this and gained two new pieces of intuition: 
+
+first, learning the value function in level sets should make global optimality
+much easier, because whenever two solutions "meet", they are of equal value,
+and thus can both just be stopped. (intuitively). in practice it will probably
+also have something to do with the extrapolation outside of the current level
+set kind of becoming an interpolation before the level set starts a self
+intersection. t
+
+second, the *only* difficulty with instability is finding long trajectories
+along the "slow manifold". this is not really new, but this also means we
+probably don't have to do much resampling in the fast dynamics part. therefore
+everything *but* the slow manifold trajectories are kind of almost free. (free
+lunch hehe). we can integrate them further than we need too: e.g. stop only
+once v(x) >= 10 * v_k, where v_k is the current value level set. for learning
+we can just ignore the data above v_k. otherwise we'd have to do many many
+short simulations at each value level increase, and then some long ones too
+for the slow manifold. (just a small implementation detail tbh)
+
+
+got scared of the huge task ahead of me and procrastinated.
+
+instead got confused whether what we call vxx in the backward ODE is actually
+the hessian or the half hessian or twice the hessian. am pretty sure now that
+ode_state['vxx'] is the half hessian. we initialise it with P_lqr which is
+definitely the half hessian of the LQR value function x.T P_lqr x. This causes
+the vxx eigenvalues to stay about constant in the linear region, indicating
+that the two are the same. 
+
+HOWEVER, I did the hessian sanity check plot again (evaluating the taylor
+expansion along the trajectory) with the new dict solution format from pure
+backward integration. am not sure if it looks better with 'vxx' or 2 * 'vxx'.
+and all the other formulas (d/dt vxx mainly) seem to be consistent with
+whatever is implemented now.  definitely should look at this again.
+
+also put the "purely backward" stuff in its own class again.
+
+spent all day making this kind of plots and sanity checks. am not much wiser,
+also no prototype of backward shooting with NN fitting loop yet. todo next
+time \o/ 

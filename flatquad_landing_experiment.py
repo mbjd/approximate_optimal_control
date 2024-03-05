@@ -177,7 +177,8 @@ def backward_with_hessian(problem_params, algo_params):
 
         nx = problem_params['nx']
 
-        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
+        # where do we get these l and f from???
+        H = lambda x, u, λ: problem_params['l'](x, u) + λ.T @ problem_params['f'](x, u)
 
         # RHS of the necessary conditions without the hessian. 
         def pmp_rhs(state, costate):
@@ -203,7 +204,7 @@ def backward_with_hessian(problem_params, algo_params):
         u_star = pontryagin_utils.u_star_2d(x, costate, problem_params)
 
         # calculate all the RHS terms
-        v_dot = -problem_params['l'](t, x, u_star)
+        v_dot = -problem_params['l'](x, u_star)
         x_dot, costate_dot = pmp_rhs(x, costate)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
 
@@ -339,7 +340,7 @@ def backward_with_hessian(problem_params, algo_params):
         def forwardsim_rhs(t, x, args):
             lam_x = 2 * P_lqr @ x
             u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-            return problem_params['f'](t, x, u)
+            return problem_params['f'](x, u)
 
         term = diffrax.ODETerm(forwardsim_rhs)
         step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
@@ -423,7 +424,7 @@ def backward_with_hessian(problem_params, algo_params):
         nx = problem_params['nx']
 
 
-        H = lambda x, u, λ: l(t, x, u) + λ.T @ f(t, x, u)
+        H = lambda x, u, λ: l(x, u) + λ.T @ f(x, u)
 
         # RHS of the necessary conditions without the hessian. 
         def pmp_rhs(state, costate):
@@ -444,7 +445,7 @@ def backward_with_hessian(problem_params, algo_params):
         u_star = pontryagin_utils.u_star_2d(x, costate, problem_params)
 
         # calculate all the RHS terms
-        v_dot = -problem_params['l'](t, x, u_star)
+        v_dot = -problem_params['l'](x, u_star)
         x_dot, costate_dot = pmp_rhs(x, costate)
         S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
 
@@ -673,7 +674,7 @@ if __name__ == '__main__':
 
     # remove time arguments sometime now that we're mostly treating 
     # infinite horizon, time-invariant problems? 
-    def f(t, x, u):
+    def f(x, u):
 
         # unpack for easier names
         Fl, Fr = u
@@ -690,7 +691,7 @@ if __name__ == '__main__':
 
         return xdot
 
-    def l(t, x, u):
+    def l(x, u):
         Fl, Fr = u
         posx, posy, Phi, vx, vy, omega = x
 
@@ -718,6 +719,8 @@ if __name__ == '__main__':
 
     def h(x):
         # irrelevant if terminal constraint or infinite horizon
+        # OR we could right in here put the terminal quadratic cost
+        # plus some exception or +infinity cost if outside terminal set...
         Qf = 1 * np.eye(6)
         return (x.T @ Qf @ x).reshape()
 

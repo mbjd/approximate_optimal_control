@@ -32,7 +32,7 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
     zero_u = np.zeros(problem_params['nu'])
 
     # represent H(u) with its second order taylor poly -- by assumption they are equal :)
-    H_fct = lambda u: problem_params['l'](t, x, u) + costate.T @ problem_params['f'](t, x, u)
+    H_fct = lambda u: problem_params['l'](x, u) + costate.T @ problem_params['f'](x, u)
     H0 = H_fct(zero_u)  # never needed this...
     H_u = jax.jacobian(H_fct)(zero_u)
     H_uu = jax.hessian(H_fct)(zero_u)
@@ -99,7 +99,7 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         xxyy = np.concatenate([xx[:, :, None], yy[:, :, None]], axis=2).reshape(-1, 2)
 
         # zz = jax.vmap(cost_fct)(xxyy).reshape(51, 51)
-        zz = jax.vmap(lambda u: problem_params['l'](t, x, u) + costate.T @ problem_params['f'](t, x, u))(xxyy).reshape(51, 51)
+        zz = jax.vmap(lambda u: problem_params['l'](x, u) + costate.T @ problem_params['f'](x, u))(xxyy).reshape(51, 51)
 
         pl.contourf(xx, yy, zz, levels=100)
 
@@ -356,7 +356,7 @@ def u_star_general_activeset(x, costate, problem_params):
     # represent H(u) with its second order taylor poly -- by assumption they are equal :)
     # does jax really "cache" this stuff when jitting everything?
     # or does it "stupidly" evaluate the jacobian and hessian every time?
-    H_fct = lambda u: problem_params['l'](t, x, u) + costate.T @ problem_params['f'](t, x, u)
+    H_fct = lambda u: problem_params['l'](x, u) + costate.T @ problem_params['f'](x, u)
     H0 = H_fct(zero_u)  # never needed this...
     H_u = jax.jacobian(H_fct)(zero_u)
     H_uu = jax.hessian(H_fct)(zero_u)
@@ -418,7 +418,7 @@ def u_star_new(x, costate, problem_params):
     assert problem_params['nu'] == 1
 
     # basically a rewrite of the above mess in a single function, that hopefully works
-    #   u* = argmin_u l(t, x, u) + λ.T @ f(t, x, u)
+    #   u* = argmin_u l(x, u) + λ.T @ f(t, x, u)
 
     # because everything is quadratic in u, we can solve this quite easily
     #   u* = argmin_u u.T R u + λ.T @ g(x, u) @ u
@@ -722,12 +722,12 @@ def get_terminal_lqr(problem_params):
     f = problem_params['f']
     l = problem_params['l']
 
-    assert np.allclose(f(0., x_eq, u_eq), 0), '(x_eq, u_eq) does not seem to be an equilibrium'
+    assert np.allclose(f(x_eq, u_eq), 0), '(x_eq, u_eq) does not seem to be an equilibrium'
 
-    A = jax.jacobian(f, argnums=1)(0., x_eq, u_eq)
-    B = jax.jacobian(f, argnums=2)(0., x_eq, u_eq).reshape((problem_params['nx'], problem_params['nu']))
-    Q = jax.hessian(l, argnums=1)(0., x_eq, u_eq)
-    R = jax.hessian(l, argnums=2)(0., x_eq, u_eq)
+    A = jax.jacobian(f, argnums=0)(x_eq, u_eq)
+    B = jax.jacobian(f, argnums=1)(x_eq, u_eq).reshape((problem_params['nx'], problem_params['nu']))
+    Q = jax.hessian(l, argnums=0)(x_eq, u_eq)
+    R = jax.hessian(l, argnums=1)(x_eq, u_eq)
 
     # cheeky controllability test
     ctrb =  np.hstack([np.linalg.matrix_power(A, j) @ B for j in range(problem_params['nx'])])

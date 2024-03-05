@@ -589,8 +589,8 @@ def backward_with_hessian(problem_params, algo_params):
         # plot all the u trajectories of a vmapped solutions object.
 
         # we flatten them here -- the inf padding breaks up the plot nicely
-        all_xs = sols_orig.ys['x'].reshape(-1, 6)
-        all_lams = sols_orig.ys['vx'].reshape(-1, 6)
+        all_xs = sols.ys['x'].reshape(-1, 6)
+        all_lams = sols.ys['vx'].reshape(-1, 6)
         us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(all_xs, all_lams, problem_params)
 
         diff_and_sum = np.array([[1, -1], [1, 1]]).T

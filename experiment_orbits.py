@@ -307,39 +307,106 @@ if find_intersections:
                 print(out)
 
 
-# bit less dense plot for writeup
+# # bit less dense plot for writeup
+# pl.figure()
+# for idx, name in zip([10, 20, 30, 40, 50, 80, 90], ['v_1', 'v_2', 'v_3', 'v_4', 'v_5', 'v_k', 'v_{k+1}']):
+#     pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
+# 
+# 
+# for i in [50, 80, 90]:
+#     # plot short trajectory segments too. shape = (n trajectories, n points per trajectory, nx=2)
+#     plot_states = all_ys[:, i:i+5, 0:2]
+# 
+#     # we would like the trajectories to have equal-ish distance.
+#     # mask out with nan until distance is large enough
+#     d_min = 0.1
+#     prev_pt = plot_states[0, 0, :]
+#     for j in range(1, plot_states.shape[0]):
+#         dist = np.linalg.norm(plot_states[j, 0, :] - prev_pt)
+# 
+#         if dist < d_min:
+#             # set this point to nan and go to next. 
+#             plot_states = plot_states.at[j, :, :].set(np.nan)
+#         else:
+#             # use this point for plotting and mark as prev_pt
+#             prev_pt = plot_states[j, 0, :]
+# 
+#     # also set each last one to nan to not connect.
+#     plot_states = plot_states.at[:, -1, :].set(np.nan)
+#     plot_states = plot_states.reshape(-1, 2)
+# 
+#     # pl.plot(plot_states[:, 0], plot_states[:, 1], c='black', alpha=0.7, label='optimal trajectories' if i==50 else None)
+# pl.legend()
+# pl.gca().set_aspect('equal')
+
+# pl.show()
+# ipdb.set_trace()
+
+
 pl.figure()
-for idx, name in zip([10, 20, 30, 40, 50, 80, 90], ['v_1', 'v_2', 'v_3', 'v_4', 'v_5', 'v_k', 'v_{k+1}']):
+pl.subplot(211)
+for idx, name in zip([20, 40], ['v_k', 'v_{k+1}']):
     pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
 
 
-for i in [50, 80, 90]:
-    # plot short trajectory segments too. shape = (n trajectories, n points per trajectory, nx=2)
-    plot_states = all_ys[:, i:i+5, 0:2]
+traj_range = (20, 40)
 
-    # we would like the trajectories to have equal-ish distance.
-    # mask out with nan until distance is large enough
-    d_min = 0.1
-    prev_pt = plot_states[0, 0, :]
-    for j in range(1, plot_states.shape[0]):
-        dist = np.linalg.norm(plot_states[j, 0, :] - prev_pt)
+# then, similar code as above. here for "uniform" sampling: 
+plot_states = all_ys[:, :, 0:2]
+level = traj_range[0]
 
-        if dist < d_min:
-            # set this point to nan and go to next. 
-            plot_states = plot_states.at[j, :, :].set(np.nan)
-        else:
-            # use this point for plotting and mark as prev_pt
-            prev_pt = plot_states[j, 0, :]
+# all_ys.shape = (N trajs, N_ts, nx)
+d_min = 0.1
+prev_pt = plot_states[0, level, :]
+for j in range(1, plot_states.shape[0]):
+    dist = np.linalg.norm(plot_states[j, level, :] - prev_pt)
 
-    # also set each last one to nan to not connect.
-    plot_states = plot_states.at[:, -1, :].set(np.nan)
-    plot_states = plot_states.reshape(-1, 2)
+    if dist < d_min:
+        # set this point to nan and go to next. 
+        plot_states = plot_states.at[j, :, :].set(np.nan)
+    else:
+        # use this point for plotting and mark as prev_pt
+        prev_pt = plot_states[j, level, :]
 
-    pl.plot(plot_states[:, 0], plot_states[:, 1], c='black', alpha=0.7, label='optimal trajectories' if i==50 else None)
+pl.plot(plot_states[:, traj_range[0]:traj_range[1]+1, 0].flatten(), plot_states[:, traj_range[0]:traj_range[1]+1, 1].flatten(), label='uniformly sampled trajectories')
 pl.legend()
-pl.gca().set_aspect('equal')
+
+print('trajectories plotted (uniform)')
+print(np.sum(~np.isnan(plot_states[:, 0, 0])))
+
+
+# and for better sampling.
+pl.subplot(212)
+for idx, name in zip([20, 40], ['v_k', 'v_{k+1}']):
+    pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
+
+traj_range = (20, 40)
+
+plot_states = all_ys[:, :, 0:2]
+level = traj_range[1]
+
+# all_ys.shape = (N trajs, N_ts, nx)
+d_min = 0.2
+prev_pt = plot_states[0, level, :]
+for j in range(1, plot_states.shape[0]):
+    dist = np.linalg.norm(plot_states[j, level, :] - prev_pt)
+
+    if dist < d_min:
+        # set this point to nan and go to next. 
+        plot_states = plot_states.at[j, :, :].set(np.nan)
+    else:
+        # use this point for plotting and mark as prev_pt
+        prev_pt = plot_states[j, level, :]
+
+pl.plot(plot_states[:, traj_range[0]:traj_range[1]+1, 0].flatten(), plot_states[:, traj_range[0]:traj_range[1]+1, 1].flatten(), label='extrapolation guided sampling of trajectories')
+pl.legend()
+
+print('trajectories plotted (smarter)')
+print(np.sum(~np.isnan(plot_states[:, 0, 0])))
+
 
 pl.show()
 ipdb.set_trace()
+
 
 print('done')

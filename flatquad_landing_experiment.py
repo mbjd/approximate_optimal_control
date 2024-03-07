@@ -4,6 +4,7 @@ import jax
 import jax.numpy as np
 import diffrax
 
+import levelsets
 import rrt_sampler
 import pontryagin_utils
 import ddp_optimizer
@@ -260,19 +261,28 @@ if __name__ == '__main__':
 
 
     algo_params = {
-            # 'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
-            # 'pontryagin_solver_adaptive': True,  always adaptivee
-            'pontryagin_solver_atol': 1e-5,
-            'pontryagin_solver_rtol': 1e-5,
-            'pontryagin_solver_maxsteps': 4096, # nice if it is not waaay too much
-            # causes it not to quit when hitting maxsteps. probably still all subsequent 
-            # results will be unusable due to evaluating solutions outside their domain giving NaN
-            'throw': False,  
+        # 'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
+        # 'pontryagin_solver_adaptive': True,  always adaptivee
+        'pontryagin_solver_atol': 1e-5,
+        'pontryagin_solver_rtol': 1e-5,
+        'pontryagin_solver_maxsteps': 256, # nice if it is not waaay too much
+        # causes it not to quit when hitting maxsteps. probably still all subsequent 
+        # results will be unusable due to evaluating solutions outside their domain giving NaN
+        'throw': False,  
+
+        'nn_layerdims': (16, 16, 16),
+        'nn_batchsize': 64,
+        'nn_N_epochs': 200,
+        'nn_testset_fraction': 0.1,
+        'lr_staircase': False,
+        'lr_staircase_steps': 8,
+        'lr_init': 0.1,
+        'lr_final': 0.01,
+        'nn_V_gradient_penalty': 10.,
+        'nn_progressbar': True,
     }
 
         
-        
-    import levelsets
     levelsets.main(problem_params, algo_params)
 
     # backward_with_hessian(problem_params, algo_params)

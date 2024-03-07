@@ -5,9 +5,9 @@ import jax.numpy as np
 # other, trivial stuff
 import numpy as onp
 
-import tk as tkinter
-import matplotlib
-matplotlib.use('Qt5Agg')
+# import tk as tkinter
+# import matplotlib
+# matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
 
 import ipdb
@@ -672,8 +672,8 @@ def plot_nn_train_outputs(outputs):
                 c = c+1
             else:
                 pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
-        # if 'lr' in k:
-            # pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
+        if 'lr' in k:
+            pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
     pl.grid(axis='both')
     pl.ylim([1e-3, 1e3])
     pl.legend()

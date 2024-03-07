@@ -1495,3 +1495,26 @@ also put the "purely backward" stuff in its own class again.
 spent all day making this kind of plots and sanity checks. am not much wiser,
 also no prototype of backward shooting with NN fitting loop yet. todo next
 time \o/ 
+
+
+
+2023-03-05
+
+
+ran some experiments of generating many, many trajectories, then plotting the
+ones with lowest v(0) (start of physical time = end of integration time).
+looks cool, there are trajectories which come from a bit further away, however
+it is obvious that purely random sampling will not lead much further. that
+much I knew beforehand. 
+
+continued a tiny bit on the writeup. 
+
+took the nn implementation out of the dusty drawer and made it run again. 
+didn't find very nice hyperparams just jet, but looking promising. maybe it has 
+trouble with data being on a "small" scale? maybe we need to build in some data
+normalisation...
+
+Quickly before heading home, figured out the adjustments for gradient under
+linear coordinate transformation. is pretty simple. implement tomorrow. 
+
+also tomorrow: finish/clean up that writeup...

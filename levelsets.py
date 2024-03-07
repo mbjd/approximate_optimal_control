@@ -2,7 +2,8 @@ import jax
 import jax.numpy as np
 import diffrax
 
-import rrt_sampler
+import nn_utils
+import plotting_utils
 import pontryagin_utils
 import ddp_optimizer
 import visualiser
@@ -20,40 +21,40 @@ import tqdm
 from operator import itemgetter
 
 
+def rnd(a, b):
+    # relative norm difference. useful for checking if matrices or vectors are close
+    return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
 
 def main(problem_params, algo_params):
 
-	# possibly cleaner implementation of this. 
-	# idea: learn V(x) for some level set V(x) <= v_k.
-	# once we have that, increase v_k. 
-	
+    # possibly cleaner implementation of this. 
+    # idea: learn V(x) for some level set V(x) <= v_k.
+    # once we have that, increase v_k. 
+    
     # find terminal LQR controller and value function. 
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 
-    # compute sqrtm of P, the value function matrix.
-    P_eigv, P_eigvec = np.linalg.eigh(P_lqr)
+    # find a matrix mapping from the unit circle to the value level set
+    # previously done with eigendecomposition -> sqrt of eigenvalues.
+    # with the cholesky decomp the trajectories look about the same
+    # qualitatively. it is nicer so we'll keep that. 
+    # cholesky decomposition says: P = L L.T but not L.T L 
+    L_lqr = np.linalg.cholesky(P_lqr)
 
-    Phalf = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
-    Phalf_inv = np.linalg.inv(Phalf)  # only once! 
-
-    reldiff = np.linalg.norm(Phalf @ Phalf - P_lqr) / np.linalg.norm(P_lqr)
-    assert reldiff < 1e-6, 'sqrtm(P) calculation failed or inaccurate'
+    assert rnd(L_lqr @ L_lqr.T, P_lqr) < 1e-6, 'cholesky decomposition wrong or inaccurate'
 
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories. 
-    normal_pts = jax.random.normal(key, shape=(200, problem_params['nx']))
-    pts_interp = normal_pts /  np.sqrt((normal_pts ** 2).sum(axis=1))[:, None]
-
-    # map to boundary of Xf. 
-    xfs_uniform = pts_interp @ np.linalg.inv(Phalf) * np.sqrt(problem_params['V_f'])
+    normal_pts = jax.random.normal(key, shape=(500, problem_params['nx']))
+    unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
+    xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f'])
 
     # test if it worked
     xf_to_Vf = lambda x: x.T @ P_lqr @ x
-    vfs =  jax.vmap(xf_to_Vf)(xfs_uniform)
-    vf = vfs[0]
+    vfs =  jax.vmap(xf_to_Vf)(xfs)
 
-    assert np.allclose(vf, problem_params['V_f']), 'wrong terminal value...'
+    assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
     # define RHS of the backward system, including Vxx
     def f_extended(t, state, args=None):
@@ -62,7 +63,7 @@ def main(problem_params, algo_params):
         x       = state['x']
         v       = state['v']
         costate = state['vx']
-        S       = state['vxx']
+        # S       = state['vxx']
 
         nx = problem_params['nx']
 
@@ -94,7 +95,7 @@ def main(problem_params, algo_params):
         # calculate all the RHS terms
         v_dot = -problem_params['l'](x, u_star)
         x_dot, costate_dot = pmp_rhs(x, costate)
-        S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
+        # S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
 
 
         # and pack them in a nice dict for the state.
@@ -103,7 +104,7 @@ def main(problem_params, algo_params):
         state_dot['t'] = 1.
         state_dot['v'] = v_dot
         state_dot['vx'] = costate_dot
-        state_dot['vxx'] = S_dot
+        # state_dot['vxx'] = S_dot
         # state_dot['vxx_logdet'] = logdet_S_dot * 0
 
         return state_dot
@@ -145,7 +146,7 @@ def main(problem_params, algo_params):
             't': 0,
             'v': v_f,
             'vx': vx_f, 
-            'vxx': vxx_f,
+            # 'vxx': vxx_f,
             # 'vxx_logdet': vxx_logdet_f,
         }
 
@@ -195,11 +196,11 @@ def main(problem_params, algo_params):
         return forward_sol
 
 
+
+    '''
     max_x0 = np.array([2, 2, 0.5, 2, 2, 0.5]) / 4
     min_x0 = -max_x0
     x0s = jax.random.uniform(key+5, shape=(200, 6), minval=min_x0, maxval=max_x0)
-
-    '''
     forward_sols = jax.vmap(forward_sim_lqr)(x0s)
 
     # find the ones that enter Xf.
@@ -246,7 +247,6 @@ def main(problem_params, algo_params):
 
     # backward_sol = solve_backward(xfs[0])
     # sols = jax.vmap(solve_backward)(xfs)
-    sols_orig = jax.vmap(solve_backward)(xfs_uniform)
 
     # visualiser.plot_trajectories_meshcat(sols_orig, color=(.9, .7, .7))
     # visualiser.plot_trajectories_meshcat(sols, color=(.7, .7, .9))
@@ -267,10 +267,12 @@ def main(problem_params, algo_params):
         # plot the state trajectory of the forward pass, interpolation & nodes. 
         ax1 = pl.subplot(221)
 
-        pl.plot(sol.ys['t'], sol.ys['x'], marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
+        pl.plot(sol.ys['t'], sol.ys['x'], marker='.', linestyle='', alpha=1)
+        # pl.plot(sol.ys['t'], sol.ys['v'], marker='.', linestyle='', alpha=1)
         interp_ys = jax.vmap(sol.evaluate)(interp_ts)
         pl.gca().set_prop_cycle(None)
-        pl.plot(interp_ys['t'], interp_ys['x'], alpha=0.5)
+        pl.plot(interp_ys['t'], interp_ys['x'], alpha=0.5, label=problem_params['state_names'])
+        # pl.plot(interp_ys['t'], interp_ys['v'], alpha=0.5, label='v(x(t))')
         pl.legend()
 
 
@@ -288,6 +290,11 @@ def main(problem_params, algo_params):
         pl.gca().set_prop_cycle(None)
         pl.plot(interp_ys['t'], us_interp, label=('u_0', 'u_1'))
         pl.legend()
+
+        if 'vxx' not in sol.ys:
+            # from here on we only plot hessian related stuff
+            # so if that was not calculated, exit.
+            return
 
 
         # plot the eigenvalues of S from the backward pass.
@@ -362,8 +369,8 @@ def main(problem_params, algo_params):
 
     '''
     for j in range(10):
-    	pl.figure(str(j))
-    	plot_sol(jax.tree_util.tree_map(itemgetter(j), sols))
+        pl.figure(str(j))
+        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols))
     '''
 
 
@@ -467,25 +474,25 @@ def main(problem_params, algo_params):
 
         def u_and_dudt(ode_state, f_value):
 
-        	u = pontryagin_utils.u_star_2d(ode_state['x'], ode_state['vx'], problem_params)
-        	# in one go. thanks jax :) 
-        	# insert linearisation of lambda(x) to get accurate total derivative. 
-        	# linearisation about ode_state['x'], evaluation at x. 
-        	du_dx = jax.jacobian(lambda x: pontryagin_utils.u_star_2d(x, ode_state['vx'] + ode_state['vxx'] @ (x - ode_state['x']), problem_params))(ode_state['x'])
-        	dx_dt = f_value
+            u = pontryagin_utils.u_star_2d(ode_state['x'], ode_state['vx'], problem_params)
+            # in one go. thanks jax :) 
+            # insert linearisation of lambda(x) to get accurate total derivative. 
+            # linearisation about ode_state['x'], evaluation at x. 
+            du_dx = jax.jacobian(lambda x: pontryagin_utils.u_star_2d(x, ode_state['vx'] + ode_state['vxx'] @ (x - ode_state['x']), problem_params))(ode_state['x'])
+            dx_dt = f_value
 
-        	du_dt = du_dx @ dx_dt 
+            du_dt = du_dx @ dx_dt 
 
-        	return u, du_dt
+            return u, du_dt
 
-        	# now for the plot x axisode_state['t'] + np.ones_like(dudt) * 0.1 not system state x
-        	# line_len_x = 0.05
-        	# xs = ode_state['t'] + line_len_x * np.array([-1, 1, np.nan])
+            # now for the plot x axisode_state['t'] + np.ones_like(dudt) * 0.1 not system state x
+            # line_len_x = 0.05
+            # xs = ode_state['t'] + line_len_x * np.array([-1, 1, np.nan])
 
-        	# ys = u + du_dt @ 
+            # ys = u + du_dt @ 
 
 
-        	ipdb.set_trace()
+            ipdb.set_trace()
 
 
         # line_params(state_idx, fs[idx])
@@ -509,11 +516,121 @@ def main(problem_params, algo_params):
         # ipdb.set_trace()
 
 
-    visualiser.plot_trajectories_meshcat(sols_orig)
+    sols_orig = jax.vmap(solve_backward)(xfs)
 
+    # choose initial value level. 
+    v_k = 100 * problem_params['V_f'] * np.inf
+    v_k = 100  # full gas
+
+    # extract corresponding data points for NN fitting. 
+    # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
+    bool_train_idx = sols_orig.ys['v'] < v_k
+    train_ode_states = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+
+    print(f'dataset size: {bool_train_idx.sum()} (= {bool_train_idx.mean()*100:.2f}%)')
+
+    v_nn = nn_utils.nn_wrapper(
+    	input_dim=problem_params['nx'],
+    	layer_dims=algo_params['nn_layerdims'],
+    	output_dim=1
+	)
+
+    nn_xs = train_ode_states['x']
+    nn_ys = (train_ode_states['v'], train_ode_states['vx'])  # give points and gradients. 
+
+    # nn_utils currently assumes ys.shape == (N_pts, nx+1), with last axis
+    # containing [costate (n,), value (1,)]
+    # so we replicate that here. later I'd like to have a cleaner way. 
+    # maybe pass a tuple (v) or (v, vx) or (v, vx, vxx) with vmapped nodes? 
+    # maybe even directly the dict???
+    # then the nn class can handle how it uses the gradients and hessians. 
+    nn_ys = np.hstack([train_ode_states['vx'], train_ode_states['v'][:, None]])
+
+    # should we normalise the data? 
+    # let's do some basic experiments here. 
+
+    # assume we just want to ensure that each state variable has zero mean and unit variance. 
+    # for that we can subtract the mean and divide by the std deviation. 
+
+    # add back leading axis for broadcasting
+    statewise_mean = nn_xs.mean(axis=0)[None, :]
+    statewise_std = nn_xs.std(axis=0)[None, :]
+
+    nn_xs_normalised = (nn_xs - statewise_mean)/statewise_std
+
+    # obviously V(x) stays the same. BUT the gradient is with respect to the transformed x variables! 
+    # let z = (x - m) / std <=> z * std = (x-m) <=> z * std + m = x.
+    # then, dv/dz = dv/dx dx/dz = dv/dx (std)
+    # thus we have to multiply each gradient by its std. 
+    # if data was spread out, high std, it gets squeezed, thus gradient larger.
+    # if data was close together, low std, it gets pulled apart, thus gradient lower.
+    # seems to make sense. 
+
+    nn_ys_normalised = np.hstack([train_ode_states['vx'], train_ode_states['v'][:, None]])
+
+    params, oups = v_nn.init_and_train(
+    	key, nn_xs, nn_ys, algo_params
+	)
+
+    plotting_utils.plot_nn_train_outputs(oups)
+
+    # also plot the nn output along a random state space line. 
+    pl.figure()
+    x_line = 0.1 * np.linspace(-np.ones(6), np.ones(6), 200)
+    pl.plot(jax.vmap(v_nn.nn.apply, in_axes=(None, 0))(params, x_line), label='NN output')
+    pl.plot(jax.vmap(xf_to_Vf)(x_line), label='LQR value function')
+    pl.legend()
+
+    pl.show()
+
+    ipdb.set_trace()
+
+    for k in range(5):
+
+        # main loop, first draft. 
+        vj_goal = vj_prev * 1.5
+
+        # obtain solutions. 
+        sols_orig = jax.vmap(solve_backward)(xfs)
+
+        
+
+
+        # train NN by using that data, maybe including an actually continuous
+        # sweep of v_k -> v_k+1 by adding data during training. 
+        raise NotImplementedError
+
+        # find out up to which value level the NN is actually accurate
+        # (i.e. has low posterior uncertainty)
+        raise NotImplementedError
+
+
+        # vk = largest v for which we have low enough uncertainty in sublevel set
+
+
+    # plot only the N_plot ones with lowest initial cost-to-go. 
+    v0s = jax.vmap(lambda s: s.evaluate(s.t1)['v'])(sols_orig) 
+    N_plot = 200
+
+    # the highest v0 we're going to plot
+    v0_cutoff = np.percentile(v0s, N_plot/v0s.shape[0] * 100)
+
+    bool_plot_idx = v0s <= v0_cutoff
+
+    sols_plot = jax.tree_util.tree_map(lambda node: node[bool_plot_idx], sols_orig)
+    sols_notplot = jax.tree_util.tree_map(lambda node: node[~bool_plot_idx], sols_orig)
+
+    visualiser.plot_trajectories_meshcat(sols_plot)
+
+    pl.plot(sols_plot.ys['t'].flatten(), sols_plot.ys['v'].flatten(), alpha=.2, c='C0', label='plotted sols')
+    pl.plot(sols_notplot.ys['t'].flatten(), sols_notplot.ys['v'].flatten(), alpha=.2, c='C1', label='not plotted sols')
+
+
+    '''
     for j in range(5):
-    	pl.figure(str(j))
-    	plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig))
+        pl.figure(str(j))
+        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig))
+    '''
 
     # plot_taylor_sanitycheck(jax.tree_util.tree_map(itemgetter(0), sols_orig))
     pl.show()

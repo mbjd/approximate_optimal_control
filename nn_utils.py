@@ -15,10 +15,6 @@ from equinox import filter_jit
 # other, trivial stuff
 import numpy as onp
 
-import tk as tkinter
-import matplotlib
-matplotlib.use('Qt5Agg')
-
 import matplotlib.pyplot as pl
 
 import ipdb
@@ -106,7 +102,7 @@ class nn_wrapper():
         losses = jax.vmap(self.point_gradient_loss, in_axes=(None, 0, 0))(params, xs, y_grads)
         return np.mean(losses)
 
-    def loss_with_grad(self, params, xs, ys, grad_penalty=0):
+    def loss_with_grad(self, params, xs, ys, grad_penalty=0.):
         # loss function considering value AND gradient error.
         # here, ys is not of shape (N, 1) but of shape (N, nx+1)
         # as constructed in:

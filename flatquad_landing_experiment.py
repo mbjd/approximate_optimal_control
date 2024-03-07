@@ -22,6 +22,46 @@ import tqdm
 from operator import itemgetter
 
 
+def sqrtm_vs_cholesky():
+
+    thetas = np.linspace(0, 2*np.pi, 100) 
+    xs = np.vstack([np.cos(thetas), np.sin(thetas)])
+
+    pl.plot(xs[0], xs[1], 'o-', label='circle')
+
+    ellipse_P_sqrt = jax.random.normal(jax.random.PRNGKey(0), shape=(2, 2))
+    ellipse_P = ellipse_P_sqrt @ ellipse_P_sqrt.T
+
+    # ellipse is now x: x.T @ ellipse_P @ x <= 1.
+
+    P_eigv, P_eigvec = np.linalg.eigh(ellipse_P)
+
+    Phalf_sqrtm = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
+
+    Phalf_cholesky = np.linalg.cholesky(ellipse_P)
+
+
+    # the .T is needed because it is the other way around as 
+    # in the actual code, where we have xs.T @ P_sqrtm, where
+    # xs.T is a tall matrix of state space points in row vector form.
+    ellipse_orig = np.linalg.inv(ellipse_P_sqrt.T) @ xs
+    ellipse_sqrtm = np.linalg.inv(Phalf_sqrtm.T) @ xs
+    ellipse_cholesky = np.linalg.inv(Phalf_cholesky.T) @ xs
+
+    # the three ellipses are definitely the same so we are in luck. 
+    # also the distribution of points looks to be the same for all three. 
+    # so it doesn't really matter which one we use -- in that case 
+    # cholesky is probably the nicest. 
+
+    pl.plot(ellipse_orig[0], ellipse_orig[1], 'o-', label='ellipse orig', alpha=.3)
+    pl.plot(ellipse_sqrtm[0], ellipse_sqrtm[1], 'o-', label='ellipse sqrtm', alpha=.3)
+    pl.plot(ellipse_cholesky[0], ellipse_cholesky[1], 'o-', label='ellipse cholesky', alpha=.3)
+    pl.legend()
+    pl.show()
+
+
+
+
 def u_star_debugging(problem_params, algo_params):
 
     # found this failure case randomly during ddp testing. it does appear to 

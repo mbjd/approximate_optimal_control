@@ -48,11 +48,11 @@ def main(problem_params, algo_params):
     # purely random ass points for initial batch of trajectories. 
     normal_pts = jax.random.normal(key, shape=(500, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
-    xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f'])
+    xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
     # test if it worked
-    xf_to_Vf = lambda x: x.T @ P_lqr @ x
-    vfs =  jax.vmap(xf_to_Vf)(xfs)
+    V_f = lambda x: 0.5 * x.T @ P_lqr @ x
+    vfs = jax.vmap(V_f)(xfs)
 
     assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
@@ -105,7 +105,6 @@ def main(problem_params, algo_params):
         state_dot['v'] = v_dot
         state_dot['vx'] = costate_dot
         # state_dot['vxx'] = S_dot
-        # state_dot['vxx_logdet'] = logdet_S_dot * 0
 
         return state_dot
 
@@ -129,13 +128,17 @@ def main(problem_params, algo_params):
 
 
         v_f = x_f.T @ P_lqr @ x_f
-        vx_f = 2 * P_lqr @ x_f  # agrees with jax.jacobian(xf_to_Vf)
-        vxx_f = P_lqr           # jax.hessian(xf_to_Vf) is twice this however. 
+        vx_f = 2 * P_lqr @ x_f  # agrees with jax.jacobian(V_f)
+        vxx_f = P_lqr           # jax.hessian(V_f) is twice this however. 
         
         lqr_Vxx = P_lqr * 2
         v_f = 0.5 * x_f.T @ lqr_Vxx @ x_f  # same as above
         vx_f = lqr_Vxx @ x_f               # same as above
         # vxx_f = lqr_Vxx                    # 1/2 of above!!! is the code actually using the half-hessian? or 2x hessian?
+
+        # try this instead.
+        v_f = 0.5 * x_f.T @ P_lqr @ x_f
+        vx_f = P_lqr @ x_f
 
         # summarise to maybe avoid confusion. P = P_lqr. 
         # the LQR value function is x.T P x, therefore its hessian is 2P. 
@@ -147,7 +150,6 @@ def main(problem_params, algo_params):
             'v': v_f,
             'vx': vx_f, 
             # 'vxx': vxx_f,
-            # 'vxx_logdet': vxx_logdet_f,
         }
 
         term = diffrax.ODETerm(f_extended)
@@ -178,8 +180,8 @@ def main(problem_params, algo_params):
     def forward_sim_lqr(x0):
 
         def forwardsim_rhs(t, x, args):
-            lam_x = 2 * P_lqr @ x
-            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            lam = P_lqr @ x
+            u = pontryagin_utils.u_star_2d(x, lam, problem_params)
             return problem_params['f'](x, u)
 
         term = diffrax.ODETerm(forwardsim_rhs)
@@ -205,7 +207,7 @@ def main(problem_params, algo_params):
 
     # find the ones that enter Xf.
     forward_xf = jax.vmap(lambda sol: sol.evaluate(sol.t1))(forward_sols)
-    forward_vf = jax.vmap(xf_to_Vf)(forward_xf)
+    forward_vf = jax.vmap(V_f)(forward_xf)
     enters_Xf = forward_vf <= vfs[0]  # from points before we constructed to lie on dXf
 
     forward_sols_that_enter_Xf = jax.tree_util.tree_map(lambda z: z[enters_Xf], forward_sols)
@@ -220,7 +222,6 @@ def main(problem_params, algo_params):
         v_f = x_f.T @ P_lqr @ x_f
         vx_f = 2 * P_lqr @ x_f
         vxx_f = P_lqr 
-        vxx_logdet_f = np.linalg.slogdet(vxx_f)[1]
 
         state_f = {
             'x': x_f,
@@ -228,14 +229,13 @@ def main(problem_params, algo_params):
             'v': v_f,
             'vx': vx_f, 
             'vxx': vxx_f,
-            # 'vxx_logdet': vxx_logdet_f,
         }
 
         oup = f_extended(0., state_f, None)
 
 
     # alternative: for each trajectory find the FIRST node in Xf, if available.
-    vs = jax.vmap(jax.vmap(xf_to_Vf))(forward_sols_that_enter_Xf.ys)
+    vs = jax.vmap(jax.vmap(V_f))(forward_sols_that_enter_Xf.ys)
     is_in_Xf = vs < vf
     idx_of_first_state_in_Xf = np.argmax(is_in_Xf, axis=1)  # is this correct??
     xfs = forward_sols_that_enter_Xf.ys[np.arange(vs.shape[0]), idx_of_first_state_in_Xf]
@@ -318,11 +318,9 @@ def main(problem_params, algo_params):
         eig_plot_fct(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
 
         # product of all eigenvalues = det(S)
-        dets = np.prod(S_eigenvalues, axis=1)
-        eig_plot_fct(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
+        # dets = np.prod(S_eigenvalues, axis=1)
+        # eig_plot_fct(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
 
-        # dets_integ = np.exp(sol.ys['vxx_logdet'])
-        # pl.semilogy(sol.ys['t'], dets_integ, color='C2', marker='.', label='exp logdet(S)', alpha=.5)
 
         pl.legend()
 
@@ -519,9 +517,10 @@ def main(problem_params, algo_params):
     sols_orig = jax.vmap(solve_backward)(xfs)
 
     # choose initial value level. 
+    v_k = np.inf  # fullest gas
+    v_k = 50  # full gas
     v_k = 100 * problem_params['V_f']
-    v_k = 10  # full gas
-    # v_k = np.inf  # fullest gas
+    print(f'target value level: {v_k}')
 
     # extract corresponding data points for NN fitting. 
     # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
@@ -539,20 +538,22 @@ def main(problem_params, algo_params):
     normaliser = nn_utils.data_normaliser(train_ode_states)
     nn_xs_n, nn_ys_n = normaliser.normalise_all(train_ode_states)
 
-
+    # resuing keys oooh 
+    shuf_idx = jax.random.permutation(key, nn_xs_n.shape[0])
+    nn_xs_n = nn_xs_n[shuf_idx]
+    nn_ys_n = nn_ys_n[shuf_idx]
 
 
     # nn_xs_normalised = (nn_xs - x_means)/x_stds
-
     params, oups = v_nn.init_and_train(
         key, nn_xs_n, nn_ys_n, algo_params
     )
 
+    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
     plotting_utils.plot_nn_train_outputs(oups)
 
 
-    pl.figure()
-    
     def plot_trajectory_vs_nn(idx):
 
         sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
@@ -569,6 +570,8 @@ def main(problem_params, algo_params):
 
         pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
         pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
+        lqr_vs = jax.vmap(V_f)(interp_ys['x'])
+        pl.plot(interp_ts, lqr_vs, label='LQR V(x(t))', color='C1', alpha=.5)
 
         # same with the NN
         xn = jax.vmap(normaliser.normalise_x)(interp_ys['x'])
@@ -586,11 +589,48 @@ def main(problem_params, algo_params):
         nn_vxs_n = jax.vmap(jax.jacobian(v_nn.nn.apply, argnums=1), in_axes=(None, 0))(params, xn).squeeze()
         nn_vxs = jax.vmap(normaliser.unnormalise_vx)(nn_vxs_n)
         pl.plot(interp_ts, nn_vxs, label='NN v_x(x(t))', c='C1')
+
+        lqr_vxs = jax.vmap(jax.jacobian(V_f))(interp_ys['x'])
+        pl.plot(interp_ts, lqr_vxs, label='lqr Vx', c='C2', alpha=.5)
         pl.legend()
 
     plot_trajectory_vs_nn(12)
     pl.show()
 
+    # do a forward sim starting from 0 just to see what happens. 
+    def forward_sim_nn(x0):
+
+        def forwardsim_rhs(t, x, args):
+            lam_x = jax.jacobian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
+            # lam_x = P_lqr @ x
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            return problem_params['f'](x, u)
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True) 
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+        )
+
+        return forward_sol
+
+
+    x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .1
+
+    sols = jax.vmap(forward_sim_nn)(x0s)
+    visualiser.plot_trajectories_meshcat(sols)
+
+    hess_vnn_unnormalised = lambda params, x: jax.hessian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
+    H0 = hess_vnn_unnormalised(params, np.zeros(6,))
+
+    
+    print('relative norm diff between nn hessian at 0 and LQR value hessian:')
+    print(rnd(H0, P_lqr))
     ipdb.set_trace()
 
     for k in range(5):

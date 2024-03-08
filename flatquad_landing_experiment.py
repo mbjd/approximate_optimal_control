@@ -23,6 +23,68 @@ import tqdm
 from operator import itemgetter
 
 
+def lqr_sanitycheck(problem_params, algo_params):
+
+    # is LQR as optimal as it says? 
+    # let LQR value function be x.T P_lqr x. 
+    # then costate = Vx = 2 * P_lqr x.
+
+    def linear_forward_sim(x0, P_lqr):
+
+        def forwardsim_rhs(t, state, args):
+            x, v = state
+            lam_x = 2 * P_lqr @ x
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            return problem_params['f'](x, u), -problem_params['l'](x, u)
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol']/10, atol=algo_params['pontryagin_solver_atol']/10)
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True) 
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=60., dt0=0.1, y0=(x0, 0.),
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps']*8,
+        )
+
+        return forward_sol
+
+
+
+    # find terminal LQR controller and value function. 
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+    V_lqr = lambda x: x.T @ P_lqr @ x
+
+    x0 = 0.1 * np.ones(6)
+
+    sol = linear_forward_sim(x0, P_lqr)
+
+    
+    pl.plot(sol.ts, sol.ys[1] - sol.ys[1].min(), label='experienced cost-to-go')
+    pl.plot(sol.ts, jax.vmap(V_lqr)(sol.ys[0]), label='LQR value fct.')
+    pl.legend()
+
+    pl.figure()
+    P_lqr = 0.5 * P_lqr
+    V_lqr = lambda x: x.T @ P_lqr @ x
+
+    x0 = 0.1 * np.ones(6)
+
+    sol = linear_forward_sim(x0, P_lqr)
+
+    
+    pl.plot(sol.ts, sol.ys[1] - sol.ys[1].min(), label='experienced cost-to-go, P/2')
+    pl.plot(sol.ts, jax.vmap(V_lqr)(sol.ys[0]), label='LQR value fct., P/2')
+    pl.legend()
+    pl.show()
+
+    # therefore, we have LQR value = 0.5 x.T P_lqr x definitely. 
+    ipdb.set_trace()
+
+
+
+
 def sqrtm_vs_cholesky():
 
     thetas = np.linspace(0, 2*np.pi, 100) 
@@ -270,19 +332,21 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,  
 
-        'nn_layerdims': (64, 64, 64),
+        'nn_layerdims': (16, 16, 16, 16),
         'nn_batchsize': 64,
         'nn_N_epochs': 100,
         'nn_testset_fraction': 0.1,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.00001,
-        'nn_V_gradient_penalty': 100.,
+        'lr_final': 0.000001,
+        'nn_V_gradient_penalty': 1000.,
         'nn_progressbar': True,
     }
 
         
+    # lqr_sanitycheck(problem_params, algo_params)
+
     levelsets.main(problem_params, algo_params)
 
     # backward_with_hessian(problem_params, algo_params)

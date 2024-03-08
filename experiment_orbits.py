@@ -71,7 +71,8 @@ Q = jax.hessian(l, argnums=1)(0., xf, zero_u)
 R = jax.hessian(l, argnums=2)(0., xf, zero_u)
 
 K0_inf, P0_inf, eigvals = lqr(A, B, Q, R)
-
+# this was used wrong in this whole file (i think)
+P0_inf = P0_inf/2  
 
 def h(x):
 

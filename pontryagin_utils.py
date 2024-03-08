@@ -696,6 +696,8 @@ def lqr(A, B, Q, R):
     dx/dt = A x + B u
 
     cost = integral x.T*Q*x + u.T*R*u
+    
+    this X here is apparently such that LQR value = 0.5 x.T X x.
     """
     # ref Bertsekas, p.151
     # first, try to solve the ricatti equation

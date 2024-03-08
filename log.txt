@@ -1538,3 +1538,38 @@ next tasks:
   a nicer data format in the nn class, maybe also vmapped dict like ode solver? 
   
 
+went on a small debugging spree to do with LQR terminal value or half of it. 
+it seems that the optimal controller (backward PMP) gives costates similar to
+the value function 1/2 x.T P_lqr x. However the terminal value function was
+assumed  to be x.T @ P_lqr @ x. I really suspect we are doing something wrong
+here. for now  I just replaced everything by the value function that "looks"
+more correct, but  sometime i should def. get to the bottom of this.
+
+plugged the nn costate into a closed loop controller. took me all afternoon to
+realise that here we need to undo the normalisation...
+
+still it is not trivial to find hyperparams that lead to a good fit. some
+gradients are still much smaller than unity. maybe we can tell the nn loss
+function about that and have a penalisation relative to the typical scale on
+which the individual gradient entries fall? 
+
+by now I think the focus/goal should be specifically to improve the backward
+PMP stuff with vxx propagation and sobolev learning. The regular PMP backward
+reachability/level set method is interesting but its limits are kind of
+obvious. more interesting is how we can take inspiration from it and make
+something better. atm I do think that vxx/sobolev shows great potential, by
+basically fully using linear systems tools to help in learning the nonlinear
+solution. so if we happen to be lucky and the linearised optimal controller
+(around some trajectory) is accurate over a large-ish region, at least in some
+directions, we profit by making faster progress (albeit with more expensive
+simulations.)
+
+
+another small experiment: if we train only with data close to equilibrium (v <
+0.1), then the hessian of the nn value function is almost precisely already
+the LQR hessian (relative norm difference 0.032)!! this is quite promising and
+certainly makes it look like we can use second order sobolev learning to get a
+better fit without huge amounts of data, and more importantly, better
+extrapolation, which will speed up our "filling" of the state space when the
+value function is similar to its extrapolation (i.e. basically the quadratic
+local value function)

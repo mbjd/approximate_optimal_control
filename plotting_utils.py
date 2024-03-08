@@ -653,11 +653,11 @@ def plot_nn_train_outputs(outputs):
             else:
                 pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
     pl.grid(axis='both')
-    pl.ylim([1e-3, 1e3])
+    # pl.ylim([1e-3, 1e3])
     pl.legend()
 
     # training subplot
-    pl.subplot(212, sharex=ax1)
+    pl.subplot(212, sharex=ax1, sharey=ax1)
     pl.gca().set_prop_cycle(None)
     c = 0
 
@@ -675,7 +675,7 @@ def plot_nn_train_outputs(outputs):
         if 'lr' in k:
             pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
     pl.grid(axis='both')
-    pl.ylim([1e-3, 1e3])
+    # pl.ylim([1e-3, 1e3])
     pl.legend()
 
 

@@ -519,8 +519,9 @@ def main(problem_params, algo_params):
     sols_orig = jax.vmap(solve_backward)(xfs)
 
     # choose initial value level. 
-    v_k = 100 * problem_params['V_f'] * np.inf
-    v_k = 100  # full gas
+    v_k = 100 * problem_params['V_f']
+    v_k = 10  # full gas
+    # v_k = np.inf  # fullest gas
 
     # extract corresponding data points for NN fitting. 
     # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
@@ -530,57 +531,64 @@ def main(problem_params, algo_params):
     print(f'dataset size: {bool_train_idx.sum()} (= {bool_train_idx.mean()*100:.2f}%)')
 
     v_nn = nn_utils.nn_wrapper(
-    	input_dim=problem_params['nx'],
-    	layer_dims=algo_params['nn_layerdims'],
-    	output_dim=1
-	)
+        input_dim=problem_params['nx'],
+        layer_dims=algo_params['nn_layerdims'],
+        output_dim=1
+    )
 
-    nn_xs = train_ode_states['x']
-    nn_ys = (train_ode_states['v'], train_ode_states['vx'])  # give points and gradients. 
+    normaliser = nn_utils.data_normaliser(train_ode_states)
+    nn_xs_n, nn_ys_n = normaliser.normalise_all(train_ode_states)
 
-    # nn_utils currently assumes ys.shape == (N_pts, nx+1), with last axis
-    # containing [costate (n,), value (1,)]
-    # so we replicate that here. later I'd like to have a cleaner way. 
-    # maybe pass a tuple (v) or (v, vx) or (v, vx, vxx) with vmapped nodes? 
-    # maybe even directly the dict???
-    # then the nn class can handle how it uses the gradients and hessians. 
-    nn_ys = np.hstack([train_ode_states['vx'], train_ode_states['v'][:, None]])
 
-    # should we normalise the data? 
-    # let's do some basic experiments here. 
 
-    # assume we just want to ensure that each state variable has zero mean and unit variance. 
-    # for that we can subtract the mean and divide by the std deviation. 
 
-    # add back leading axis for broadcasting
-    statewise_mean = nn_xs.mean(axis=0)[None, :]
-    statewise_std = nn_xs.std(axis=0)[None, :]
-
-    nn_xs_normalised = (nn_xs - statewise_mean)/statewise_std
-
-    # obviously V(x) stays the same. BUT the gradient is with respect to the transformed x variables! 
-    # let z = (x - m) / std <=> z * std = (x-m) <=> z * std + m = x.
-    # then, dv/dz = dv/dx dx/dz = dv/dx (std)
-    # thus we have to multiply each gradient by its std. 
-    # if data was spread out, high std, it gets squeezed, thus gradient larger.
-    # if data was close together, low std, it gets pulled apart, thus gradient lower.
-    # seems to make sense. 
-
-    nn_ys_normalised = np.hstack([train_ode_states['vx'], train_ode_states['v'][:, None]])
+    # nn_xs_normalised = (nn_xs - x_means)/x_stds
 
     params, oups = v_nn.init_and_train(
-    	key, nn_xs, nn_ys, algo_params
-	)
+        key, nn_xs_n, nn_ys_n, algo_params
+    )
 
     plotting_utils.plot_nn_train_outputs(oups)
 
-    # also plot the nn output along a random state space line. 
-    pl.figure()
-    x_line = 0.1 * np.linspace(-np.ones(6), np.ones(6), 200)
-    pl.plot(jax.vmap(v_nn.nn.apply, in_axes=(None, 0))(params, x_line), label='NN output')
-    pl.plot(jax.vmap(xf_to_Vf)(x_line), label='LQR value function')
-    pl.legend()
 
+    pl.figure()
+    
+    def plot_trajectory_vs_nn(idx):
+
+        sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
+
+        pl.figure()
+        ax = pl.subplot(211)
+
+        interp_ts = np.linspace(sol.t0, sol.t1)
+
+        xs = sol.ys['x']
+        ts = sol.ys['t']
+        vs = sol.ys['v']
+        interp_ys = jax.vmap(sol.evaluate)(interp_ts)
+
+        pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
+        pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
+
+        # same with the NN
+        xn = jax.vmap(normaliser.normalise_x)(interp_ys['x'])
+        nn_vs_n = jax.vmap(v_nn.nn.apply, in_axes=(None, 0))(params, xn)
+        pl.plot(interp_ts, jax.vmap(normaliser.unnormalise_v)(nn_vs_n), c='C1', label='NN v(x(t))')
+        pl.legend()
+
+        # and now the same for vx
+        pl.subplot(212, sharex=ax)
+
+        vxs = sol.ys['vx']
+        pl.plot(interp_ts, interp_ys['vx'], alpha=.5, label='trajectory vx(x(t))', c='C0')
+        pl.plot(ts, vxs, alpha=.5, linestyle='', marker='.', c='C0')
+
+        nn_vxs_n = jax.vmap(jax.jacobian(v_nn.nn.apply, argnums=1), in_axes=(None, 0))(params, xn).squeeze()
+        nn_vxs = jax.vmap(normaliser.unnormalise_vx)(nn_vxs_n)
+        pl.plot(interp_ts, nn_vxs, label='NN v_x(x(t))', c='C1')
+        pl.legend()
+
+    plot_trajectory_vs_nn(12)
     pl.show()
 
     ipdb.set_trace()

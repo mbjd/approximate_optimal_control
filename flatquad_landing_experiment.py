@@ -270,15 +270,15 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,  
 
-        'nn_layerdims': (16, 16, 16),
+        'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 64,
-        'nn_N_epochs': 200,
+        'nn_N_epochs': 100,
         'nn_testset_fraction': 0.1,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.1,
-        'lr_final': 0.01,
-        'nn_V_gradient_penalty': 10.,
+        'lr_init': 0.01,
+        'lr_final': 0.00001,
+        'nn_V_gradient_penalty': 100.,
         'nn_progressbar': True,
     }
 

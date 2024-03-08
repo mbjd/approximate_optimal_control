@@ -1518,3 +1518,23 @@ Quickly before heading home, figured out the adjustments for gradient under
 linear coordinate transformation. is pretty simple. implement tomorrow. 
 
 also tomorrow: finish/clean up that writeup...
+
+
+2023-03-06
+
+made a nice data normalisation class, accounting for how the gradient gets
+squashed under linear coordinate change. looks much better with normalised
+data!
+
+spent some time tuning nn hyperparams. low final learning rate substantially
+improves stuff! plotting the NN at states visited by a trajectory gives the
+expected result: decent fit in region where data was used (this case, value
+sublevels set 100), flailing around otherwise. 
+
+next tasks: 
+- extend this to NN ensemble (was this as easy as a well placed vmap?)
+- think about practicalities: how to propose high-uncertainty points? 
+- implement second-order sobolev functionality, take the chance to use 
+  a nicer data format in the nn class, maybe also vmapped dict like ode solver? 
+  
+

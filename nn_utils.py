@@ -22,6 +22,45 @@ import ipdb
 from tqdm import tqdm
 from functools import partial
 
+class data_normaliser(object):
+
+    def __init__(self, train_ode_states):
+
+        # train_ode_states: dict with entries 'x', 'v', 'vx'.
+        # ['x'].shape == (N_pts, nx)
+        # ['v'].shape == (N_pts,)
+        # ['vx'].shape == (N_pts, nx)
+
+        x_means = train_ode_states['x'].mean(axis=0)
+        x_stds  = train_ode_states['x'].std(axis=0)
+
+        self.normalise_x = lambda x: (x - x_means) / x_stds
+        self.unnormalise_x = lambda xn: xn * x_stds + x_means
+
+        # scale v to unit variance only.
+        # ignore vx, hope it will be ~1 as well. 
+        v_std  = train_ode_states['v'].std()
+        
+        self.normalise_v = lambda v: v / v_std
+        self.unnormalise_v = lambda vn: vn * v_std
+
+        # now the hard part, vx. 
+        self.normalise_vx = lambda vx: vx * x_stds / v_std
+        self.unnormalise_vx = lambda vx_n: (vx_n / x_stds) * v_std
+
+    def normalise_all(self, train_ode_states):
+
+        nn_xs  = jax.vmap(self.normalise_x)(train_ode_states['x'])
+        nn_vs  = jax.vmap(self.normalise_v)(train_ode_states['v'])
+        nn_vxs = jax.vmap(self.normalise_vx)(train_ode_states['vx'])
+        # to get the data format expected by the nn code...
+        # maybe change this so that we can use a nicer dict format? 
+        # with entries 'x' 'v' 'vx' and maybe 'vxx'? 
+        nn_ys  = np.column_stack([nn_vxs, nn_vs])
+
+        return nn_xs, nn_ys
+
+
 class my_nn_flax(nn.Module):
 
     # simple, fully connected NN class.

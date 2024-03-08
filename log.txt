@@ -1531,12 +1531,6 @@ improves stuff! plotting the NN at states visited by a trajectory gives the
 expected result: decent fit in region where data was used (this case, value
 sublevels set 100), flailing around otherwise. 
 
-next tasks: 
-- extend this to NN ensemble (was this as easy as a well placed vmap?)
-- think about practicalities: how to propose high-uncertainty points? 
-- implement second-order sobolev functionality, take the chance to use 
-  a nicer data format in the nn class, maybe also vmapped dict like ode solver? 
-  
 
 went on a small debugging spree to do with LQR terminal value or half of it. 
 it seems that the optimal controller (backward PMP) gives costates similar to
@@ -1566,10 +1560,24 @@ simulations.)
 
 
 another small experiment: if we train only with data close to equilibrium (v <
-0.1), then the hessian of the nn value function is almost precisely already
-the LQR hessian (relative norm difference 0.032)!! this is quite promising and
-certainly makes it look like we can use second order sobolev learning to get a
-better fit without huge amounts of data, and more importantly, better
-extrapolation, which will speed up our "filling" of the state space when the
-value function is similar to its extrapolation (i.e. basically the quadratic
-local value function)
+0.1), then the hessian of the nn value function is almost precisely already the
+LQR hessian (relative norm difference 0.032)!! WITHOUT ever telling the NN
+about the hessian! (although v_x is probably practically linear so recovering
+its gradient is probably not a huge miracle)
+
+still, this is quite promising and certainly makes it look like we can use
+second order sobolev learning to get an even better fit without huge amounts of
+data, and more importantly, better extrapolation, which will speed up our
+"filling" of the state space when the value function is similar to its
+extrapolation (i.e. basically the quadratic local value function)
+
+
+next tasks: 
+- extend this to NN ensemble (was this as easy as a well placed vmap?)
+- think about practicalities: how to propose high-uncertainty points? 
+  how to handle level set collisions? how to decide on v_k+1? lots of this stuff
+- implement second-order sobolev functionality, take the chance to use 
+  a nicer data format in the nn class, maybe also vmapped dict like ode solver? 
+- also take that chance to sanity check the vxx calculation, esp. with regards
+  to the now fixed mistake in choosing the LQR value function...
+  

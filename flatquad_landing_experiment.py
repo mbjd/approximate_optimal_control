@@ -22,6 +22,10 @@ import numpy as onp
 import tqdm
 from operator import itemgetter
 
+def rnd(a, b):
+    # relative norm difference. useful for checking if matrices or vectors are close
+    return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
+
 
 def lqr_sanitycheck(problem_params, algo_params):
 
@@ -66,21 +70,42 @@ def lqr_sanitycheck(problem_params, algo_params):
     pl.legend()
 
     pl.figure()
-    P_lqr = 0.5 * P_lqr
-    V_lqr = lambda x: x.T @ P_lqr @ x
+    
+    V_lqr = lambda x: x.T @ (0.5 * P_lqr) @ x
 
     x0 = 0.1 * np.ones(6)
 
-    sol = linear_forward_sim(x0, P_lqr)
+    sol = linear_forward_sim(x0, 0.5 * P_lqr)
 
     
     pl.plot(sol.ts, sol.ys[1] - sol.ys[1].min(), label='experienced cost-to-go, P/2')
     pl.plot(sol.ts, jax.vmap(V_lqr)(sol.ys[0]), label='LQR value fct., P/2')
     pl.legend()
-    pl.show()
 
     # therefore, we have LQR value = 0.5 x.T P_lqr x definitely. 
-    ipdb.set_trace()
+
+
+    # also, second sanity check. The LQR controller is u = -Kx. 
+    # if we construct the map 
+    #     x -> u*(x, lambda(x)) 
+    #        = u*(x, Vx(x))
+    #        = u*(x, P_lqr @ x)
+    # and differentiate it at the equilibrium, then we should 
+    # get the same control gain (up to the minus)
+
+    # this is all using the correct (hopefully) V_lqr = 0.5 x.T P_lqr x.
+    # so if this checks out we are probably good
+
+    # we should really find a cleaner/more standard way to handle x_eq != 0
+    lqr_controller = lambda x: pontryagin_utils.u_star_2d(x, jax.jacobian(V_lqr)(x-problem_params['x_eq']), problem_params)
+    lqr_controller_manual = lambda x: pontryagin_utils.u_star_2d(x, P_lqr @ (x-problem_params['x_eq']), problem_params)
+
+    K = jax.jacobian(lqr_controller)(problem_params['x_eq'])
+    K_manual = jax.jacobian(lqr_controller_manual)(problem_params['x_eq'])
+
+    print(f'relative norm diff -LQR controller and linearised u*(x, Vx(x)) (jax jacobian): {rnd(-K_lqr, K)}')
+    print(f'relative norm diff -LQR controller and linearised u*(x, P_lqr x) (manual jacobian):  {rnd(-K_lqr, K_manual)}')
+    pl.show()
 
 
 

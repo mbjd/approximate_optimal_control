@@ -22,6 +22,12 @@ import ipdb
 from tqdm import tqdm
 from functools import partial
 
+
+def rnd(a, b):
+    # relative norm difference. useful for checking if matrices or vectors are close
+    return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
+
+
 class data_normaliser(object):
 
     def __init__(self, train_ode_states):
@@ -78,7 +84,7 @@ class my_nn_flax(nn.Module):
         if self.output_dim is not None:
             x = nn.Dense(features=self.output_dim)(x)
 
-        return x
+        return x.reshape()  # finally get rid of all those shitty (.., 1) shapes
 
 
 class nn_wrapper():
@@ -391,24 +397,255 @@ class nn_wrapper():
         return nn_params, outputs
 
 
+    def sobolev_loss(self, key, params, y, algo_params): 
 
-    # now this works - I just had to make the constructor very simple
-    # and do all the important stuff in the train() method, which is now
-    # jitted so we can do whatever we want there without incurring huge
-    # python overhead every time.
-    def _tree_flatten(self):
+        # this is for a *single* datapoint in dict form. vmap later.
+        # needs a PRNG key for the hvp in random direction. 
 
-        children = ()
+        # tree_map(lambda z: z.shape, ys) should be: {
+        #  'x': (nx,), 'v': (1,), 'vx': (nx,), 'vxx': (nx, nx)
+        # }
 
-        # static values / configuration parameters.
-        aux_data = {
-                'input_dim': self.input_dim,
-                'layer_dims': self.layer_dims,
-                'output_dim': self.output_dim,
-        }
+        x = y['x']
 
-        return (children, aux_data)
+        v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
 
-    @classmethod
-    def _tree_unflatten(cls, aux_data, children):
-        return cls(*children, **aux_data)
+        v_loss  = (v_pred  - y['v' ]) ** 2
+        vx_loss = np.sum((vx_pred - y['vx']) ** 2)
+
+        # or put a switch in algo_params? maybe we want to train without hessians
+        # even if they are available. 
+        if 'vxx' in y:
+
+            # instead of calculating the whole hessian (of v_pred wrt x) and comparing
+            # it with y['vxx'], we instead compute the hessian vector product in a 
+            # random direction, inspired by https://arxiv.org/pdf/1706.04859.pdf.
+
+            # the hvp is not the second directional derivative. If the hvp is 
+            # H d (a vector), the second directional derivative would be d.T H d (scalar).
+
+            # the hvp has intuitive meaning if we drop one level of differentiation. say 
+            # lambda(x) = vx(x) is the costate function. Then vxx(x) is the gradient of that, 
+            # Dx lambda(x). Thus the value hvp is just the directional derivative of the costate 
+            # function in a random direction. should be great :) 
+
+            # is there some catch to do with data normalisation? are some directions
+            # "more likely" than others here? dunno really. 
+
+            # random vector on unit sphere. 
+            # would it be just as good to just choose one of the basis vectors [0, .., 1, .., 0]? 
+            # then we basically extract one column of the hessian. 
+            direction = jax.random.normal(key, shape=(self.input_dim,))
+            direction = direction / np.linalg.norm(direction)  
+
+            # as 'training datapoint' the simple hessian-vector product. 
+            # it has the same size as the costate which seems reasonable.
+            hvp_label = y['vxx'] @ direction
+
+            # https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#hessian-vector-products-with-grad-of-grad
+            # tbh i have no clue how this works
+            f = lambda x: self.nn.apply(params, x)
+            hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), direction ) )(x)
+
+            # the naive way for comparison. seems to be correct :) 
+            # hvp_pred_naive = jax.hessian(self.nn.apply, argnums=1)(params, x) @ direction
+            # print(rnd(hvp_pred, hvp_pred_naive))
+
+
+            vxx_loss = np.sum((hvp_label - hvp_pred)**2)
+            ipdb.set_trace()
+
+            # TODO weighting. 
+            # how do we handle this? a few options: 
+            # - set fixed parameters in algo_params and get them directly here
+            # - use a second, learning rate type schedule to only use them during the
+            #   last part of training ("finetuing")
+            # not sure what the advantage of the second one would be. certainly a bit 
+            # more implementation effort though. so probably it is easiest to just 
+            # set the parameters in algoparams. maybe normalise the weights here so 
+            # we always have a convex combination of terms? could simplify tuning slightly. 
+            return v_loss + vx_loss + vxx_loss
+
+        return v_loss + vx_loss
+
+
+
+
+
+
+
+
+
+    def train_sobolev(self, key, ys, nn_params, algo_params, ys_test=None):
+
+        raise NotImplementedError('this is 95\% still a copy of the old version.')
+        '''
+        new training method. main changes wrt self.train: 
+
+         - data format is now this: 
+           ys a dict with keys:
+             'x': (N_pts, nx) array of state space points just like before. 
+             'v': (N_pts, 1) array of value function evaluations at those x. 
+             'vx': (N_pts, nx) array of value gradient = costate evaluations
+           optionally:
+             'vxx': (N_pts, nx, nx) array of value hessians = costate jacobian evaluations. 
+        
+           this should make it easy to train with or without hessians with the same code. 
+           maybe we can also initially train with v and vx and only "fine-tune" with the hessian? 
+
+         - loss includes (optionally) the hessian error. probably the stochastic approx
+           from the main sobolev training paper is best. 
+
+         - testset generation not in here. pass ys_test to evaluate test loss during training. 
+
+        TODO as of now the test set is just a random subset of all points. 
+        should we instead take a couple entire trajectories as test set? because
+        if 90% of the points on some trajectory are in the training set it is kind of 
+        not a huge feat to have low loss on the remaining 10%
+        if OTOH we test with entire trajectories unseen in training the test loss kind of
+        is more meaningful...
+
+        '''
+
+
+        # make sure it is of correct shape? 
+        testset_exists = ys_test is not None
+
+        # does this still make sense? 
+        N_datapts = ys['x'].shape[0]
+        batchsize = algo_params['nn_batchsize']
+        N_epochs = algo_params['nn_N_epochs']
+
+        # we want: total_iters * batchsize == N_epochs * N_datapts. therefore:
+        total_iters = (N_epochs * N_datapts) // batchsize
+
+        # exponential decay. this will go down from lr_init to lr_final over
+        # the whole training duration.
+        # if lr_staircase, then instead of smooth decay, we have stepwise decay
+        # with
+        N_lr_steps = algo_params['lr_staircase_steps']
+
+        total_decay = algo_params['lr_final'] / algo_params['lr_init']
+
+        lr_schedule = optax.exponential_decay(
+                init_value = algo_params['lr_init'],
+                transition_steps = total_iters // N_lr_steps,
+                decay_rate = (total_decay) ** (1/N_lr_steps),
+                end_value=algo_params['lr_final'],
+                staircase=algo_params['lr_staircase']
+        )
+
+        optim = optax.adam(learning_rate=lr_schedule)
+        opt_state = optim.init(nn_params)
+
+
+        def update_step(xs, ys, opt_state, params):
+
+            # full gradient-including loss function in all cases. makes it easier, and the
+            # 0 * .... is probably thrown out in jit anyway when the penalty is 0.
+            loss_fct = partial(self.loss_with_grad, grad_penalty=algo_params['nn_V_gradient_penalty'])
+            loss_val_grad = jax.value_and_grad(loss_fct, argnums=0, has_aux=True)
+
+
+            # the terminology is a bit confusing, but:
+            # - loss(_val)_grad = gradient of whatever loss w.r.t. NN parameters
+            # - loss_with_grad = loss function penalising value and value gradients w.r.t. inputs
+
+            # now, the whole outut is a dictionary called aux_output with arbitrary keys and (numerical) values
+            # when plotting we just iterate over whatever keys we get.
+            (loss_val, aux_output), loss_grad = loss_val_grad(params, xs, ys)
+
+            updates, opt_state = optim.update(loss_grad, opt_state)
+            params = optax.apply_updates(params, updates)
+            return opt_state, params, aux_output
+
+        def eval_test_loss(xs, ys, params):
+            return self.loss(params, xs, ys)
+
+        def eval_test_loss_with_grad(xs, ys, params):
+
+            test_loss, aux_output = self.loss_with_grad(params, xs, ys, grad_penalty=algo_params['nn_V_gradient_penalty'])
+            return test_loss, aux_output
+
+
+        # the training loop is written with jax.lax.scan
+        # basically a fancy version to write a for loop, but nice for jit
+
+        # iteration:       0            1            2
+        #
+        #                input        input        input
+        #                  v            v            v
+        # init state  >   comp.    >   comp.    >   comp.   >    ......
+        #                  v            v            v
+        #                result       result       result
+
+        # inputs: NONE (all wrapped into f_scan)
+        #
+        # state to pass to next computation, called 'carry' in docs:
+        # (nn params, optimiser state, minibatch index)
+        #
+        # outputs: (training loss, test loss)
+
+        # shuffle data
+        key, subkey = jax.random.split(key)
+        all_batch_data_indices = generate_minibatch_index_array(subkey)
+
+        def f_scan(carry, input_slice):
+            # unpack the 'carry' state
+            nn_params, opt_state, i_batch = carry
+
+            # obtain minibatch
+            # is this usage of all_batch_data_indices already functionally impure?
+            # or is it just becoming a constant within a pure function?
+            batch_data_indices = all_batch_data_indices[i_batch, :]
+
+            # alternatively: just make a new, random one every time. 
+            # batch_data_indices = jax.random.choice(k, N_datapts, (batchsize,))
+
+            xs_batch = xs[batch_data_indices]
+            ys_batch = ys[batch_data_indices]
+
+            # profit
+            opt_state_new, nn_params_new, aux_output = update_step(
+                    xs_batch, ys_batch, opt_state, nn_params
+            )
+
+            aux_output['lr'] = lr_schedule(opt_state[0].count)
+
+            # if gradient penalty = 0, then loss_val is just a scalar loss
+            # if gradient penalty > 0, then loss_val is a tuple:
+            #   (full_loss, (value_loss, gradient_loss))
+
+            # output & carry state
+            test_loss, test_aux_output = eval_test_loss_with_grad(xs_test, ys_test, nn_params)
+
+            # pro move
+            for k in test_aux_output.keys():
+                new_key = k.replace('train', 'test')
+                aux_output[new_key] = test_aux_output[k]
+
+            new_carry = (nn_params_new, opt_state_new, (i_batch + 1) % N_batches)
+
+            return new_carry, aux_output
+
+        if algo_params['nn_progressbar']:
+            # somehow this gives an error from within the library :(
+            # NOT ANYMORE thanks patrick!!
+            # https://github.com/mbjd/approximate_optimal_control/issues/1
+            f_scan = jax_tqdm.scan_tqdm(n=total_iters)(f_scan)
+            pass
+
+
+        # the training loop!
+        # currently the input argument xs is unused (-> None) -- we keep track of the batch
+        # number in the i_batch counter, and the map from batch index to data is 'baked' into
+        # the f_scan function. probably the nicer way would be to have the data as input.
+        # but it works as it is \o/
+        init_carry = (nn_params, opt_state, 0)
+        final_carry, outputs = jax.lax.scan(f_scan, init_carry, np.arange(total_iters))
+
+        nn_params, _, _ = final_carry
+
+        return nn_params, outputs
+
+

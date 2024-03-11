@@ -60,10 +60,10 @@ def main(problem_params, algo_params):
     def f_extended(t, state, args=None):
 
         # state variables = x and quadratic taylor expansion of V.
-        x       = state['x']
-        v       = state['v']
-        costate = state['vx']
-        # S       = state['vxx']
+        x   = state['x']
+        v   = state['v']
+        vx  = state['vx']
+        vxx = state['vxx']
 
         nx = problem_params['nx']
 
@@ -81,21 +81,21 @@ def main(problem_params, algo_params):
             return state_dot, costate_dot
 
         # its derivatives, for propagation of Vxx.
-        # fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, costate)
-        # flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, costate)
+        # fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, vx)
+        # flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, vx)
 
         # certified this is the same. maybe more efficient? 
-        full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, costate)
+        full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, vx)
         (fx, flam), (gx, glam) = full_jacobian
 
 
         # we calculate this here one extra time, could be optimised
-        u_star = pontryagin_utils.u_star_2d(x, costate, problem_params)
+        u_star = pontryagin_utils.u_star_2d(x, vx, problem_params)
 
         # calculate all the RHS terms
         v_dot = -problem_params['l'](x, u_star)
-        x_dot, costate_dot = pmp_rhs(x, costate)
-        # S_dot = gx + glam @ S - S @ fx - S @ flam @ S 
+        x_dot, vx_dot = pmp_rhs(x, vx)
+        vxx_dot = gx + glam @ vxx - vxx @ fx - vxx @ flam @ vxx 
 
 
         # and pack them in a nice dict for the state.
@@ -103,8 +103,8 @@ def main(problem_params, algo_params):
         state_dot['x'] = x_dot
         state_dot['t'] = 1.
         state_dot['v'] = v_dot
-        state_dot['vx'] = costate_dot
-        # state_dot['vxx'] = S_dot
+        state_dot['vx'] = vx_dot
+        state_dot['vxx'] = vxx_dot
 
         return state_dot
 
@@ -126,19 +126,10 @@ def main(problem_params, algo_params):
         
         # so if V_f(x) = x.T P_lqr x, then its hessian is 2 P_LQR! 
 
-
-        v_f = x_f.T @ P_lqr @ x_f
-        vx_f = 2 * P_lqr @ x_f  # agrees with jax.jacobian(V_f)
-        vxx_f = P_lqr           # jax.hessian(V_f) is twice this however. 
-        
-        lqr_Vxx = P_lqr * 2
-        v_f = 0.5 * x_f.T @ lqr_Vxx @ x_f  # same as above
-        vx_f = lqr_Vxx @ x_f               # same as above
-        # vxx_f = lqr_Vxx                    # 1/2 of above!!! is the code actually using the half-hessian? or 2x hessian?
-
-        # try this instead.
+        # according to usual differentiation rules:
         v_f = 0.5 * x_f.T @ P_lqr @ x_f
         vx_f = P_lqr @ x_f
+        vxx_f = P_lqr
 
         # summarise to maybe avoid confusion. P = P_lqr. 
         # the LQR value function is x.T P x, therefore its hessian is 2P. 
@@ -149,7 +140,7 @@ def main(problem_params, algo_params):
             't': 0,
             'v': v_f,
             'vx': vx_f, 
-            # 'vxx': vxx_f,
+            'vxx': vxx_f,
         }
 
         term = diffrax.ODETerm(f_extended)
@@ -365,12 +356,6 @@ def main(problem_params, algo_params):
 
         pl.plot(us[:, 0], us[:, 1], alpha=0.1, marker='.', c=c)
 
-    '''
-    for j in range(10):
-        pl.figure(str(j))
-        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols))
-    '''
-
 
 
     def plot_taylor_sanitycheck(sol):
@@ -516,10 +501,21 @@ def main(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward)(xfs)
 
+    '''
+    for j in range(10):
+        pl.figure(str(j))
+        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig))
+    pl.show()
+    '''
+
+
+
+    # ipdb.set_trace()
+
     # choose initial value level. 
     v_k = np.inf  # fullest gas
     v_k = 50  # full gas
-    v_k = 100 * problem_params['V_f']
+    v_k = 1000 * problem_params['V_f']
     print(f'target value level: {v_k}')
 
     # extract corresponding data points for NN fitting. 
@@ -535,13 +531,9 @@ def main(problem_params, algo_params):
         output_dim=1
     )
 
+
     normaliser = nn_utils.data_normaliser(train_ode_states)
     nn_xs_n, nn_ys_n = normaliser.normalise_all(train_ode_states)
-
-    # resuing keys oooh 
-    shuf_idx = jax.random.permutation(key, nn_xs_n.shape[0])
-    nn_xs_n = nn_xs_n[shuf_idx]
-    nn_ys_n = nn_ys_n[shuf_idx]
 
 
     # nn_xs_normalised = (nn_xs - x_means)/x_stds
@@ -549,7 +541,25 @@ def main(problem_params, algo_params):
         key, nn_xs_n, nn_ys_n, algo_params
     )
 
-    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+    # new sobolev training method. 
+    init_key, key = jax.random.split(key)
+    params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+    # test it for just one point. 
+    first_y = jax.tree_util.tree_map(lambda node: node[0], train_ode_states)
+
+    sobolev_loss_key, key = jax.random.split(key)
+    sobolev_loss = v_nn.sobolev_loss(sobolev_loss_key, params_sobolev, first_y, algo_params)
+    print(sobolev_loss)
+
+    ipdb.set_trace()
+
+    train_key, key = jax.random.split(key)
+    params_sobolev, oups_sobolev = v_nn.train_sobolev(xs, ys, params_sobolev, algo_params, train_key)
+    ipdb.set_trace()
+
+
+    # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
     plotting_utils.plot_nn_train_outputs(oups)
 
@@ -635,6 +645,33 @@ def main(problem_params, algo_params):
 
     for k in range(5):
 
+        '''
+        basic idea for value step scheduling:
+         - set "target" v_k+1. intuitively: how far can we simulate backward without the sensitivity problem
+           completely messing us up? something like:
+               (small multiple of) fastest time constant * minimal dv/dt
+           the fastest time constant we can assume we know, take from linearisation or estimate from previously generated data
+           dv/dt = -l(x, u), and the bottleneck are the trajectories which stay on low l for some time. 
+           probably we can just take the smallest l(x, u) encountered in the last "value band" V_k \\ V_k-1. 
+           (if we don't exclude the sublevel set V_k-1 then the lowest will always be l=0 at equilibrium)
+         - sample lots of states in the value band V_k+1 \\ V_k. This hinges on extrapolation! we should make sure that
+           this set is bounded, maybe by "pushing up" the value function slightly so the extrapolated one is an overestimate? 
+           or if we don't ensure it is bounded, make it work somehow otherwise
+         - simulate forward. there should be an easy "upper bound" on the time duration of these trajectories until we enter V_k
+           based on also the minimal dv/dt. simulate for that amount of time, if not in V_k, ignore that point. 
+         - from remaining points where forward sim landed (maybe take the point where trajectory entered V_k? or lowest uncertainty?)
+           do backward PMP. 
+         - fit NN again with new data, maybe enlarging the training dataset in smaller value levelset steps. 
+         - evaluate posterior uncertainty for many "test points" in V_k+1 \\ V_k. Estimate somehow the largest value step v_k+1
+           we can accept without having large uncertainty in V_k+1. Simple way: just set V_k+1 = largest value for which no test
+           point has too large uncertainty. Probably there is something nicer though based on statistics and shit. 
+         - repeat. 
+
+        generally we already have a dataset which goes beyond the current value level set. we might also try an initial step where
+        we extend all current points up to v_k+1 and fit the NN with that incomplete data. then probably the forward simulations
+        will be closer to optimal and we get better sampling distributions. 
+
+        '''
         # main loop, first draft. 
         vj_goal = vj_prev * 1.5
 

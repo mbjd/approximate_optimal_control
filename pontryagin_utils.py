@@ -709,6 +709,16 @@ def lqr(A, B, Q, R):
     if not (eigVals.real < 0).all():
         raise ValueError('LQR closed loop not stable...')
 
+
+    print(' ~~~ LQR timescale info ~~~')
+    ratio = eigVals.real.min() / eigVals.real.max()
+    print(f'closed loop pole ratio: {ratio:.2f}' )
+
+    p = eigVals.real.min()
+    print(f'fastest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
+    p = eigVals.real.max()
+    print(f'slowest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
+
     return K, X, eigVals
 
 

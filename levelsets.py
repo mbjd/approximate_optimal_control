@@ -534,34 +534,54 @@ def main(problem_params, algo_params):
 
     normaliser = nn_utils.data_normaliser(train_ode_states)
     nn_xs_n, nn_ys_n = normaliser.normalise_all(train_ode_states)
+    ys_n = normaliser.normalise_all_dict(train_ode_states)
+    
 
 
     # nn_xs_normalised = (nn_xs - x_means)/x_stds
+    '''
     params, oups = v_nn.init_and_train(
         key, nn_xs_n, nn_ys_n, algo_params
     )
+    '''
 
     # new sobolev training method. 
     init_key, key = jax.random.split(key)
     params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
+    '''
     # test it for just one point. 
     first_y = jax.tree_util.tree_map(lambda node: node[0], train_ode_states)
-
     sobolev_loss_key, key = jax.random.split(key)
-    sobolev_loss = v_nn.sobolev_loss(sobolev_loss_key, params_sobolev, first_y, algo_params)
-    print(sobolev_loss)
+    one_sobolev_loss = v_nn.sobolev_loss(sobolev_loss_key, params_sobolev, first_y, algo_params)
 
-    ipdb.set_trace()
+    # test it vmapped for all points. 
+    all_sobolev_losses = jax.vmap(v_nn.sobolev_loss, in_axes=(None, None, 0, None))(
+    	sobolev_loss_key, params_sobolev, ys_n, algo_params
+    )
+
+    # vmap the loss across y dim and find its mean.
+    def sobolev_loss_batch_mean(k, params, ys, algo_params):
+        ks = jax.random.split(k, algo_params['nn_batchsize'])  # make a different key for each loss evaluation :) 
+        losses, loss_terms = jax.vmap(v_nn.sobolev_loss, in_axes=(0, None, 0, None))(ks, params, ys, algo_params)
+
+        # should be scalar and (3,) respectively.
+        return np.mean(losses), np.mean(loss_terms, axis=0) 
+
+    ys_batch = jax.tree_util.tree_map(lambda n: n[0:64], ys_n)
+    meanloss, meanlossterms = sobolev_loss_batch_mean(key, params_sobolev, ys_batch, algo_params)
+    # ipdb.set_trace()
+    '''
 
     train_key, key = jax.random.split(key)
-    params_sobolev, oups_sobolev = v_nn.train_sobolev(xs, ys, params_sobolev, algo_params, train_key)
+    params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
     ipdb.set_trace()
 
 
     # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
-    plotting_utils.plot_nn_train_outputs(oups)
+    # need to adapt that one still. 
+    # plotting_utils.plot_nn_train_outputs(oups)
 
 
     def plot_trajectory_vs_nn(idx):

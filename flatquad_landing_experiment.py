@@ -357,7 +357,7 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,  
 
-        'nn_layerdims': (16, 16, 16, 16),
+        'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 64,
         'nn_N_epochs': 100,
         'nn_testset_fraction': 0.1,
@@ -365,7 +365,12 @@ if __name__ == '__main__':
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.000001,
-        'nn_V_gradient_penalty': 1000.,
+
+        # relative importance of the losses for v, vx, vxx.
+        'nn_sobolev_weights': np.array([1., 100., 0.]),
+        # old version of that. 
+        'nn_V_gradient_penalty': 100.,
+
         'nn_progressbar': True,
     }
 

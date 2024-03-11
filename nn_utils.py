@@ -54,8 +54,15 @@ class data_normaliser(object):
         self.normalise_vx = lambda vx: vx * x_stds / v_std
         self.unnormalise_vx = lambda vx_n: (vx_n / x_stds) * v_std
 
-    def normalise_all(self, train_ode_states):
+        # proper multivariate version would be: vxx transformed = A vxx A.T
+        # where A is the coordinate transformation
+        # https://math.stackexchange.com/questions/1514680/gradient-and-hessian-for-linear-change-of-coordinates
+        self.normalise_vxx = lambda vxx: np.diag(x_stds) @ vxx @ np.diag(x_stds).T / v_std
+        self.unnormalise_vxx = lambda vxx_n: np.diag(1/x_stds) @ (vxx_n * v_std) @ np.diag(1/x_stds)
 
+    def normalise_all(self, train_ode_states):
+        # old format where everything was stacked into an array
+        print('normaliser: old format is not recommended!')
         nn_xs  = jax.vmap(self.normalise_x)(train_ode_states['x'])
         nn_vs  = jax.vmap(self.normalise_v)(train_ode_states['v'])
         nn_vxs = jax.vmap(self.normalise_vx)(train_ode_states['vx'])
@@ -65,6 +72,20 @@ class data_normaliser(object):
         nn_ys  = np.column_stack([nn_vxs, nn_vs])
 
         return nn_xs, nn_ys
+
+    def normalise_all_dict(self, train_ode_states):
+        
+        oup = {
+            'x': jax.vmap(self.normalise_x)(train_ode_states['x']),
+            'v': jax.vmap(self.normalise_v)(train_ode_states['v']),
+            'vx': jax.vmap(self.normalise_vx)(train_ode_states['vx']),
+        }
+
+        if 'vxx' in train_ode_states: 
+            oup['vxx'] = jax.vmap(self.normalise_vxx)(train_ode_states['vxx'])
+
+        return oup
+
 
 
 class my_nn_flax(nn.Module):
@@ -84,7 +105,8 @@ class my_nn_flax(nn.Module):
         if self.output_dim is not None:
             x = nn.Dense(features=self.output_dim)(x)
 
-        return x.reshape()  # finally get rid of all those shitty (.., 1) shapes
+        # return x.reshape()  # finally get rid of all those shitty (.., 1) shapes
+        return x.squeeze()  # finally get rid of all those shitty (.., 1) shapes
 
 
 class nn_wrapper():
@@ -408,14 +430,20 @@ class nn_wrapper():
 
         x = y['x']
 
-        v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
+        # this somehow messes up the batch vmap (i think?)
+        # v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
+        # maybe that is better? if squeeze()ing at the end of nn definition, shapes are the same
+        v_pred = self.nn.apply(params, x)
+        vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, x)
 
-        v_loss  = (v_pred  - y['v' ]) ** 2
+        v_loss  = (v_pred - y['v' ]) ** 2
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
 
-        # or put a switch in algo_params? maybe we want to train without hessians
-        # even if they are available. 
-        if 'vxx' in y:
+        # if the corresponding weight is 0 we can also skip calculating the hessian loss...
+        # if 'vxx' in y and algo_params['nn_sobolev_weights'][2] > 0:
+        # but that messes up jit...
+        # if 'vxx' in y:
+        if True:
 
             # instead of calculating the whole hessian (of v_pred wrt x) and comparing
             # it with y['vxx'], we instead compute the hessian vector product in a 
@@ -435,6 +463,7 @@ class nn_wrapper():
             # random vector on unit sphere. 
             # would it be just as good to just choose one of the basis vectors [0, .., 1, .., 0]? 
             # then we basically extract one column of the hessian. 
+
             direction = jax.random.normal(key, shape=(self.input_dim,))
             direction = direction / np.linalg.norm(direction)  
 
@@ -451,9 +480,7 @@ class nn_wrapper():
             # hvp_pred_naive = jax.hessian(self.nn.apply, argnums=1)(params, x) @ direction
             # print(rnd(hvp_pred, hvp_pred_naive))
 
-
             vxx_loss = np.sum((hvp_label - hvp_pred)**2)
-            ipdb.set_trace()
 
             # TODO weighting. 
             # how do we handle this? a few options: 
@@ -464,9 +491,19 @@ class nn_wrapper():
             # more implementation effort though. so probably it is easiest to just 
             # set the parameters in algoparams. maybe normalise the weights here so 
             # we always have a convex combination of terms? could simplify tuning slightly. 
-            return v_loss + vx_loss + vxx_loss
 
-        return v_loss + vx_loss
+        else:
+            vxx_loss = 0.
+
+        # make convex combination by normalising weights.
+        # multiplying this by a constant is the same as adjusting the learning rate so 
+        # we might as well take that degree of freedom away. 
+        weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
+        sobolev_losses = np.array([v_loss, vx_loss, vxx_loss])
+
+        # we can have two outputs, the first of which is the one being differentiated if we use
+        # jax.value_and_grad(..., has_aux=True) later.
+        return weights @ sobolev_losses, sobolev_losses
 
 
 
@@ -478,7 +515,6 @@ class nn_wrapper():
 
     def train_sobolev(self, key, ys, nn_params, algo_params, ys_test=None):
 
-        raise NotImplementedError('this is 95\% still a copy of the old version.')
         '''
         new training method. main changes wrt self.train: 
 
@@ -527,6 +563,7 @@ class nn_wrapper():
 
         total_decay = algo_params['lr_final'] / algo_params['lr_init']
 
+        # how does this know about total_iters???
         lr_schedule = optax.exponential_decay(
                 init_value = algo_params['lr_init'],
                 transition_steps = total_iters // N_lr_steps,
@@ -538,9 +575,31 @@ class nn_wrapper():
         optim = optax.adam(learning_rate=lr_schedule)
         opt_state = optim.init(nn_params)
 
+        # ipdb.set_trace()
 
-        def update_step(xs, ys, opt_state, params):
 
+        def update_step(key, ys, opt_state, params):
+
+            # this new
+
+            # vmap the loss across a batch and get its mean. 
+            # tuple output so the gradient is only taken of the first argument below (with has_aux=True)
+            def sobolev_loss_batch_mean(k, params, ys, algo_params):
+                ks = jax.random.split(k, batchsize)  # make a different key for each loss evaluation :) 
+                losses, loss_terms = jax.vmap(self.sobolev_loss, in_axes=(0, None, 0, None))(ks, params, ys, algo_params)
+
+                # mean across batch dim. 
+                # should be scalar and (3,) respectively.
+                return np.mean(losses), np.mean(loss_terms, axis=0) 
+
+            # differentiate the whole thing wrt argument 1 = nn params. 
+            # need to get the key in here too! 
+            (loss, loss_terms), grad = jax.value_and_grad(sobolev_loss_batch_mean, argnums=1, has_aux=True)(
+                key, params, ys, algo_params
+            )
+
+            '''
+            # this old
             # full gradient-including loss function in all cases. makes it easier, and the
             # 0 * .... is probably thrown out in jit anyway when the penalty is 0.
             loss_fct = partial(self.loss_with_grad, grad_penalty=algo_params['nn_V_gradient_penalty'])
@@ -554,78 +613,37 @@ class nn_wrapper():
             # now, the whole outut is a dictionary called aux_output with arbitrary keys and (numerical) values
             # when plotting we just iterate over whatever keys we get.
             (loss_val, aux_output), loss_grad = loss_val_grad(params, xs, ys)
+            '''
 
-            updates, opt_state = optim.update(loss_grad, opt_state)
+            updates, opt_state = optim.update(grad, opt_state)
             params = optax.apply_updates(params, updates)
-            return opt_state, params, aux_output
+            return opt_state, params, loss_terms
 
-        def eval_test_loss(xs, ys, params):
-            return self.loss(params, xs, ys)
-
-        def eval_test_loss_with_grad(xs, ys, params):
-
-            test_loss, aux_output = self.loss_with_grad(params, xs, ys, grad_penalty=algo_params['nn_V_gradient_penalty'])
-            return test_loss, aux_output
-
-
-        # the training loop is written with jax.lax.scan
-        # basically a fancy version to write a for loop, but nice for jit
-
-        # iteration:       0            1            2
-        #
-        #                input        input        input
-        #                  v            v            v
-        # init state  >   comp.    >   comp.    >   comp.   >    ......
-        #                  v            v            v
-        #                result       result       result
-
-        # inputs: NONE (all wrapped into f_scan)
-        #
-        # state to pass to next computation, called 'carry' in docs:
-        # (nn params, optimiser state, minibatch index)
-        #
-        # outputs: (training loss, test loss)
-
-        # shuffle data
-        key, subkey = jax.random.split(key)
-        all_batch_data_indices = generate_minibatch_index_array(subkey)
 
         def f_scan(carry, input_slice):
             # unpack the 'carry' state
-            nn_params, opt_state, i_batch = carry
+            nn_params, opt_state, k = carry
+
+            k_batch, k_loss, k_new = jax.random.split(k, 3)
 
             # obtain minibatch
-            # is this usage of all_batch_data_indices already functionally impure?
-            # or is it just becoming a constant within a pure function?
-            batch_data_indices = all_batch_data_indices[i_batch, :]
+            batch_idx = jax.random.choice(k_batch, N_datapts, (batchsize,))
+            ys_batch = jax.tree_util.tree_map(lambda node: node[batch_idx], ys)
 
-            # alternatively: just make a new, random one every time. 
-            # batch_data_indices = jax.random.choice(k, N_datapts, (batchsize,))
-
-            xs_batch = xs[batch_data_indices]
-            ys_batch = ys[batch_data_indices]
-
-            # profit
-            opt_state_new, nn_params_new, aux_output = update_step(
-                    xs_batch, ys_batch, opt_state, nn_params
+            # do the thing!!1!1!!1!
+            opt_state_new, nn_params_new, loss_terms = update_step(
+                k_loss, ys_batch, opt_state, nn_params
             )
 
-            aux_output['lr'] = lr_schedule(opt_state[0].count)
+            aux_output = {
+                'lr': lr_schedule(opt_state[0].count),
+                'loss_terms': loss_terms,
+            }
 
-            # if gradient penalty = 0, then loss_val is just a scalar loss
-            # if gradient penalty > 0, then loss_val is a tuple:
-            #   (full_loss, (value_loss, gradient_loss))
+            # here is the spot where we could also evaluate test loss
+            # and put it in the aux_output dict.
 
-            # output & carry state
-            test_loss, test_aux_output = eval_test_loss_with_grad(xs_test, ys_test, nn_params)
-
-            # pro move
-            for k in test_aux_output.keys():
-                new_key = k.replace('train', 'test')
-                aux_output[new_key] = test_aux_output[k]
-
-            new_carry = (nn_params_new, opt_state_new, (i_batch + 1) % N_batches)
-
+            new_carry = (nn_params_new, opt_state_new, k_new)
             return new_carry, aux_output
 
         if algo_params['nn_progressbar']:
@@ -637,11 +655,9 @@ class nn_wrapper():
 
 
         # the training loop!
-        # currently the input argument xs is unused (-> None) -- we keep track of the batch
-        # number in the i_batch counter, and the map from batch index to data is 'baked' into
-        # the f_scan function. probably the nicer way would be to have the data as input.
-        # but it works as it is \o/
-        init_carry = (nn_params, opt_state, 0)
+        # currently the input argument is unused -- could also put the PRNG key there. 
+        # or sobolev loss weights if we decide to change them during training...
+        init_carry = (nn_params, opt_state, key)
         final_carry, outputs = jax.lax.scan(f_scan, init_carry, np.arange(total_iters))
 
         nn_params, _, _ = final_carry

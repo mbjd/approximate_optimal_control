@@ -422,19 +422,23 @@ class nn_wrapper():
     def sobolev_loss(self, key, params, y, algo_params): 
 
         # this is for a *single* datapoint in dict form. vmap later.
-        # needs a PRNG key for the hvp in random direction. 
+        # needs a PRNG key for the hvp in random direction. this is
+        # only a stochastic approximation of the actual sobolev loss. 
 
+        # y is the dict with training data. 
         # tree_map(lambda z: z.shape, ys) should be: {
         #  'x': (nx,), 'v': (1,), 'vx': (nx,), 'vxx': (nx, nx)
         # }
 
-        x = y['x']
+        # algo_params['nn_sobolev_weights'] gives the (nonnegative!) relative
+        # weights associated with the v, vx, and vxx losses. set the latter 
+        # one or two to imitate more "basic" nn variants. 
 
         # this somehow messes up the batch vmap (i think?)
         # v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
         # maybe that is better? if squeeze()ing at the end of nn definition, shapes are the same
-        v_pred = self.nn.apply(params, x)
-        vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, x)
+        v_pred = self.nn.apply(params, y['x'])
+        vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
 
         v_loss  = (v_pred - y['v' ]) ** 2
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
@@ -474,10 +478,10 @@ class nn_wrapper():
             # https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#hessian-vector-products-with-grad-of-grad
             # tbh i have no clue how this works
             f = lambda x: self.nn.apply(params, x)
-            hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), direction ) )(x)
+            hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), direction ) )(y['x'])
 
             # the naive way for comparison. seems to be correct :) 
-            # hvp_pred_naive = jax.hessian(self.nn.apply, argnums=1)(params, x) @ direction
+            # hvp_pred_naive = jax.hessian(self.nn.apply, argnums=1)(params, y['x']) @ direction
             # print(rnd(hvp_pred, hvp_pred_naive))
 
             vxx_loss = np.sum((hvp_label - hvp_pred)**2)

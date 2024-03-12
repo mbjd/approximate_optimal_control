@@ -1498,7 +1498,7 @@ time \o/
 
 
 
-2023-03-05
+2023-03-07
 
 
 ran some experiments of generating many, many trajectories, then plotting the
@@ -1520,7 +1520,7 @@ linear coordinate transformation. is pretty simple. implement tomorrow.
 also tomorrow: finish/clean up that writeup...
 
 
-2023-03-06
+2023-03-08
 
 made a nice data normalisation class, accounting for how the gradient gets
 squashed under linear coordinate change. looks much better with normalised

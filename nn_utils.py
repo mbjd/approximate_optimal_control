@@ -28,6 +28,17 @@ def rnd(a, b):
     return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
 
 
+def train_test_split(ys, train_frac=0.9):
+
+    assert 0. < train_frac <= 1., '<gordon ramsey voice> this "training fraction" is not even a fraction you donkey'
+
+    split_idx = int(train_frac * ys['x'].shape[0])
+
+    train_ys = jax.tree_util.tree_map(lambda n: n[:split_idx], ys)
+    test_ys  = jax.tree_util.tree_map(lambda n: n[split_idx:], ys)
+
+    return train_ys, test_ys
+
 class data_normaliser(object):
 
     def __init__(self, train_ode_states):

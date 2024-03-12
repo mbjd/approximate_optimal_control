@@ -521,7 +521,12 @@ def main(problem_params, algo_params):
     # extract corresponding data points for NN fitting. 
     # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
     bool_train_idx = sols_orig.ys['v'] < v_k
-    train_ode_states = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+
+    all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+
+    # split into train/test set. 
+
+    train_ys, test_ys = nn_utils.train_test_split(all_ys)
 
     print(f'dataset size: {bool_train_idx.sum()} (= {bool_train_idx.mean()*100:.2f}%)')
 
@@ -532,73 +537,83 @@ def main(problem_params, algo_params):
     )
 
 
-    normaliser = nn_utils.data_normaliser(train_ode_states)
-    nn_xs_n, nn_ys_n = normaliser.normalise_all(train_ode_states)
-    ys_n = normaliser.normalise_all_dict(train_ode_states)
+    normaliser = nn_utils.data_normaliser(train_ys)
+    nn_xs_n, nn_ys_n = normaliser.normalise_all(train_ys)
+    ys_n = normaliser.normalise_all_dict(train_ys)
     
 
+    # train once with new sobolev loss...
+    init_key, key = jax.random.split(key)
+    params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
-    # nn_xs_normalised = (nn_xs - x_means)/x_stds
-    '''
-    params, oups = v_nn.init_and_train(
-        key, nn_xs_n, nn_ys_n, algo_params
-    )
-    '''
+    train_key, key = jax.random.split(key)
+    params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
 
-    # new sobolev training method. 
-    pl.rcParams['figure.figsize'] = (16, 9)
-    vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-2, 4, 1000)])
-    hessian_rnds = np.zeros_like(vxx_weights)
-    final_training_errs = np.zeros((vxx_weights.shape[0], 3))
-    for i, vxx_weight in tqdm.tqdm(enumerate(vxx_weights)):
 
-        algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(vxx_weight)
+    # and once without.
+    algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
+    init_key, key = jax.random.split(key)
+    params = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
-        # liek if u use same kei everytiem
-        init_key, key = jax.random.split(key)
-        params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+    train_key, key = jax.random.split(key)
+    params, oups = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
 
-        train_key, key = jax.random.split(key)
-        params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
+    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
-        # the value function back in the "unnormalised" domain, ie. the actual state space. 
-        v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-        # and its hessian at 0 just as a sanity check.
-        hess_vnn_unnormalised = lambda params, x: jax.hessian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
-        H0 = hess_vnn_unnormalised(params_sobolev, np.zeros(6,))
-        
-        # compute some statistics :) 
-        hess_rnd = rnd(H0, P_lqr)
-        loss_means = oups_sobolev['loss_terms'][-100:, :].mean(axis=0)
-        # print(hess_rnd)
-        hessian_rnds = hessian_rnds.at[i].set(hess_rnd)
-        final_training_errs = final_training_errs.at[i, :].set(loss_means)
-
-        '''
-        pl.figure(f'vxx weight: {vxx_weight:.8f}')
-        pl.suptitle(f'vxx weight: {vxx_weight:.8f}')
-        pl.loglog(oups_sobolev['loss_terms'], label=('v', 'vx', 'vxx'), alpha=.5)
-        pl.grid('on')
-        pl.ylim([1e-7, 1e1])
-        pl.legend()
-        figpath = f'./tmp/losses_{i:04d}_{vxx_weight:.3f}.png'
-        pl.savefig(figpath)
-        print(f'saved "{figpath}"')
-        pl.close('all')
-        '''
-
-    pl.plot(vxx_weights, hessian_rnds, linestyle='', marker='.', label='hessian rel norm diff at x=0')
-    pl.plot(vxx_weights, final_training_errs, linestyle='', marker='.', label=('v', 'vx', 'vxx'))
-    pl.legend()
-    pl.show()
-
+    # now we can evaluate the two on the test dataset. 
     ipdb.set_trace()
 
 
-    # need to adapt that one still. 
-    # plotting_utils.plot_nn_train_outputs(oups)
+    def vxx_weight_sweep():
+        # new sobolev training method. 
+        pl.rcParams['figure.figsize'] = (16, 9)
+        vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 100)])
+        hessian_rnds = np.zeros_like(vxx_weights)
+        final_training_errs = np.zeros((vxx_weights.shape[0], 3))
+        for i, vxx_weight in tqdm.tqdm(enumerate(vxx_weights)):
 
-    params = params_sobolev
+            algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(vxx_weight)
+
+            # liek if u use same kei everytiem
+            init_key, key = jax.random.split(key)
+            params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+            train_key, key = jax.random.split(key)
+            params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
+
+            # the value function back in the "unnormalised" domain, ie. the actual state space. 
+            v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            # and its hessian at 0 just as a sanity check.
+            hess_vnn_unnormalised = lambda params, x: jax.hessian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
+            H0 = hess_vnn_unnormalised(params_sobolev, np.zeros(6,))
+            
+            # compute some statistics :) 
+            hess_rnd = rnd(H0, P_lqr)
+            loss_means = oups_sobolev['loss_terms'][-100:, :].mean(axis=0)
+            # print(hess_rnd)
+            hessian_rnds = hessian_rnds.at[i].set(hess_rnd)
+            final_training_errs = final_training_errs.at[i, :].set(loss_means)
+
+            '''
+            pl.figure(f'vxx weight: {vxx_weight:.8f}')
+            pl.suptitle(f'vxx weight: {vxx_weight:.8f}')
+            pl.loglog(oups_sobolev['loss_terms'], label=('v', 'vx', 'vxx'), alpha=.5)
+            pl.grid('on')
+            pl.ylim([1e-7, 1e1])
+            pl.legend()
+            figpath = f'./tmp/losses_{i:04d}_{vxx_weight:.3f}.png'
+            pl.savefig(figpath)
+            print(f'saved "{figpath}"')
+            pl.close('all')
+            '''
+
+        pl.plot(vxx_weights, hessian_rnds, linestyle='', marker='.', label='hessian rel norm diff at x=0')
+        pl.plot(vxx_weights, final_training_errs, linestyle='', marker='.', label=('v', 'vx', 'vxx'))
+        pl.legend()
+        pl.show()
+
+        ipdb.set_trace()
+
 
     def plot_trajectory_vs_nn(idx):
 
@@ -640,17 +655,21 @@ def main(problem_params, algo_params):
         pl.plot(interp_ts, lqr_vxs, label='lqr Vx', c='C2', alpha=.5)
         pl.legend()
 
-    plot_trajectory_vs_nn(12)
+    # plot_trajectory_vs_nn(12)
     pl.show()
 
-    # do a forward sim starting from 0 just to see what happens. 
-    def forward_sim_nn(x0):
+    def forward_sim_nn(x0, params):
+
+        v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
 
         def forwardsim_rhs(t, x, args):
-            lam_x = jax.jacobian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
-            # lam_x = P_lqr @ x
+
+            lam_x = jax.jacobian(v_nn_unnormalised)(x).squeeze()
+            # lam_x = P_lqr @ x  # <- for lqr instead
             u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
             return problem_params['f'](x, u)
+
 
         term = diffrax.ODETerm(forwardsim_rhs)
         step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
@@ -666,10 +685,14 @@ def main(problem_params, algo_params):
         return forward_sol
 
 
-    x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .1
+    x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .2
 
-    sols = jax.vmap(forward_sim_nn)(x0s)
-    visualiser.plot_trajectories_meshcat(sols)
+    sol = forward_sim_nn(x0s[0], params)
+    sols = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
+    sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
+
+    visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
+    visualiser.plot_trajectories_meshcat(sols_sobolev, color=(.5, .5, .7))
 
     ipdb.set_trace()
 

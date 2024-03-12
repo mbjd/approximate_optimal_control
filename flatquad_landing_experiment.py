@@ -367,9 +367,9 @@ if __name__ == '__main__':
         'lr_final': 0.00001,
 
         # relative importance of the losses for v, vx, vxx.
-        'nn_sobolev_weights': np.array([1., 100., 50.]),
-        # old version of that. 
-        'nn_V_gradient_penalty': 100.,
+        'nn_sobolev_weights': np.array([1., 20., 20.]),
+        # old version of that. v weight 1 default.
+        'nn_V_gradient_penalty': 20.,
 
         'nn_progressbar': False,
     }

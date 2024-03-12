@@ -1581,3 +1581,25 @@ next tasks:
 - also take that chance to sanity check the vxx calculation, esp. with regards
   to the now fixed mistake in choosing the LQR value function...
   
+
+
+2023-04-12
+
+performed a parameter sweep for the sobolev weights from (1, 100, 1e-2) to (1,
+100, 1e+4). In this particular case (data from initial uniform backward
+shooting, max value level 1.0 -- exact code in commit 5e43e169), we have a
+sweet spot about at 100 or maybe between 100 and 1000, where the sobolev loss
+noticeably improves vxx accuracy but doesn't mess up the v and vx yet. I'd say
+100 in this case is the point where it completely doesn't worsen vx and vxx.
+interestingly, and as I'd hoped for, there is a long slow decrease in vx loss
+as we increase the vxx weight from about 1 to 100. only slight though,
+probably a factor of 2 or 3 on avg. 
+
+plot is in losses.png file, root dir but not in git. 
+
+this is essentially the training loss and the test loss at 0, which is not a
+very strong testament to the validity of this modelling approach. we should do
+proper test loss evaluation and hyperparam selection via cross validation. but
+this serves as an initial sanity check that it kind of does what we expect and
+gives us parameters that are better than just smelling some numbers and hoping
+for the best.

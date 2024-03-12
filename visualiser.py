@@ -15,24 +15,6 @@ import meshcat.geometry as geom
 import meshcat.transformations as tf
 
 
-# having lots of trouble using sols.evaluate or sols.interpolation.evaluate in any way. thus, just use sol.ts \o/
-def plot_trajectories(ts, ys, color='green', alpha='.1'):
-
-    # plot trajectories.
-    pl.plot(ys[:, :, 0].T, ys[:, :, 1].T, color='green', alpha=.1)
-
-    # sols.ys.shape = (N_trajectories, N_ts, 2*nx+1)
-    # plot attitude with quiver.
-    arrow_x = ys[:, :, 0].reshape(-1)
-    arrow_y = ys[:, :, 1].reshape(-1)
-    attitudes = ys[:, :, 4].reshape(-1)
-    arrow_len = 0.5
-    u = np.sin(-attitudes) * arrow_len
-    v = np.cos(attitudes) * arrow_len
-
-    pl.quiver(arrow_x, arrow_y, u, v, color='green', alpha=0.1)
-
-
 
 class TextTexture(geom.Texture):
     def __init__(self, text, font_size=100, font_face='sans-serif'):

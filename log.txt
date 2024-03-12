@@ -1585,6 +1585,9 @@ next tasks:
 
 2023-04-12
 
+second order sobolev is implemented and works (not sure why no log entry
+before...)
+
 performed a parameter sweep for the sobolev weights from (1, 100, 1e-2) to (1,
 100, 1e+4). In this particular case (data from initial uniform backward
 shooting, max value level 1.0 -- exact code in commit 5e43e169), we have a
@@ -1667,3 +1670,30 @@ solutions possibly are:
 
 possible too: go to a handful of steps before the issues, perturp extended
 state slightly, re-run.
+
+
+after smoothing out those issues, tried to fit the sobolev NN on the whole
+dataset. results are much less exciting than for 1-sublevel set of v. loss
+goes down at the start but barely low enough to be of any use. training loss
+that is. possible reasons: 
+ - large/small numbers despite normalisation messing it up
+ - low-loss solution "too far" to reach in amount of iters
+ - conflicting local sols (although intuitively i dont think so)
+ - wrong vxx values making impossible for the loss to go near 0?
+ - vxx which is not wrong per se but a "too complicated" function (it is 
+   made by integrating an only piecewise continuous rhs after all....)
+
+made epochs 10x longer and final lr 10x smaller, also set value level to only
+50. after that it looks not too bad again (but takes 2min for 10000 pts). vxx
+testloss between 1e-4 and 1e-4, vx between 1e-4 and 1e-5, v between 1e-5 and
+1e-6. i think this is alright, although it does suggest we might increase the
+vxx weight. (is it a good tuning rule to make all losses "equally low"?)
+
+
+next steps, mostly carried from yesterday: 
+- find out why the nn is shit for nontrivial value function. find some tuning that 
+  sorta works. 
+- NN ensemble (or something similar w/ multiple initialisation, SGLD, whatever)
+- think about practicalities: how to propose high-uncertainty points? 
+  how to handle level set collisions? how to decide on v_k+1? lots of this stuff
+- make first (hopefully, barely) working draft of main iteration! even if shit. 

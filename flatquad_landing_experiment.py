@@ -354,9 +354,9 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,  
 
-        'nn_layerdims': (32, 32, 32),
+        'nn_layerdims': (128, 128, 128),
         'nn_batchsize': 64,
-        'nn_N_epochs': 100,
+        'nn_N_epochs': 1000,
         'nn_testset_fraction': 0.1,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
@@ -368,7 +368,7 @@ if __name__ == '__main__':
         # old version of that. v weight 1 default.
         'nn_V_gradient_penalty': 20.,
 
-        'nn_progressbar': False,
+        'nn_progressbar': True,
     }
 
         

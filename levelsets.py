@@ -493,81 +493,84 @@ def main(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward, in_axes=(0, None))(xfs, algo_params)
 
+       # find some way to alert if NaN occurs in this whole pytree? 
+       # wasn't there a jax option that halts on nan immediately??
+
     def debug_nan_sol(sols_orig):
-    	# long debugging session. 
+        # long debugging session. 
 
-    	# conclusion: if NaNs pop up or the vxx terms become unreasonably large, 
-    	# try decreasing dtmin a bit. fixed everything in this case. 
+        # conclusion: if NaNs pop up or the vxx terms become unreasonably large, 
+        # try decreasing dtmin a bit. fixed everything in this case. 
 
-	    # just the first one
-	    # nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0].item()
-	    nan_idx = 153
-	    bad_sol = jax.tree_util.tree_map(itemgetter(nan_idx), sols_orig)
+        # just the first one
+        # nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0].item()
+        nan_idx = 153
+        bad_sol = jax.tree_util.tree_map(itemgetter(nan_idx), sols_orig)
 
-	    # serialise solution to analyse after switching to 64 bit. 
-	    # import flax
-	    # bs = flax.serialization.msgpack_serialize(bad_sol.ys)
-	    # f = open('tmp/bad_ys.msgpack', 'wb')
-	    # f.write(bs)
-	    # f.close()
+        # serialise solution to analyse after switching to 64 bit. 
+        # import flax
+        # bs = flax.serialization.msgpack_serialize(bad_sol.ys)
+        # f = open('tmp/bad_ys.msgpack', 'wb')
+        # f.write(bs)
+        # f.close()
 
-	    # f = open('tmp/bad_ys.msgpack', 'rb')
-	    # bs = f.read()
-	    # bad_ys = flax.serialization.msgpack_restore(bs)
-
-
-	    def plot_badsol_from_y(y):
-
-	    	# recreate the solution in 64 bit precision. 
-	    	newsol = solve_backward(y['x'], algo_params, y_f=y)
-
-	    	plot_sol(newsol)
-
-	    # plot_badsol_from_idx(30)
-	    # pl.show()
-
-	    # ipdb.set_trace()
+        # f = open('tmp/bad_ys.msgpack', 'rb')
+        # bs = f.read()
+        # bad_ys = flax.serialization.msgpack_restore(bs)
 
 
-	    # start sol with higher precision from a state close to the last one. 
-	    restart_state_idx = bad_sol.stats['num_accepted_steps'].item() - 5
+        def plot_badsol_from_y(y):
 
-	    # not really needed, still fails, rhs actually does return very high values :(
-	    # restart_y = jax.tree_util.tree_map(itemgetter(restart_state_idx), bad_sol.ys)
+            # recreate the solution in 64 bit precision. 
+            newsol = solve_backward(y['x'], algo_params, y_f=y)
 
-	    # algo_params_tight = algo_params.copy()
-	    # algo_params_tight['pontryagin_solver_atol'] = 1e-7
-	    # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
+            plot_sol(newsol)
 
-	    # # first arg irrelevant if last given
-	    # sol_tight = solve_backward(restart_y['x'], algo_params_tight, y_f=restart_y)
+        # plot_badsol_from_idx(30)
+        # pl.show()
 
-	    # # evaluate the right hand side again to see where it produces shit.
-	    # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
-	    rhs_evals_orig = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, None)
-
-	    rhs_evals, aux_outputs = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, 'debug')
-
-	    ax = pl.subplot(211)
-	    pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
-	    pl.ylabel('vxx trajectory components')
-	    pl.subplot(212, sharex=ax)
-	    pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
-	    pl.ylabel('vxx rhs components')
-
-	    pl.figure()
-	    plot_sol(bad_sol)    
-
-	    pl.show()
+        # ipdb.set_trace()
 
 
+        # start sol with higher precision from a state close to the last one. 
+        restart_state_idx = bad_sol.stats['num_accepted_steps'].item() - 5
+
+        # not really needed, still fails, rhs actually does return very high values :(
+        # restart_y = jax.tree_util.tree_map(itemgetter(restart_state_idx), bad_sol.ys)
+
+        # algo_params_tight = algo_params.copy()
+        # algo_params_tight['pontryagin_solver_atol'] = 1e-7
+        # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
+
+        # # first arg irrelevant if last given
+        # sol_tight = solve_backward(restart_y['x'], algo_params_tight, y_f=restart_y)
+
+        # # evaluate the right hand side again to see where it produces shit.
+        # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
+        rhs_evals_orig = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, None)
+
+        rhs_evals, aux_outputs = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, 'debug')
+
+        ax = pl.subplot(211)
+        pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+        pl.ylabel('vxx trajectory components')
+        pl.subplot(212, sharex=ax)
+        pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+        pl.ylabel('vxx rhs components')
+
+        pl.figure()
+        plot_sol(bad_sol)    
+
+        pl.show()
 
 
-	    ipdb.set_trace()
 
 
-	    # even in the original one we see clearly a spike at the end, where it goes from 
-	    # about 5e3 up to 1e8 in 3 steps. 
+        ipdb.set_trace()
+
+
+        # even in the original one we see clearly a spike at the end, where it goes from 
+        # about 5e3 up to 1e8 in 3 steps. 
 
 
 
@@ -581,14 +584,10 @@ def main(problem_params, algo_params):
     pl.show()
     '''
 
-
-
-    ipdb.set_trace()
-
     # choose initial value level. 
-    v_k = 50  # full gas
     v_k = 1000 * problem_params['V_f']
     v_k = np.inf  # fullest gas
+    v_k = 50  # full gas
     print(f'target value level: {v_k}')
 
     # extract corresponding data points for NN fitting. 
@@ -642,13 +641,22 @@ def main(problem_params, algo_params):
     _, testlossterms_sobolev = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
     _, testlossterms_orig = v_nn.sobolev_loss_batch_mean(key, params, test_ys_n, algo_params)
 
-    ipdb.set_trace()
+    ax = pl.subplot(211)
+    pl.plot(oups['loss_terms'], label=('v', 'vx', 'vxx'))
+    pl.ylabel('not sobolev')
+    pl.legend()
+    pl.subplot(212, sharex=ax, sharey=ax)
+    pl.plot(oups_sobolev['loss_terms'], label=('v', 'vx', 'vxx'))
+    pl.ylabel('sobolev')
+    pl.legend()
+    pl.show()
 
+    ipdb.set_trace()
 
     def vxx_weight_sweep():
         # new sobolev training method. 
         pl.rcParams['figure.figsize'] = (16, 9)
-        vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 256)])
+        vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 128)])
         hessian_rnds = np.zeros_like(vxx_weights)
         final_training_errs = np.zeros((vxx_weights.shape[0], 3))
         test_errs = np.zeros((vxx_weights.shape[0], 3))

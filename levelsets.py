@@ -106,34 +106,29 @@ def main(problem_params, algo_params):
         state_dot['vx'] = vx_dot
         state_dot['vxx'] = vxx_dot
 
+        if args is not None and args == 'debug':
+            # hacky way to get debug output. 
+            # just be sure to have args=None within anything jitted. 
+            aux_output = {
+                'fx': fx,
+                'flam': flam,
+                'gx': gx,
+                'glam': glam,
+                'u_star': u_star,
+            }
+
+            return state_dot, aux_output
+        
         return state_dot
 
-    def solve_backward(x_f):
+    def solve_backward(x_f, algo_params, y_f=None):
 
-        # another 'advantage' of including the hessian is that now the ODE solver
-        # actually takes the trouble of stepping rather precisely to the active
-        # set changes.
-
-        # still unsure about these factors of 2 or 1/2 or 1
-        # but results look OK, Vxx stays constant-ish in the linear-ish region.
-
-        # this probably comes from the 1/n! in the taylor expansion, which will be:
-        # v(x+dx) = v(x) + v_x(x) dx + 1/2 dx.T vxx(x) dx
-
-        # but P_lqr gives the value direcly... or does it? at least here the usual 
-        # continuous time ricatti solution is given like that: 
-        #     https://stanford.edu/class/ee363/lectures/clqr.pdf
-        
-        # so if V_f(x) = x.T P_lqr x, then its hessian is 2 P_LQR! 
-
-        # according to usual differentiation rules:
+        # P_lqr = hessian of value fct. 
+        # everything else follows from usual differentiation rules. 
         v_f = 0.5 * x_f.T @ P_lqr @ x_f
         vx_f = P_lqr @ x_f
         vxx_f = P_lqr
 
-        # summarise to maybe avoid confusion. P = P_lqr. 
-        # the LQR value function is x.T P x, therefore its hessian is 2P. 
-        # however we initialise this function with state['vxx'] = P, the half hessian.
 
         state_f = {
             'x': x_f,
@@ -143,6 +138,12 @@ def main(problem_params, algo_params):
             'vxx': vxx_f,
         }
 
+        if y_f is not None:
+            # assume we have been handed the complete ODE state, as opposed to just
+            # the system state. 
+            # could also make a separate function that constructs this itself from nn v. 
+            state_f = y_f
+
         term = diffrax.ODETerm(f_extended)
 
         relax_factor = 1.
@@ -150,16 +151,16 @@ def main(problem_params, algo_params):
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
             atol=relax_factor*algo_params['pontryagin_solver_atol'],
             # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.005,  # just to avoid getting stuck completely
+            dtmin = 0.0005,  # just to avoid getting stuck completely
             dtmax = 0.5,
         )
 
-        # try this, maybe it works better \o/
-        # step_ctrl_fixed = diffrax.StepTo(prev_forward_sol.ts)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
+        T = 4.
+
         backward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=-4., dt0=-0.1, y0=state_f,
+            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
         )
@@ -234,15 +235,6 @@ def main(problem_params, algo_params):
     # to see if they are really in Xf
     # vs[np.arange(vs.shape[0]), idx_of_first_state_in_Xf]
     '''
-
-
-    # backward_sol = solve_backward(xfs[0])
-    # sols = jax.vmap(solve_backward)(xfs)
-
-    # visualiser.plot_trajectories_meshcat(sols_orig, color=(.9, .7, .7))
-    # visualiser.plot_trajectories_meshcat(sols, color=(.7, .7, .9))
-
-
 
 
     def plot_sol(sol):
@@ -499,7 +491,88 @@ def main(problem_params, algo_params):
         # ipdb.set_trace()
 
 
-    sols_orig = jax.vmap(solve_backward)(xfs)
+    sols_orig = jax.vmap(solve_backward, in_axes=(0, None))(xfs, algo_params)
+
+    def debug_nan_sol(sols_orig):
+    	# long debugging session. 
+
+    	# conclusion: if NaNs pop up or the vxx terms become unreasonably large, 
+    	# try decreasing dtmin a bit. fixed everything in this case. 
+
+	    # just the first one
+	    # nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0].item()
+	    nan_idx = 153
+	    bad_sol = jax.tree_util.tree_map(itemgetter(nan_idx), sols_orig)
+
+	    # serialise solution to analyse after switching to 64 bit. 
+	    # import flax
+	    # bs = flax.serialization.msgpack_serialize(bad_sol.ys)
+	    # f = open('tmp/bad_ys.msgpack', 'wb')
+	    # f.write(bs)
+	    # f.close()
+
+	    # f = open('tmp/bad_ys.msgpack', 'rb')
+	    # bs = f.read()
+	    # bad_ys = flax.serialization.msgpack_restore(bs)
+
+
+	    def plot_badsol_from_y(y):
+
+	    	# recreate the solution in 64 bit precision. 
+	    	newsol = solve_backward(y['x'], algo_params, y_f=y)
+
+	    	plot_sol(newsol)
+
+	    # plot_badsol_from_idx(30)
+	    # pl.show()
+
+	    # ipdb.set_trace()
+
+
+	    # start sol with higher precision from a state close to the last one. 
+	    restart_state_idx = bad_sol.stats['num_accepted_steps'].item() - 5
+
+	    # not really needed, still fails, rhs actually does return very high values :(
+	    # restart_y = jax.tree_util.tree_map(itemgetter(restart_state_idx), bad_sol.ys)
+
+	    # algo_params_tight = algo_params.copy()
+	    # algo_params_tight['pontryagin_solver_atol'] = 1e-7
+	    # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
+
+	    # # first arg irrelevant if last given
+	    # sol_tight = solve_backward(restart_y['x'], algo_params_tight, y_f=restart_y)
+
+	    # # evaluate the right hand side again to see where it produces shit.
+	    # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
+	    rhs_evals_orig = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, None)
+
+	    rhs_evals, aux_outputs = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, 'debug')
+
+	    ax = pl.subplot(211)
+	    pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+	    pl.ylabel('vxx trajectory components')
+	    pl.subplot(212, sharex=ax)
+	    pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+	    pl.ylabel('vxx rhs components')
+
+	    pl.figure()
+	    plot_sol(bad_sol)    
+
+	    pl.show()
+
+
+
+
+	    ipdb.set_trace()
+
+
+	    # even in the original one we see clearly a spike at the end, where it goes from 
+	    # about 5e3 up to 1e8 in 3 steps. 
+
+
+
+
+
 
     '''
     for j in range(10):
@@ -510,12 +583,12 @@ def main(problem_params, algo_params):
 
 
 
-    # ipdb.set_trace()
+    ipdb.set_trace()
 
     # choose initial value level. 
-    v_k = np.inf  # fullest gas
     v_k = 50  # full gas
     v_k = 1000 * problem_params['V_f']
+    v_k = np.inf  # fullest gas
     print(f'target value level: {v_k}')
 
     # extract corresponding data points for NN fitting. 
@@ -551,7 +624,8 @@ def main(problem_params, algo_params):
 
 
     # and once without.
-    algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
+    algo_params_no_vxx = algo_params.copy()
+    algo_params_no_vxx['nn_sobolev_weights'] = algo_params_no_vxx['nn_sobolev_weights'].at[2].set(0.)
     init_key, key = jax.random.split(key)
     params = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
@@ -561,20 +635,30 @@ def main(problem_params, algo_params):
     v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
     # now we can evaluate the two on the test dataset. 
+    # do this also in normalised domain to compare w training loss more clearly
+    test_ys_n = normaliser.normalise_all_dict(test_ys)
+
+    # here we only get the loss terms so the different algo_params are unimportant
+    _, testlossterms_sobolev = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
+    _, testlossterms_orig = v_nn.sobolev_loss_batch_mean(key, params, test_ys_n, algo_params)
+
     ipdb.set_trace()
 
 
     def vxx_weight_sweep():
         # new sobolev training method. 
         pl.rcParams['figure.figsize'] = (16, 9)
-        vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 100)])
+        vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 256)])
         hessian_rnds = np.zeros_like(vxx_weights)
         final_training_errs = np.zeros((vxx_weights.shape[0], 3))
+        test_errs = np.zeros((vxx_weights.shape[0], 3))
+
+        key = jax.random.PRNGKey(0)
+
         for i, vxx_weight in tqdm.tqdm(enumerate(vxx_weights)):
 
             algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(vxx_weight)
 
-            # liek if u use same kei everytiem
             init_key, key = jax.random.split(key)
             params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
@@ -593,6 +677,8 @@ def main(problem_params, algo_params):
             # print(hess_rnd)
             hessian_rnds = hessian_rnds.at[i].set(hess_rnd)
             final_training_errs = final_training_errs.at[i, :].set(loss_means)
+            _, test_lossterms = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
+            test_errs = test_errs.at[i, :].set(test_lossterms)
 
             '''
             pl.figure(f'vxx weight: {vxx_weight:.8f}')
@@ -607,12 +693,30 @@ def main(problem_params, algo_params):
             pl.close('all')
             '''
 
-        pl.plot(vxx_weights, hessian_rnds, linestyle='', marker='.', label='hessian rel norm diff at x=0')
-        pl.plot(vxx_weights, final_training_errs, linestyle='', marker='.', label=('v', 'vx', 'vxx'))
+        ax = pl.subplot(211)
+
+        # define smoothing kernel for nicer plots
+        N = vxx_weights.shape[0] // 20
+        smooth = lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
+        smooth_vmap = lambda x: jax.vmap(smooth)(x.T).T  # .T mess because pyplot plots columns not rows
+
+        pl.loglog(vxx_weights, final_training_errs, linestyle='', marker='.', label=('v train loss', 'vx train loss', 'vxx train loss'), alpha=.5)
+        pl.gca().set_prop_cycle(None)
+        pl.loglog(smooth(vxx_weights), smooth_vmap(final_training_errs))
+        pl.legend()
+
+        pl.subplot(212, sharex=ax, sharey=ax)
+        pl.loglog(vxx_weights, test_errs, linestyle='', marker='.', label=('v test loss', 'vx test loss', 'vxx test loss'), alpha=.5)
+        pl.loglog(vxx_weights, hessian_rnds, linestyle='', marker='.', label='hessian rel norm diff at x=0', alpha=.5)
+        pl.gca().set_prop_cycle(None)
+        pl.loglog(smooth(vxx_weights), smooth_vmap(test_errs))
+        pl.loglog(smooth(vxx_weights), smooth(hessian_rnds))
         pl.legend()
         pl.show()
 
         ipdb.set_trace()
+
+    vxx_weight_sweep()
 
 
     def plot_trajectory_vs_nn(idx):
@@ -729,7 +833,8 @@ def main(problem_params, algo_params):
         vj_goal = vj_prev * 1.5
 
         # obtain solutions. 
-        sols_orig = jax.vmap(solve_backward)(xfs)
+        # TODO give algoparams to this function...
+        # sols_orig = jax.vmap(solve_backward)(xfs)
 
         
 
@@ -764,11 +869,6 @@ def main(problem_params, algo_params):
     pl.plot(sols_notplot.ys['t'].flatten(), sols_notplot.ys['v'].flatten(), alpha=.2, c='C1', label='not plotted sols')
 
 
-    '''
-    for j in range(5):
-        pl.figure(str(j))
-        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig))
-    '''
 
     # plot_taylor_sanitycheck(jax.tree_util.tree_map(itemgetter(0), sols_orig))
     pl.show()

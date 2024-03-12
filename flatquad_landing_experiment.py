@@ -22,6 +22,9 @@ import numpy as onp
 import tqdm
 from operator import itemgetter
 
+# from jax import config
+# config.update("jax_enable_x64", True)
+
 def rnd(a, b):
     # relative norm difference. useful for checking if matrices or vectors are close
     return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
@@ -108,8 +111,6 @@ def lqr_sanitycheck(problem_params, algo_params):
     pl.show()
 
 
-
-
 def sqrtm_vs_cholesky():
 
     thetas = np.linspace(0, 2*np.pi, 100) 
@@ -146,8 +147,6 @@ def sqrtm_vs_cholesky():
     pl.plot(ellipse_cholesky[0], ellipse_cholesky[1], 'o-', label='ellipse cholesky', alpha=.3)
     pl.legend()
     pl.show()
-
-
 
 
 def u_star_debugging(problem_params, algo_params):
@@ -245,8 +244,6 @@ def u_star_debugging(problem_params, algo_params):
     pl.show()
 
     ipdb.set_trace()
-
-
 
 
 def current_weird_experiment(problem_params, algo_params):

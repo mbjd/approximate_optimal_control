@@ -1603,3 +1603,67 @@ proper test loss evaluation and hyperparam selection via cross validation. but
 this serves as an initial sanity check that it kind of does what we expect and
 gives us parameters that are better than just smelling some numbers and hoping
 for the best.
+
+update, made the actual test loss plot. train/test splitting function in
+nn_utils. test loss looks much the same as train loss except maybe a tiny bit
+higher. 
+
+tried increasing value level to inf (= including all points) to fit more
+interesting function. seeing problems where ONE SINGLE trajectory has vxx
+values that blow up to like 1e30 and then become NaN. investigating this atm.
+
+am with ipdb in the first rhs evaluation that has ||vxx_dot|| > 1e5. not sure 
+how to debug, all the numbers look normal-ish...? should I make a second
+f_extended that outputs all intermediate values, to plot them? 
+
+yes, did that, using the previously unused args keyword required by diffrax. 
+every variable looks like a reasonable function of time, just d/dt vxx as given
+by the function starts containing crazy entries. whyyy?
+
+
+seems the vxx components are unstable for already a few timesteps before. 
+
+
+at this point i have the feeling that somehow this is just a thing that
+happens, that the hessian can become wildly large... it happens before a quite
+long segment where both upper constraints are active too. so high sensitivity
+to state space position and thus high feedback gains might be kind of
+expected here...
+
+next attempt: switch to 64bit float precision. it seems we do not get nans
+anymore! however the data are completely different, as probably the PRNG is
+essentially progressing twice as fast.
+
+next: find bad solution in 32 bit, serialise whole ys dict with flax msgpack, 
+switch to 64 bit, read it again. try to reproduce the solution with 64 bit and
+see what happens. 
+
+IT WORKS! more precisely: the spot where previously the entries and
+eigenvalues of vxx shot towards infinity is now quite well behaved. instead of
+going up wildly the vxx entries actually decrease rapidly after the
+constraint  stops being active (reasoning in backward time here). during the
+constraint it goes up some time which also makes sense. decreasing dtmin by a
+factor of 10 (now) makes the transition even nicer. 
+
+need to see afterwards if in 32 bit we can also just decrease dtmin and have
+everything work... UPDATE it does. that was a bit of a detour \o/
+
+however, the problem is not entirely gone. if we continue the trajectory for
+some time, there is a long segment where both constraints are active, one
+upper one lower. the trajectory corresponds to slowing down from a state with
+incredibly high omega (and phi, but bc the angle wraps it is the same as (-pi,
+pi). TODO transform to (sin, cos) for learning to reflect that topology.). at
+some point the constraint stops being active and then the problem appears
+again. 
+
+that state however is so outlandish we might as well forget it. practical
+solutions possibly are: 
+ - stop integration after we exit some large superset of the relevant states
+ - stop integration after some number of steps (this happens anyway...)
+ - stop integration once vxx, its norm or eigenvalues exceed some limit? 
+ - in addition, throw away any points where any part of the state is nan
+   or even just above some sanity limit? or also remove the preceding couple 
+   moments from the trajectory? 
+
+possible too: go to a handful of steps before the issues, perturp extended
+state slightly, re-run.

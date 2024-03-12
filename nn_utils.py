@@ -521,13 +521,23 @@ class nn_wrapper():
         return weights @ sobolev_losses, sobolev_losses
 
 
+    # vmap the loss across a batch and get its mean. 
+    # tuple output so the gradient is only taken of the first argument below (with has_aux=True)
+    def sobolev_loss_batch_mean(self, k, params, ys, algo_params):
+
+        # the size of the actual batch, not what algo_params says. 
+        # then we can use the same function e.g. for evaluating loss on test set.
+        ks = jax.random.split(k, ys['x'].shape[0]) 
+        
+        losses, loss_terms = jax.vmap(self.sobolev_loss, in_axes=(0, None, 0, None))(ks, params, ys, algo_params)
+
+        # mean across batch dim. 
+        # should be scalar and (3,) respectively.
+        return np.mean(losses), np.mean(loss_terms, axis=0) 
 
 
 
-
-
-
-
+    @filter_jit
     def train_sobolev(self, key, ys, nn_params, algo_params, ys_test=None):
 
         '''
@@ -595,40 +605,10 @@ class nn_wrapper():
 
         def update_step(key, ys, opt_state, params):
 
-            # this new
-
-            # vmap the loss across a batch and get its mean. 
-            # tuple output so the gradient is only taken of the first argument below (with has_aux=True)
-            def sobolev_loss_batch_mean(k, params, ys, algo_params):
-                ks = jax.random.split(k, batchsize)  # make a different key for each loss evaluation :) 
-                losses, loss_terms = jax.vmap(self.sobolev_loss, in_axes=(0, None, 0, None))(ks, params, ys, algo_params)
-
-                # mean across batch dim. 
-                # should be scalar and (3,) respectively.
-                return np.mean(losses), np.mean(loss_terms, axis=0) 
-
             # differentiate the whole thing wrt argument 1 = nn params. 
-            # need to get the key in here too! 
-            (loss, loss_terms), grad = jax.value_and_grad(sobolev_loss_batch_mean, argnums=1, has_aux=True)(
+            (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_batch_mean, argnums=1, has_aux=True)(
                 key, params, ys, algo_params
             )
-
-            '''
-            # this old
-            # full gradient-including loss function in all cases. makes it easier, and the
-            # 0 * .... is probably thrown out in jit anyway when the penalty is 0.
-            loss_fct = partial(self.loss_with_grad, grad_penalty=algo_params['nn_V_gradient_penalty'])
-            loss_val_grad = jax.value_and_grad(loss_fct, argnums=0, has_aux=True)
-
-
-            # the terminology is a bit confusing, but:
-            # - loss(_val)_grad = gradient of whatever loss w.r.t. NN parameters
-            # - loss_with_grad = loss function penalising value and value gradients w.r.t. inputs
-
-            # now, the whole outut is a dictionary called aux_output with arbitrary keys and (numerical) values
-            # when plotting we just iterate over whatever keys we get.
-            (loss_val, aux_output), loss_grad = loss_val_grad(params, xs, ys)
-            '''
 
             updates, opt_state = optim.update(grad, opt_state)
             params = optax.apply_updates(params, updates)
@@ -678,5 +658,3 @@ class nn_wrapper():
         nn_params, _, _ = final_carry
 
         return nn_params, outputs
-
-

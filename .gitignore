@@ -7,4 +7,5 @@ animation*
 .idea/
 *.npy
 *.swp
+*.png
 tmp/

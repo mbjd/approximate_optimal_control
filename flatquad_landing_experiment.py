@@ -364,14 +364,14 @@ if __name__ == '__main__':
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.000001,
+        'lr_final': 0.00001,
 
         # relative importance of the losses for v, vx, vxx.
-        'nn_sobolev_weights': np.array([1., 100., 0.]),
+        'nn_sobolev_weights': np.array([1., 100., 50.]),
         # old version of that. 
         'nn_V_gradient_penalty': 100.,
 
-        'nn_progressbar': True,
+        'nn_progressbar': False,
     }
 
         

@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as np
+import numpy as onp
 import diffrax
 
 import nn_utils
@@ -8,6 +9,7 @@ import pontryagin_utils
 import ddp_optimizer
 import visualiser
 import ct_basics
+from misc import *
 
 import matplotlib
 import matplotlib.pyplot as pl
@@ -17,14 +19,9 @@ import meshcat.transformations as tf
 
 import ipdb
 import time
-import numpy as onp
 import tqdm
 from operator import itemgetter
 
-
-def rnd(a, b):
-    # relative norm difference. useful for checking if matrices or vectors are close
-    return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
 
 def main(problem_params, algo_params):
 
@@ -502,6 +499,12 @@ def main(problem_params, algo_params):
     # train once with new sobolev loss...
     init_key, key = jax.random.split(key)
     params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+
+    n_params = count_floats(params_sobolev)
+    n_data = count_floats(train_ys)
+
+    print(f'params/data ratio = {n_params/n_data:.3f}')
 
     train_key, key = jax.random.split(key)
     params_sobolev, oups_sobolev = v_nn.train_sobolev(

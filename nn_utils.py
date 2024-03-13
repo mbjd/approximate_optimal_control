@@ -14,18 +14,15 @@ from equinox import filter_jit
 
 # other, trivial stuff
 import numpy as onp
-
 import matplotlib.pyplot as pl
 
 import ipdb
 
 from tqdm import tqdm
 from functools import partial
+from misc import *
 
 
-def rnd(a, b):
-    # relative norm difference. useful for checking if matrices or vectors are close
-    return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
 
 
 def train_test_split(ys, train_frac=0.9):

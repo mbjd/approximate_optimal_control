@@ -10,6 +10,7 @@ import pontryagin_utils
 import ddp_optimizer
 import visualiser
 import ct_basics
+from misc import *
 
 import matplotlib.pyplot as pl
 import meshcat
@@ -25,9 +26,6 @@ from operator import itemgetter
 # from jax import config
 # config.update("jax_enable_x64", True)
 
-def rnd(a, b):
-    # relative norm difference. useful for checking if matrices or vectors are close
-    return np.linalg.norm(a - b) / np.maximum(np.linalg.norm(a), np.linalg.norm(b))
 
 
 def lqr_sanitycheck(problem_params, algo_params):
@@ -356,10 +354,10 @@ if __name__ == '__main__':
         'nn_batchsize': 512,
         'nn_N_epochs': 32,
         'nn_testset_fraction': 0.05,
-        'lr_staircase': False,
+        'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
-        'lr_final': 0.002,
+        'lr_final': 0.001,
 
         # relative importance of the losses for v, vx, vxx.
         'nn_sobolev_weights': np.array([1., 2., 1.]),

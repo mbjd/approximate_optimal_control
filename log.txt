@@ -1755,3 +1755,12 @@ than 10x improvement in vxx test loss compared to not including it at all,
 and like 2-3x better vx loss. takes 1-2 s to train on laptop.
 
 
+meeting. main input: describe the approach at a very high level in clear
+and known terms. level set/dynamic programming -> level set "expansion" as
+active learning problem -> oracle = backward PMP or TO. without any
+implementation issues & details, these come later.
+
+functional priors: this idea exists and bhavya did some work on it! i
+
+BNN: find last layer weight distribution using BLR with previous layers
+fixed. simple but apparently this works!

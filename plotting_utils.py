@@ -624,8 +624,7 @@ def plot_1d(all_sols, all_ts, where_resampled, problem_params, algo_params):
 
 
 
-def plot_nn_train_outputs(outputs):
-
+def plot_nn_train_outputs_old(outputs):
 
     pl.figure('NN training visualisation', figsize=(15, 10))
 
@@ -656,7 +655,7 @@ def plot_nn_train_outputs(outputs):
     # pl.ylim([1e-3, 1e3])
     pl.legend()
 
-    # training subplot
+    # testing subplot
     pl.subplot(212, sharex=ax1, sharey=ax1)
     pl.gca().set_prop_cycle(None)
     c = 0
@@ -677,5 +676,36 @@ def plot_nn_train_outputs(outputs):
     pl.grid(axis='both')
     # pl.ylim([1e-3, 1e3])
     pl.legend()
+
+
+
+
+def plot_nn_train_outputs(outputs, a=.5):
+
+    # pl.figure('NN training visualisation', figsize=(15, 10))
+
+    # newer version for order 2 sobolev nn. outputs is a dict with keys:
+    # 'train_loss_terms', 'test_loss_terms':
+    # both containing a Nx3 array with loss terms for v, vx, vxx
+    # (just like returned by the training function)
+    # 'lr': (N,) array of learning rates
+
+    # training subplot
+    ax = pl.subplot(211)
+    pl.loglog(outputs['train_loss_terms'], label=('v', 'vx', 'vxx'), alpha=a)
+    pl.ylabel('training losses')
+    pl.grid('on')
+    pl.legend()
+
+    # training subplot
+    pl.subplot(212, sharex=ax, sharey=ax)
+    pl.loglog(outputs['test_loss_terms'], label=('v', 'vx', 'vxx'), alpha=a)
+    pl.ylabel('test losses (fixed PRNGKey)')
+    pl.grid('on')
+
+    pl.loglog(outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.33)
+
+    pl.legend()
+
 
 

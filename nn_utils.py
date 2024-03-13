@@ -629,7 +629,7 @@ class nn_wrapper():
 
             aux_output = {
                 'lr': lr_schedule(opt_state[0].count),
-                'loss_terms': loss_terms,
+                'train_loss_terms': loss_terms,
             }
 
             # if given, calculate test loss.

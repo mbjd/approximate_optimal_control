@@ -458,8 +458,9 @@ def main(problem_params, algo_params):
 
 
 
+
     '''
-    for j in range(10):
+    for j in range(10, 15):
         pl.figure(str(j))
         plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig))
     pl.show()
@@ -468,12 +469,15 @@ def main(problem_params, algo_params):
     # choose initial value level.
     v_k = 1000 * problem_params['V_f']
     v_k = np.inf  # fullest gas
-    v_k = 50  # full gas
+    v_k = 5  # full gas
     print(f'target value level: {v_k}')
 
     # extract corresponding data points for NN fitting.
     # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
     bool_train_idx = sols_orig.ys['v'] < v_k
+
+    # value "band" instead.
+    bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
 
     all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
 
@@ -496,32 +500,34 @@ def main(problem_params, algo_params):
     test_ys_n = normaliser.normalise_all_dict(test_ys)
 
 
-    # train once with new sobolev loss...
     init_key, key = jax.random.split(key)
-    params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
-
-    n_params = count_floats(params_sobolev)
+    # to get a feel for over/underparameterisation.
+    n_params = count_floats(params_init)
     n_data = count_floats(train_ys)
+    print(f'params/data ratio = {n_params/n_data:.4f}')
 
-    print(f'params/data ratio = {n_params/n_data:.3f}')
-
+    # train once with new sobolev loss...
     train_key, key = jax.random.split(key)
     params_sobolev, oups_sobolev = v_nn.train_sobolev(
-            train_key, ys_n, params_sobolev, algo_params, ys_test=test_ys_n
+            train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
     )
 
-    ax = pl.subplot(211)
-    pl.loglog(oups_sobolev['loss_terms'], label=('v', 'vx', 'vxx'), alpha=.5)
-    pl.ylabel('training losses')
-    pl.grid('on')
-    pl.legend()
+    # and once without
+    algo_params_fake = algo_params.copy()
+    algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
+    train_key, key = jax.random.split(key)
+    params, oups = v_nn.train_sobolev(
+            train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
+    )
 
-    pl.subplot(212, sharex=ax, sharey=ax)
-    pl.loglog(oups_sobolev['test_loss_terms'], label=('v', 'vx', 'vxx'), alpha=.5)
-    pl.ylabel('test losses (fixed PRNGKey)')
-    pl.grid('on')
-    pl.legend()
+
+
+
+    plotting_utils.plot_nn_train_outputs(oups_sobolev)
+    pl.figure()
+    plotting_utils.plot_nn_train_outputs(oups)
 
     pl.show()
 
@@ -656,10 +662,10 @@ def main(problem_params, algo_params):
 
         ipdb.set_trace()
 
-    vxx_weight_sweep()
+    # vxx_weight_sweep()
 
 
-    def plot_trajectory_vs_nn(idx):
+    def plot_trajectory_vs_nn(idx, params):
 
         sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
 
@@ -679,9 +685,9 @@ def main(problem_params, algo_params):
         pl.plot(interp_ts, lqr_vs, label='LQR V(x(t))', color='C1', alpha=.5)
 
         # same with the NN
-        xn = jax.vmap(normaliser.normalise_x)(interp_ys['x'])
-        nn_vs_n = jax.vmap(v_nn.nn.apply, in_axes=(None, 0))(params, xn)
-        pl.plot(interp_ts, jax.vmap(normaliser.unnormalise_v)(nn_vs_n), c='C1', label='NN v(x(t))')
+        v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+        vs = jax.vmap(v_nn_unnormalised, in_axes=(None, 0))(params, interp_ys['x'])
+        pl.plot(interp_ts, vs, c='C1', label='NN v(x(t))')
         pl.legend()
 
         # and now the same for vx
@@ -691,15 +697,17 @@ def main(problem_params, algo_params):
         pl.plot(interp_ts, interp_ys['vx'], alpha=.5, label='trajectory vx(x(t))', c='C0')
         pl.plot(ts, vxs, alpha=.5, linestyle='', marker='.', c='C0')
 
-        nn_vxs_n = jax.vmap(jax.jacobian(v_nn.nn.apply, argnums=1), in_axes=(None, 0))(params, xn).squeeze()
-        nn_vxs = jax.vmap(normaliser.unnormalise_vx)(nn_vxs_n)
+        nn_vx_fct = jax.jacobian(v_nn_unnormalised, argnums=1)
+        nn_vxs = jax.vmap(nn_vx_fct, in_axes=(None, 0))(params, interp_ys['x'])
         pl.plot(interp_ts, nn_vxs, label='NN v_x(x(t))', c='C1')
 
         lqr_vxs = jax.vmap(jax.jacobian(V_f))(interp_ys['x'])
         pl.plot(interp_ts, lqr_vxs, label='lqr Vx', c='C2', alpha=.5)
         pl.legend()
 
-    # plot_trajectory_vs_nn(12)
+    plot_trajectory_vs_nn(12, params)
+    plot_trajectory_vs_nn(12, params_sobolev)
+    ipdb.set_trace()
     pl.show()
 
     def forward_sim_nn(x0, params):

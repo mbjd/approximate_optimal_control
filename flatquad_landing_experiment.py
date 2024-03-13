@@ -350,13 +350,13 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,
 
-        'nn_layerdims': (32, 32, 32),
+        'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 512,
         'nn_N_epochs': 32,
         'nn_testset_fraction': 0.05,
-        'lr_staircase': True,
+        'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.02,
+        'lr_init': 0.01,
         'lr_final': 0.001,
 
         # relative importance of the losses for v, vx, vxx.

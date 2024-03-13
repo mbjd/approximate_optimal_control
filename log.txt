@@ -1704,6 +1704,16 @@ next steps, mostly carried from yesterday:
 still trying to find good nn tuning. currently doing grid search over
 relative weights for vx and vxx loss.
 
+probably the very basic reason that the value nn works shit is that we are
+asking too much. if we set the value level relatively high, but only train
+with data from initial backward shooting from uniform terminal states,
+there will be large empty regions, where we cannot hope for any sort of
+good fit. if v_k is smaller indeed it works much better: vxx test loss goes
+down almost two orders of magnitude by switching on vxx training, and vx
+loss goes down as well! just like i was hoping for. though, this is still
+probably pretty close to a quadratic value function and not an indicator of
+real world performance.
+
 some new thoughts. if we want to have value sublevel sets we should really
 make sure that the value function does not go down outside of the usable
 range. maybe this happens automatically? if not, we could try adding some
@@ -1711,5 +1721,37 @@ sort of "prior" loss that pushes the value function up slightly (in a much
 bigger region than where we have data so the influence there should be
 negligible). maybe also penalise norm of the hessian similarly, to
 encourage smoothness?
+
+also, how do we evaluate whether we "know" the value function in a certain
+sublevel set? or even better, directly what is the largest value sublevel
+set in which the information is accurate?
+
+two ways: posterior uncertainty of some ensemble and cross validation. if
+doing the first we need to calibrate (via cross validation probably). is
+this just a detour?
+
+just for fun calculated "overparameterisation" ratio, n_params / n_data.
+for all practical intents & purposes each entry of vxx is just another
+label which we have to fit, although with particular "meaning" and with a
+modified (differentiated) NN but with the same params. Therefore we
+calculate just naively the total number of floats in the params and data
+pytree.
+
+I expected to be in the underparameterised regime but not that low: it is
+0.005! half a percent! (for that particular dataset and (32, 32, 32) nn).
+thus it should also be expected that we cannot reach zero, or very low,
+training let alone test error.
+
+trying the same thing but with (1024, 1024, 1024) shaped NN. This gives us
+overparameterisation at a ratio of 4.312. took 5 min to train! aaaand it
+completely failed. looks like lr was initially way too large, then just
+right for a tiny moment, then too low. not going to fix that now, fat NNs
+like this are impractical anyway (unless we put it on euler or google
+TPU.... should do that sometime anyway)
+
+other than that, current settings are pretty decent. not what i kind of
+hoped for (much lower vx test loss when including vxx), but still more
+than 10x improvement in vxx test loss compared to not including it at all,
+and like 2-3x better vx loss. takes 1-2 s to train on laptop.
 
 

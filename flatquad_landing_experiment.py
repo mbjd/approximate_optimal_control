@@ -32,8 +32,8 @@ def rnd(a, b):
 
 def lqr_sanitycheck(problem_params, algo_params):
 
-    # is LQR as optimal as it says? 
-    # let LQR value function be x.T P_lqr x. 
+    # is LQR as optimal as it says?
+    # let LQR value function be x.T P_lqr x.
     # then costate = Vx = 2 * P_lqr x.
 
     def linear_forward_sim(x0, P_lqr):
@@ -46,7 +46,7 @@ def lqr_sanitycheck(problem_params, algo_params):
 
         term = diffrax.ODETerm(forwardsim_rhs)
         step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol']/10, atol=algo_params['pontryagin_solver_atol']/10)
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True) 
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         # simulate for pretty damn long
         forward_sol = diffrax.diffeqsolve(
@@ -59,7 +59,7 @@ def lqr_sanitycheck(problem_params, algo_params):
 
 
 
-    # find terminal LQR controller and value function. 
+    # find terminal LQR controller and value function.
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
     V_lqr = lambda x: x.T @ P_lqr @ x
 
@@ -67,33 +67,33 @@ def lqr_sanitycheck(problem_params, algo_params):
 
     sol = linear_forward_sim(x0, P_lqr)
 
-    
+
     pl.plot(sol.ts, sol.ys[1] - sol.ys[1].min(), label='experienced cost-to-go')
     pl.plot(sol.ts, jax.vmap(V_lqr)(sol.ys[0]), label='LQR value fct.')
     pl.legend()
 
     pl.figure()
-    
+
     V_lqr = lambda x: x.T @ (0.5 * P_lqr) @ x
 
     x0 = 0.1 * np.ones(6)
 
     sol = linear_forward_sim(x0, 0.5 * P_lqr)
 
-    
+
     pl.plot(sol.ts, sol.ys[1] - sol.ys[1].min(), label='experienced cost-to-go, P/2')
     pl.plot(sol.ts, jax.vmap(V_lqr)(sol.ys[0]), label='LQR value fct., P/2')
     pl.legend()
 
-    # therefore, we have LQR value = 0.5 x.T P_lqr x definitely. 
+    # therefore, we have LQR value = 0.5 x.T P_lqr x definitely.
 
 
-    # also, second sanity check. The LQR controller is u = -Kx. 
-    # if we construct the map 
-    #     x -> u*(x, lambda(x)) 
+    # also, second sanity check. The LQR controller is u = -Kx.
+    # if we construct the map
+    #     x -> u*(x, lambda(x))
     #        = u*(x, Vx(x))
     #        = u*(x, P_lqr @ x)
-    # and differentiate it at the equilibrium, then we should 
+    # and differentiate it at the equilibrium, then we should
     # get the same control gain (up to the minus)
 
     # this is all using the correct (hopefully) V_lqr = 0.5 x.T P_lqr x.
@@ -113,7 +113,7 @@ def lqr_sanitycheck(problem_params, algo_params):
 
 def sqrtm_vs_cholesky():
 
-    thetas = np.linspace(0, 2*np.pi, 100) 
+    thetas = np.linspace(0, 2*np.pi, 100)
     xs = np.vstack([np.cos(thetas), np.sin(thetas)])
 
     pl.plot(xs[0], xs[1], 'o-', label='circle')
@@ -130,17 +130,17 @@ def sqrtm_vs_cholesky():
     Phalf_cholesky = np.linalg.cholesky(ellipse_P)
 
 
-    # the .T is needed because it is the other way around as 
+    # the .T is needed because it is the other way around as
     # in the actual code, where we have xs.T @ P_sqrtm, where
     # xs.T is a tall matrix of state space points in row vector form.
     ellipse_orig = np.linalg.inv(ellipse_P_sqrt.T) @ xs
     ellipse_sqrtm = np.linalg.inv(Phalf_sqrtm.T) @ xs
     ellipse_cholesky = np.linalg.inv(Phalf_cholesky.T) @ xs
 
-    # the three ellipses are definitely the same so we are in luck. 
-    # also the distribution of points looks to be the same for all three. 
-    # so it doesn't really matter which one we use -- in that case 
-    # cholesky is probably the nicest. 
+    # the three ellipses are definitely the same so we are in luck.
+    # also the distribution of points looks to be the same for all three.
+    # so it doesn't really matter which one we use -- in that case
+    # cholesky is probably the nicest.
 
     pl.plot(ellipse_orig[0], ellipse_orig[1], 'o-', label='ellipse orig', alpha=.3)
     pl.plot(ellipse_sqrtm[0], ellipse_sqrtm[1], 'o-', label='ellipse sqrtm', alpha=.3)
@@ -151,24 +151,24 @@ def sqrtm_vs_cholesky():
 
 def u_star_debugging(problem_params, algo_params):
 
-    # found this failure case randomly during ddp testing. it does appear to 
-    # show up right before things go south. not sure if it is the culprit. 
+    # found this failure case randomly during ddp testing. it does appear to
+    # show up right before things go south. not sure if it is the culprit.
 
     # this is pretty ugly, and i'm not exactly sure why it happens. in general
-    # there seems to be some numerical noise on the u_star, although generally 
+    # there seems to be some numerical noise on the u_star, although generally
     # only like 1e-6 or 1e-5
 
-    # alright, fixed it by a cheap hack. reason is that we are comparing 
-    # objective values for different candidate solutions. if the candidates are 
-    # close with small distance d, then the objective differences are O(d^2). 
-    # this causes float inaccuracies to be significant. 
+    # alright, fixed it by a cheap hack. reason is that we are comparing
+    # objective values for different candidate solutions. if the candidates are
+    # close with small distance d, then the objective differences are O(d^2).
+    # this causes float inaccuracies to be significant.
 
-    # fixed it by re-evaluating only the difference to the optimum in a second 
-    # round of comparison. the numerical "chatter" is still here but only in a 
-    # much smaller region close to the active set changes. 
+    # fixed it by re-evaluating only the difference to the optimum in a second
+    # round of comparison. the numerical "chatter" is still here but only in a
+    # much smaller region close to the active set changes.
 
     # in a future "proper" implementation we should just take the KKT conditions
-    # which IIRC are all linear-ish instead of quadratic. 
+    # which IIRC are all linear-ish instead of quadratic.
 
     x = np.array([4.538097,6.19019,-0.10679064,-2.4105127,-3.6202462,0.04513513])
     lam = np.array([17.425396  , 22.878305  ,  0.73656803, -2.9136074 , -6.116059  ,0.28396177])
@@ -186,7 +186,7 @@ def u_star_debugging(problem_params, algo_params):
     ustar_vmap = jax.vmap(ustar_fct, in_axes=(0, 0))
     ustar_vmap_nonsmooth = jax.vmap(ustar_fct_nonsmooth, in_axes=(0, 0))
 
-    # go in random directions a bit and plot. 
+    # go in random directions a bit and plot.
     k = jax.random.PRNGKey(2)
     direction = jax.random.normal(k, shape=(12,))
     direction = direction / np.linalg.norm(direction)
@@ -199,7 +199,7 @@ def u_star_debugging(problem_params, algo_params):
     lams = lam + alphas * lamdir
 
 
-    def ustar_fct(x, lam): 
+    def ustar_fct(x, lam):
         return pontryagin_utils.u_star_2d(x, lam, problem_params, debug_oups=True)
 
     ustar_vmap = jax.vmap(ustar_fct, in_axes=(0, 0))
@@ -237,9 +237,9 @@ def u_star_debugging(problem_params, algo_params):
     lowerbounds = problem_params['U_interval'][0]
     upperbounds = problem_params['U_interval'][1]
     pl.plot([lowerbounds[0], lowerbounds[0], upperbounds[0], upperbounds[0], lowerbounds[0]],
-            [lowerbounds[1], upperbounds[1], upperbounds[1], lowerbounds[1], lowerbounds[1]], 
+            [lowerbounds[1], upperbounds[1], upperbounds[1], lowerbounds[1], lowerbounds[1]],
             color='black', label='constraints', alpha=0.2)
-    
+
 
     pl.show()
 
@@ -248,7 +248,7 @@ def u_star_debugging(problem_params, algo_params):
 
 def current_weird_experiment(problem_params, algo_params):
 
-    # get initial "easy" solution with LQR for state close to goal. 
+    # get initial "easy" solution with LQR for state close to goal.
     x0 = jax.random.normal(jax.random.PRNGKey(0), shape=(problem_params['nx'],)) * 0.1
     print(x0)
 
@@ -258,9 +258,9 @@ def current_weird_experiment(problem_params, algo_params):
     ddp_optimizer.ddp_main(problem_params, algo_params, x0)
     ipdb.set_trace()
 
-    
-    
-    
+
+
+
 
 
 
@@ -274,8 +274,8 @@ if __name__ == '__main__':
     I = m * (r/2)**2 # kg m^2 / radian (???)
     umax = m * g * 1.2 / 2  # 20% above hover thrust
 
-    # remove time arguments sometime now that we're mostly treating 
-    # infinite horizon, time-invariant problems? 
+    # remove time arguments sometime now that we're mostly treating
+    # infinite horizon, time-invariant problems?
     def f(x, u):
 
         # unpack for easier names
@@ -300,7 +300,7 @@ if __name__ == '__main__':
         # state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
         state_length_scales = np.array([1, 1, np.deg2rad(30), .5, .5, np.deg2rad(120)])
         Q = np.diag(1/state_length_scales**2)
-        state_cost = x.T @ Q @ x  
+        state_cost = x.T @ Q @ x
 
         # can we just set an input penalty that is zero at hover?
         # penalise x acc, y acc, angular acc here.
@@ -345,48 +345,40 @@ if __name__ == '__main__':
 
 
     algo_params = {
-        # 'pontryagin_solver_dt': 2 ** -8,  # not really relevant if adaptive
-        # 'pontryagin_solver_adaptive': True,  always adaptivee
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
         'pontryagin_solver_maxsteps': 256, # nice if it is not waaay too much
-        # causes it not to quit when hitting maxsteps. probably still all subsequent 
+        # causes it not to quit when hitting maxsteps. probably still all subsequent
         # results will be unusable due to evaluating solutions outside their domain giving NaN
-        'throw': False,  
+        'throw': False,
 
-        'nn_layerdims': (128, 128, 128),
-        'nn_batchsize': 64,
-        'nn_N_epochs': 1000,
-        'nn_testset_fraction': 0.1,
+        'nn_layerdims': (32, 32, 32),
+        'nn_batchsize': 512,
+        'nn_N_epochs': 32,
+        'nn_testset_fraction': 0.05,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.01,
-        'lr_final': 0.00001,
+        'lr_init': 0.02,
+        'lr_final': 0.002,
 
         # relative importance of the losses for v, vx, vxx.
-        'nn_sobolev_weights': np.array([1., 20., 20.]),
+        'nn_sobolev_weights': np.array([1., 2., 1.]),
         # old version of that. v weight 1 default.
         'nn_V_gradient_penalty': 20.,
 
         'nn_progressbar': True,
     }
 
-        
+
     # lqr_sanitycheck(problem_params, algo_params)
+    # current_weird_experiment(problem_params, algo_params)
+    # u_star_debugging(problem_params, algo_params)
 
     levelsets.main(problem_params, algo_params)
 
-    # backward_with_hessian(problem_params, algo_params)
-    # current_weird_experiment(problem_params, algo_params)
-    # u_star_debugging(problem_params, algo_params)
     ipdb.set_trace()
 
-    # all_sols = rrt_sampler.rrt_sample(problem_params, algo_params)
 
-    # visualiser.plot_trajectories_meshcat(all_sols, colormap='viridis')
 
-    # otherwise visualiser closes immediately
-
-    
 
 

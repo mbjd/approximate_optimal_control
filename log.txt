@@ -1016,27 +1016,27 @@ backward reachability of the PMP/characteristic equations...  what should I do?
 
 
 in other news, lots of bug hunting today. more in commit message 178f9265. also
-am compiling an overview of related publications right now :) 
+am compiling an overview of related publications right now :)
 
 
 2024-02-21
 
 meeting w/ Bhavya, Lenart, Miguel. go over list of similar works, seems fine
-for them. 
+for them.
 
 talk about self doubting. got reassuring reply that the goal is not to make
 something great, but to make something and learn a lot in doing so :) also that
-the active learning part will work quite certainly. 
+the active learning part will work quite certainly.
 
 meeting also with Miguel at his lab to get suggestions about getting TO to
 work. according to him: priority 1 = regularisation and/or line search, also
 making sure that the derivation behind it is correct, probably smarter to go
 with DOC style rather than "guided characteristics" style. also constraints ->
-soft constraints? would remove discontinuous RHS in backward pass. 
+soft constraints? would remove discontinuous RHS in backward pass.
 
 
 
-2024-02-23 
+2024-02-23
 
 spent all day yesterday tinkering with pure backward integration again, but
 this time including Vxx with the formula we derived a couple times now (the one
@@ -1051,21 +1051,21 @@ learning oracle, that gives us a result at a precisely specified point, but is
 expensive and also not very reliable. PMP backward shooting gives us data at
 approximately the x0 we asked for, where the distance between the two probably
 grows exponentially with the time horizon, according to the fastest close loop
-eigenvalue. 
+eigenvalue.
 
-I can think of a couple ways to do this: 
+I can think of a couple ways to do this:
 
 - two separate iterations: initially some TO until "slow manifold" is
   sufficiently known, after that backward shooting to quickly find fast dynamics
 
 - active learning formulation with two oracles, and some condition to choose between them
 
-- just always do both, knowing both can "fail" in some cases. 
+- just always do both, knowing both can "fail" in some cases.
 
 - another combined thing. if backward shooting comes *kind of* close to the
   desired state do a forward simulation with the local quadratic value from
   backwardpass. from the new terminal state do backward shooting again. maybe do
-  this a couple times? 
+  this a couple times?
 
 
 but, all in all, the conclusion is that we still need at least a somewhat
@@ -1075,8 +1075,8 @@ working trajectory optimiser. two things are severely lacking:
 
 - no linesearch/regularisation yet, and also questions about how to implement
   them without major refactoring. basically both need access to iteration k-2,
-  or we need to modify the scan loop from the outside somehow. shouldn't it rather 
-  be a while loop? we don't really need the in between iterations as output. but still the 
+  or we need to modify the scan loop from the outside somehow. shouldn't it rather
+  be a while loop? we don't really need the in between iterations as output. but still the
   basic implementation questions would probably be the same.
 
 
@@ -1084,16 +1084,16 @@ working trajectory optimiser. two things are severely lacking:
 was just thinking about all the things that are left to do and it does seem
 kind of overwhelming... so here is a high-level list of goals.
 
-base goals: 
+base goals:
 - get DDP working (correctness, line search/regularization)
 - try second-order Sobolev NN
 - get basic active learning working w/ Sobolev NN ensemble
   (without special regard for local solution conflicts)
 
-fancy goals: 
-- think properly about active learning setup with regards to sobolev learning. 
+fancy goals:
+- think properly about active learning setup with regards to sobolev learning.
 - do "mixed" active learning - with characteristics and TO oracles and some decision
-- implement explicit convex optimisation for u* for general case. 
+- implement explicit convex optimisation for u* for general case.
 - address "pruning" of local solutions with NN cost function
 
 
@@ -1106,7 +1106,7 @@ wrong? damn.
 
 possible remedy: replace the argmin (selecting from candidate solutions in
 u_star_2d) by some softmax smoothed thing (just a tiny bit) and see if it
-improves. bit of a hack though. 
+improves. bit of a hack though.
 
 or, investigate more thoroughly and make this not happen at all! this should
 not be happening, u* (i think) is piecewise linear....
@@ -1121,22 +1121,22 @@ closely approximates the selection of the best candidate solution, but is
 smooth, using softmax and logsumexp. does not look very much better on the
 plot,  and can output infeasible solutions. would be nicer if it was always
 feasible... but a convex combination of several solutions which may be
-infeasible can just become infeasible not much to do about that. 
+infeasible can just become infeasible not much to do about that.
 
 
 when plotting the gradients (jvp in direction of (x, lam) perturbation) they
-look even worse for the "smooth" version... this is probably not it. 
+look even worse for the "smooth" version... this is probably not it.
 
 even when plotting the values of H at the different candidate solutions, we
 get some numerical jitter. and of course when the different ones are rather
 close they only differ by small amounts -- quadratic in the difference between
 them. these two effects combine to make the u* function "jitter" between
-selecting different candidate solutions. 
+selecting different candidate solutions.
 
 I have a feeling this is fundamental to any active set type method that
 calculates candidate solutions, and then selects the best one, because close
 to active set changes the differences in cost function are always going to be
-tiny. If the comparison between different objective values is accurate up to 
+tiny. If the comparison between different objective values is accurate up to
 machine eps, then the potential inaccuracy in the solution will be sqrt(eps)!
 the fundamental mistake is this: comparing two large-ish floats which are very
 close together.
@@ -1150,12 +1150,12 @@ progress!
 the individuual solution candidates do have some numerical noise which is
 probably why we're seeing the chattering. however, their individual gradients
 look absolutely perfect. therefore the only source of the problems must be the
-chattering which also chatters between different gradients. 
+chattering which also chatters between different gradients.
 
 "usual" explicit QP solvers solve this by explicitly storing the parameter
 regions over which a linear solution map is valid. Maybe we can improve it by
 pre-storing everything we can (i.e. everything except the QP parameter p =
-H_u(x, u_taylorexpansion, lambda)). 
+H_u(x, u_taylorexpansion, lambda)).
 
 
 what also seems surprising to me is that the function u* does not even seem to
@@ -1180,39 +1180,39 @@ switches. still a bit sus...
 
 wrote some stuff about mpqp. in case i need it i now know how to prune the
 active sets that are never optimal (by solving an LP feasibility problem for
-each one). 
+each one).
 
 
 back at debugging positive definiteness. scoured through all ct-ddp papers i
 could find, and it doesn't look like any of them claim that the hessian stays
-positive definite. 
+positive definite.
 
 can we use sqrtm(S) instead as an ODE state? but probably ugly things would
 happen if the ODE wants to make it non-pd regardless...
 
 apparently the ricatti eq. itself does result in pd solutions if inputs are
-pd. 
+pd.
 
 managed to rewrite both the ricatti eq. and our Sdot in a way that makes it
 obvious they are one and the same (write the quadratic in terms of S as  [1;
 S]' [some matrix] [1; S]). so in theory I think the solutions should stay
-positive definite as long as the input cost hessian l_uu and thus H_uu are. 
+positive definite as long as the input cost hessian l_uu and thus H_uu are.
 
 
 also, tried regularisation. no scheduling of any sort, just constant penalty
 of distance to previous trajectory, weighted with Q matrix. seems to do what
 it should. choosing the scaling of the penalty term dynamically will be the
-far greater challenge. 
+far greater challenge.
 
 
 
 trying to understand what precisely doesn't work about the new DOC RHS
 function. changing the old one step by step to hopefully either arrive at the
-(correct) new version, or to find the change that breaks it. 
+(correct) new version, or to find the change that breaks it.
 
 got pretty far actually, without changing the look of the solutions at all.
 everything is now in terms of linearisations at the forward trajectory. but
-still it might precisely correspond to the neater DOC derivation. 
+still it might precisely correspond to the neater DOC derivation.
 
 still getting similar instability issues, it almost looks like again it is
 caused by chattering at the constraint switching time... there are some papers
@@ -1237,7 +1237,7 @@ the same concept, checking if some active set is ever optimal by solving an
 LP. they also have a nice method to do extensive enumeration with a
 tree-pruning strategy allowing them to skip over many active sets, knowing in
 advance they are not optimal. if we scale to larger examples this might be
-pretty smart. but for the moment let's ignore this. 
+pretty smart. but for the moment let's ignore this.
 
 
 found a mistake in DOC derivation! fixed it, in dump section 4.6.2,  "Backward
@@ -1263,11 +1263,11 @@ discrete time DP.
 and then from there, see how much we can optimise and "cheat" our way around
 the limitations for physical systems which, far from the origin, have a clear
 timescale separation going on, but while still retaining the benefits of the
-full optimal control law close to the origin. 
+full optimal control law close to the origin.
 
 is this dumb? tbh if we do this and then end up speeding up the exploration
 along slow  manifolds using TO we will probably arrive at exactly the same
-thing we're building right now. 
+thing we're building right now.
 
 
 played around with backward integration and time-value reparameterisation
@@ -1287,11 +1287,11 @@ completely mess up the backwards PMP approach due to frequent resampling, and
 a data generation which is more dense than what would be needed for NN
 fitting, which is needed to even find the slow, turnpike-like trajectories.
 
-TO can do that very nicely however! I am proposing a two-step scheme like this. 
+TO can do that very nicely however! I am proposing a two-step scheme like this.
 
 1. collect, with TO, a database of many trajectories, from x0 where the fast
 states are either zero or "already stabilised". point being, we are interested
-in long trajectories mainly. 
+in long trajectories mainly.
 
 2. using backward PMP, "largest underestimator" type NN, and growing the
 dataset as increasing value level sets, approximate the full backward
@@ -1305,7 +1305,7 @@ started). Viewed from another lens, we can now circumvent the problem of
 having to generate "too many" trajectories for the purpose of finding the
 turnpike, because we already have it. instead we can do a relatively sparse
 sampling of those trajectories, until the BNN has enough data to be confident
-but not (much) more. See sketch. 
+but not (much) more. See sketch.
 
 
 flashy title: using optimal trajectories to speed up backwards PMP
@@ -1315,8 +1315,8 @@ systems. hehe
 
 found the mistakes!!! what I called H_x in the code was not actually H_x. now
 the two backwardpass rhs's should be the same. though I almost feel like it is
-more brittle and fails sooner now... at least we now have a theoretical basis 
-for doing line search or regularisation. 
+more brittle and fails sooner now... at least we now have a theoretical basis
+for doing line search or regularisation.
 
 am making a new plotting function to see if the lambdas and S matrices
 actually look like gradients and hessians of v, at least in the direction of
@@ -1335,7 +1335,7 @@ eigenvalues. did the following
 
 unfortunately I never got to the failure case because now it fails much
 sooner, when S grows very large on a long-ish time interval where both inputs
-are at the upper constraint. 
+are at the upper constraint.
 
 though, i could always test the same thing in the current
 backward_with_hessian  example in flatquad_landing_experiment.py -- there we
@@ -1347,65 +1347,65 @@ above, would undoubtedly be able to accelerate the "pure" PMP backward
 reachability approach. On the other hand, I've now invested 2 months into
 this! well, looked back into log and commits, and I've only really started
 this one month ago. january was spent entirely thinking about backwards PMP
-type things. so maybe the sunk cost fallacy is not huge here after all :) 
+type things. so maybe the sunk cost fallacy is not huge here after all :)
 
 but more practically, it would be cool to start working on the learning part.
 should I just go ahead and do this with backward PMP regardless? there are
 still many nontrivial questions to be answered there, even if we completely
-forget DDP stuff: 
+forget DDP stuff:
 
-- which new points to propose? 
-  2 main strategies. a) sample statespace points and select good ones or b) 
-  start in the "interesting set" (BNN uncertain within value sublevel set) and 
+- which new points to propose?
+  2 main strategies. a) sample statespace points and select good ones or b)
+  start in the "interesting set" (BNN uncertain within value sublevel set) and
   explore it with some MCMC type thing
 
-- how to do bayesian NN? 
+- how to do bayesian NN?
   ensemble, stein, others? probably ensemble should be enough for a start
 
-- 2nd order Sobolev 
+- 2nd order Sobolev
   this I think is actually what I think could be the nicest of all things. Calculating
-  Vxx amounts to having feedback gains, enabling us to treat the nonliear system with 
+  Vxx amounts to having feedback gains, enabling us to treat the nonliear system with
   linear systems tools, instead of just having control inputs at some points. given that
   most usual systems *are* pretty close to their linearisations over large-ish regions
-  we should expect to make a decent improvement on brute force backward reachability 
+  we should expect to make a decent improvement on brute force backward reachability
   by doing this. maybe, who knows \o/
 
-- local/global? 
-  by now I think I have a decent grasp on this. If we learn V(x) as successive value sublevel sets this should be pretty natural. 
-  the question is then how quickly can we "fill" this sublevel set with data, especially in the direction 
-  of slow manifold/turnpike trajectories. but I think it should be manageable, we just have to live with 
-  dataset size O(timescale ratio) multiplied with whatever complexity we assume in 
-  terms of state space dimensionality. 
+- local/global?
+  by now I think I have a decent grasp on this. If we learn V(x) as successive value sublevel sets this should be pretty natural.
+  the question is then how quickly can we "fill" this sublevel set with data, especially in the direction
+  of slow manifold/turnpike trajectories. but I think it should be manageable, we just have to live with
+  dataset size O(timescale ratio) multiplied with whatever complexity we assume in
+  terms of state space dimensionality.
 
-- better strategy for u*? 
-  the current one works after the hack to minimise numerical chattering. certainly 
+- better strategy for u*?
+  the current one works after the hack to minimise numerical chattering. certainly
   cleaner would be active set enumeration + selection of the solution with smallest KKT residual.
-  from there there are millions of mpqp tricks, pruning of never-optimal active sets, 
-  decision tree structure, actual active set method running online but with precomputed 
-  KKT systems of some sort. 
-  even fancier, the suggestion of patrick kidger, where we extend diffrax with 
+  from there there are millions of mpqp tricks, pruning of never-optimal active sets,
+  decision tree structure, actual active set method running online but with precomputed
+  KKT systems of some sort.
+  even fancier, the suggestion of patrick kidger, where we extend diffrax with
   more flexible event handling, detect an active set change, and somehow give the
-  active set to the RHS in args. as a boolean vector? as a finished linear map from 
-  parameter to u*? Lots to be done there still. but probably best to put this on the 
-  back burner as the solutions here are kind of the most obvious. 
+  active set to the RHS in args. as a boolean vector? as a finished linear map from
+  parameter to u*? Lots to be done there still. but probably best to put this on the
+  back burner as the solutions here are kind of the most obvious.
 
 
 
 2024-03-04
 
-am investigating non-positive-definite vxx with pure backward integration. added 
-the state logdet(S) to the ODE, with RHS very trivially evaluated with jax: 
+am investigating non-positive-definite vxx with pure backward integration. added
+the state logdet(S) to the ODE, with RHS very trivially evaluated with jax:
 
-\dot logdet(S) = d/dt logdet(S + s \dot S) 
+\dot logdet(S) = d/dt logdet(S + s \dot S)
 
 as expected we get many small steps when det(S) is close to 0, i.e. logdet
 approaches -infty. which it still does! so unfortunately it seems like the
 determinant turning negative is not just a fluke but actually what happens for
-the solution of these ODEs. 
+the solution of these ODEs.
 
 okay, new info. if we compare the ricatti equation to standard form, we see
 that the Q matrix (constant term in quadratic rhs) is very non-pd when both
-upper input constraints are active. y dis? 
+upper input constraints are active. y dis?
 
 maybe this is just a thing that happens (for general systems and "unsuitably")
 defined costs... Maybe we just have to live with the fact that the value
@@ -1414,38 +1414,38 @@ the correct derivatives forming the Q and R matrix for the ricatti eq and
 found no mistakes...
 
 does this correspond intuitively to the fact that the feedback can be locally
-unstable in some directions at some points? 
+unstable in some directions at some points?
 
 alright, thought about it some more. am now pretty sure that this is a thing
 that happens normally. drew a picture to convince myself -- a great variety of
 2D, single-integrator navigation-type examples will do, as long as there is
 some sort of nonconvexity in the cost funciton. so, forget this, negative
-hessian eigenvalues are okay too! 
+hessian eigenvalues are okay too!
 
 
 found a couple additional papers applying pretty much my ideas (backward
 characteristics following, level set, remeshing) to 2D and 3D single
-integrator navigation examples. pretty cool for inspiration. but higher state space 
-dimension will certainly bring its challenges. 
+integrator navigation examples. pretty cool for inspiration. but higher state space
+dimension will certainly bring its challenges.
 
 atm I am doubting if we will get sobolev to learn an accurate hessian. It (the
 function x -> Vxx(x)) will definitely be nondifferentiable at some points,
 though continuous. this will be a bit of a challenge for the NN (maybe). if we
 then do the resampling step of forward simulating with approximate V, then
 backward simulating with the PMP, we carry with us this wrong hessian for all
-time. ways to remedy this could include: 
- 
- - accepting the inaccuracy and only using the hessian as a "small hint" for how 
+time. ways to remedy this could include:
+
+ - accepting the inaccuracy and only using the hessian as a "small hint" for how
    the value function should roughly look like
 
  - writing some analysis to show that the error becomes less significant with
    longer time horizon (akin to continuous time, finite horizon LQR for LTI
    system -- quite soon the influence of P(T) vanishes)
- 
+
  - making sure that the sobolev NN *does* actually approximate the hessian precisely!
-   maybe this works better if we have separate NNs, one for V(x) and one for lambda, 
+   maybe this works better if we have separate NNs, one for V(x) and one for lambda,
    with just one additional order of sobolevisation? but not shure why this is just
-   a wild guess based on intuition and would make other things harder too. 
+   a wild guess based on intuition and would make other things harder too.
 
 
 
@@ -1455,7 +1455,7 @@ time. ways to remedy this could include:
 
 set the goal of making a very basic mockup of the backward shooting, NN
 ensemble fitting, forward simulation loop. recently I've been thinking about
-this and gained two new pieces of intuition: 
+this and gained two new pieces of intuition:
 
 first, learning the value function in level sets should make global optimality
 much easier, because whenever two solutions "meet", they are of equal value,
@@ -1482,7 +1482,7 @@ the hessian or the half hessian or twice the hessian. am pretty sure now that
 ode_state['vxx'] is the half hessian. we initialise it with P_lqr which is
 definitely the half hessian of the LQR value function x.T P_lqr x. This causes
 the vxx eigenvalues to stay about constant in the linear region, indicating
-that the two are the same. 
+that the two are the same.
 
 HOWEVER, I did the hessian sanity check plot again (evaluating the taylor
 expansion along the trajectory) with the new dict solution format from pure
@@ -1494,7 +1494,7 @@ also put the "purely backward" stuff in its own class again.
 
 spent all day making this kind of plots and sanity checks. am not much wiser,
 also no prototype of backward shooting with NN fitting loop yet. todo next
-time \o/ 
+time \o/
 
 
 
@@ -1505,17 +1505,17 @@ ran some experiments of generating many, many trajectories, then plotting the
 ones with lowest v(0) (start of physical time = end of integration time).
 looks cool, there are trajectories which come from a bit further away, however
 it is obvious that purely random sampling will not lead much further. that
-much I knew beforehand. 
+much I knew beforehand.
 
-continued a tiny bit on the writeup. 
+continued a tiny bit on the writeup.
 
-took the nn implementation out of the dusty drawer and made it run again. 
-didn't find very nice hyperparams just jet, but looking promising. maybe it has 
+took the nn implementation out of the dusty drawer and made it run again.
+didn't find very nice hyperparams just jet, but looking promising. maybe it has
 trouble with data being on a "small" scale? maybe we need to build in some data
 normalisation...
 
 Quickly before heading home, figured out the adjustments for gradient under
-linear coordinate transformation. is pretty simple. implement tomorrow. 
+linear coordinate transformation. is pretty simple. implement tomorrow.
 
 also tomorrow: finish/clean up that writeup...
 
@@ -1529,10 +1529,10 @@ data!
 spent some time tuning nn hyperparams. low final learning rate substantially
 improves stuff! plotting the NN at states visited by a trajectory gives the
 expected result: decent fit in region where data was used (this case, value
-sublevels set 100), flailing around otherwise. 
+sublevels set 100), flailing around otherwise.
 
 
-went on a small debugging spree to do with LQR terminal value or half of it. 
+went on a small debugging spree to do with LQR terminal value or half of it.
 it seems that the optimal controller (backward PMP) gives costates similar to
 the value function 1/2 x.T P_lqr x. However the terminal value function was
 assumed  to be x.T @ P_lqr @ x. I really suspect we are doing something wrong
@@ -1545,7 +1545,7 @@ realise that here we need to undo the normalisation...
 still it is not trivial to find hyperparams that lead to a good fit. some
 gradients are still much smaller than unity. maybe we can tell the nn loss
 function about that and have a penalisation relative to the typical scale on
-which the individual gradient entries fall? 
+which the individual gradient entries fall?
 
 by now I think the focus/goal should be specifically to improve the backward
 PMP stuff with vxx propagation and sobolev learning. The regular PMP backward
@@ -1572,15 +1572,15 @@ data, and more importantly, better extrapolation, which will speed up our
 extrapolation (i.e. basically the quadratic local value function)
 
 
-next tasks: 
+next tasks:
 - extend this to NN ensemble (was this as easy as a well placed vmap?)
-- think about practicalities: how to propose high-uncertainty points? 
+- think about practicalities: how to propose high-uncertainty points?
   how to handle level set collisions? how to decide on v_k+1? lots of this stuff
-- implement second-order sobolev functionality, take the chance to use 
-  a nicer data format in the nn class, maybe also vmapped dict like ode solver? 
+- implement second-order sobolev functionality, take the chance to use
+  a nicer data format in the nn class, maybe also vmapped dict like ode solver?
 - also take that chance to sanity check the vxx calculation, esp. with regards
   to the now fixed mistake in choosing the LQR value function...
-  
+
 
 
 2023-04-12
@@ -1596,9 +1596,9 @@ noticeably improves vxx accuracy but doesn't mess up the v and vx yet. I'd say
 100 in this case is the point where it completely doesn't worsen vx and vxx.
 interestingly, and as I'd hoped for, there is a long slow decrease in vx loss
 as we increase the vxx weight from about 1 to 100. only slight though,
-probably a factor of 2 or 3 on avg. 
+probably a factor of 2 or 3 on avg.
 
-plot is in losses.png file, root dir but not in git. 
+plot is in losses.png file, root dir but not in git.
 
 this is essentially the training loss and the test loss at 0, which is not a
 very strong testament to the validity of this modelling approach. we should do
@@ -1609,22 +1609,22 @@ for the best.
 
 update, made the actual test loss plot. train/test splitting function in
 nn_utils. test loss looks much the same as train loss except maybe a tiny bit
-higher. 
+higher.
 
 tried increasing value level to inf (= including all points) to fit more
 interesting function. seeing problems where ONE SINGLE trajectory has vxx
 values that blow up to like 1e30 and then become NaN. investigating this atm.
 
-am with ipdb in the first rhs evaluation that has ||vxx_dot|| > 1e5. not sure 
+am with ipdb in the first rhs evaluation that has ||vxx_dot|| > 1e5. not sure
 how to debug, all the numbers look normal-ish...? should I make a second
-f_extended that outputs all intermediate values, to plot them? 
+f_extended that outputs all intermediate values, to plot them?
 
-yes, did that, using the previously unused args keyword required by diffrax. 
+yes, did that, using the previously unused args keyword required by diffrax.
 every variable looks like a reasonable function of time, just d/dt vxx as given
 by the function starts containing crazy entries. whyyy?
 
 
-seems the vxx components are unstable for already a few timesteps before. 
+seems the vxx components are unstable for already a few timesteps before.
 
 
 at this point i have the feeling that somehow this is just a thing that
@@ -1637,16 +1637,16 @@ next attempt: switch to 64bit float precision. it seems we do not get nans
 anymore! however the data are completely different, as probably the PRNG is
 essentially progressing twice as fast.
 
-next: find bad solution in 32 bit, serialise whole ys dict with flax msgpack, 
+next: find bad solution in 32 bit, serialise whole ys dict with flax msgpack,
 switch to 64 bit, read it again. try to reproduce the solution with 64 bit and
-see what happens. 
+see what happens.
 
 IT WORKS! more precisely: the spot where previously the entries and
 eigenvalues of vxx shot towards infinity is now quite well behaved. instead of
 going up wildly the vxx entries actually decrease rapidly after the
 constraint  stops being active (reasoning in backward time here). during the
 constraint it goes up some time which also makes sense. decreasing dtmin by a
-factor of 10 (now) makes the transition even nicer. 
+factor of 10 (now) makes the transition even nicer.
 
 need to see afterwards if in 32 bit we can also just decrease dtmin and have
 everything work... UPDATE it does. that was a bit of a detour \o/
@@ -1657,16 +1657,16 @@ upper one lower. the trajectory corresponds to slowing down from a state with
 incredibly high omega (and phi, but bc the angle wraps it is the same as (-pi,
 pi). TODO transform to (sin, cos) for learning to reflect that topology.). at
 some point the constraint stops being active and then the problem appears
-again. 
+again.
 
 that state however is so outlandish we might as well forget it. practical
-solutions possibly are: 
+solutions possibly are:
  - stop integration after we exit some large superset of the relevant states
  - stop integration after some number of steps (this happens anyway...)
- - stop integration once vxx, its norm or eigenvalues exceed some limit? 
+ - stop integration once vxx, its norm or eigenvalues exceed some limit?
  - in addition, throw away any points where any part of the state is nan
-   or even just above some sanity limit? or also remove the preceding couple 
-   moments from the trajectory? 
+   or even just above some sanity limit? or also remove the preceding couple
+   moments from the trajectory?
 
 possible too: go to a handful of steps before the issues, perturp extended
 state slightly, re-run.
@@ -1675,12 +1675,12 @@ state slightly, re-run.
 after smoothing out those issues, tried to fit the sobolev NN on the whole
 dataset. results are much less exciting than for 1-sublevel set of v. loss
 goes down at the start but barely low enough to be of any use. training loss
-that is. possible reasons: 
+that is. possible reasons:
  - large/small numbers despite normalisation messing it up
  - low-loss solution "too far" to reach in amount of iters
  - conflicting local sols (although intuitively i dont think so)
  - wrong vxx values making impossible for the loss to go near 0?
- - vxx which is not wrong per se but a "too complicated" function (it is 
+ - vxx which is not wrong per se but a "too complicated" function (it is
    made by integrating an only piecewise continuous rhs after all....)
 
 made epochs 10x longer and final lr 10x smaller, also set value level to only
@@ -1690,10 +1690,26 @@ testloss between 1e-4 and 1e-4, vx between 1e-4 and 1e-5, v between 1e-5 and
 vxx weight. (is it a good tuning rule to make all losses "equally low"?)
 
 
-next steps, mostly carried from yesterday: 
-- find out why the nn is shit for nontrivial value function. find some tuning that 
-  sorta works. 
+next steps, mostly carried from yesterday:
+- find out why the nn is shit for nontrivial value function. find some tuning that
+  sorta works.
 - NN ensemble (or something similar w/ multiple initialisation, SGLD, whatever)
-- think about practicalities: how to propose high-uncertainty points? 
+- think about practicalities: how to propose high-uncertainty points?
   how to handle level set collisions? how to decide on v_k+1? lots of this stuff
-- make first (hopefully, barely) working draft of main iteration! even if shit. 
+- make first (hopefully, barely) working draft of main iteration! even if shit.
+
+
+2024-04-13
+
+still trying to find good nn tuning. currently doing grid search over
+relative weights for vx and vxx loss.
+
+some new thoughts. if we want to have value sublevel sets we should really
+make sure that the value function does not go down outside of the usable
+range. maybe this happens automatically? if not, we could try adding some
+sort of "prior" loss that pushes the value function up slightly (in a much
+bigger region than where we have data so the influence there should be
+negligible). maybe also penalise norm of the hessian similarly, to
+encourage smoothness?
+
+

@@ -55,13 +55,13 @@ class data_normaliser(object):
         self.unnormalise_x = lambda xn: xn * x_stds + x_means
 
         # scale v to unit variance only.
-        # ignore vx, hope it will be ~1 as well. 
+        # ignore vx, hope it will be ~1 as well.
         v_std  = train_ode_states['v'].std()
-        
+
         self.normalise_v = lambda v: v / v_std
         self.unnormalise_v = lambda vn: vn * v_std
 
-        # now the hard part, vx. 
+        # now the hard part, vx.
         self.normalise_vx = lambda vx: vx * x_stds / v_std
         self.unnormalise_vx = lambda vx_n: (vx_n / x_stds) * v_std
 
@@ -78,21 +78,21 @@ class data_normaliser(object):
         nn_vs  = jax.vmap(self.normalise_v)(train_ode_states['v'])
         nn_vxs = jax.vmap(self.normalise_vx)(train_ode_states['vx'])
         # to get the data format expected by the nn code...
-        # maybe change this so that we can use a nicer dict format? 
-        # with entries 'x' 'v' 'vx' and maybe 'vxx'? 
+        # maybe change this so that we can use a nicer dict format?
+        # with entries 'x' 'v' 'vx' and maybe 'vxx'?
         nn_ys  = np.column_stack([nn_vxs, nn_vs])
 
         return nn_xs, nn_ys
 
     def normalise_all_dict(self, train_ode_states):
-        
+
         oup = {
             'x': jax.vmap(self.normalise_x)(train_ode_states['x']),
             'v': jax.vmap(self.normalise_v)(train_ode_states['v']),
             'vx': jax.vmap(self.normalise_vx)(train_ode_states['vx']),
         }
 
-        if 'vxx' in train_ode_states: 
+        if 'vxx' in train_ode_states:
             oup['vxx'] = jax.vmap(self.normalise_vxx)(train_ode_states['vxx'])
 
         return oup
@@ -430,20 +430,20 @@ class nn_wrapper():
         return nn_params, outputs
 
 
-    def sobolev_loss(self, key, params, y, algo_params): 
+    def sobolev_loss(self, key, y, params, algo_params):
 
         # this is for a *single* datapoint in dict form. vmap later.
         # needs a PRNG key for the hvp in random direction. this is
-        # only a stochastic approximation of the actual sobolev loss. 
+        # only a stochastic approximation of the actual sobolev loss.
 
-        # y is the dict with training data. 
+        # y is the dict with training data.
         # tree_map(lambda z: z.shape, ys) should be: {
         #  'x': (nx,), 'v': (1,), 'vx': (nx,), 'vxx': (nx, nx)
         # }
 
         # algo_params['nn_sobolev_weights'] gives the (nonnegative!) relative
-        # weights associated with the v, vx, and vxx losses. set the latter 
-        # one or two to imitate more "basic" nn variants. 
+        # weights associated with the v, vx, and vxx losses. set the latter
+        # one or two to imitate more "basic" nn variants.
 
         # this somehow messes up the batch vmap (i think?)
         # v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
@@ -461,28 +461,28 @@ class nn_wrapper():
         if True:
 
             # instead of calculating the whole hessian (of v_pred wrt x) and comparing
-            # it with y['vxx'], we instead compute the hessian vector product in a 
+            # it with y['vxx'], we instead compute the hessian vector product in a
             # random direction, inspired by https://arxiv.org/pdf/1706.04859.pdf.
 
-            # the hvp is not the second directional derivative. If the hvp is 
+            # the hvp is not the second directional derivative. If the hvp is
             # H d (a vector), the second directional derivative would be d.T H d (scalar).
 
-            # the hvp has intuitive meaning if we drop one level of differentiation. say 
-            # lambda(x) = vx(x) is the costate function. Then vxx(x) is the gradient of that, 
-            # Dx lambda(x). Thus the value hvp is just the directional derivative of the costate 
-            # function in a random direction. should be great :) 
+            # the hvp has intuitive meaning if we drop one level of differentiation. say
+            # lambda(x) = vx(x) is the costate function. Then vxx(x) is the gradient of that,
+            # Dx lambda(x). Thus the value hvp is just the directional derivative of the costate
+            # function in a random direction. should be great :)
 
             # is there some catch to do with data normalisation? are some directions
-            # "more likely" than others here? dunno really. 
+            # "more likely" than others here? dunno really.
 
-            # random vector on unit sphere. 
-            # would it be just as good to just choose one of the basis vectors [0, .., 1, .., 0]? 
-            # then we basically extract one column of the hessian. 
+            # random vector on unit sphere.
+            # would it be just as good to just choose one of the basis vectors [0, .., 1, .., 0]?
+            # then we basically extract one column of the hessian.
 
             direction = jax.random.normal(key, shape=(self.input_dim,))
-            direction = direction / np.linalg.norm(direction)  
+            direction = direction / np.linalg.norm(direction)
 
-            # as 'training datapoint' the simple hessian-vector product. 
+            # as 'training datapoint' the simple hessian-vector product.
             # it has the same size as the costate which seems reasonable.
             hvp_label = y['vxx'] @ direction
 
@@ -491,28 +491,28 @@ class nn_wrapper():
             f = lambda x: self.nn.apply(params, x)
             hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), direction ) )(y['x'])
 
-            # the naive way for comparison. seems to be correct :) 
+            # the naive way for comparison. seems to be correct :)
             # hvp_pred_naive = jax.hessian(self.nn.apply, argnums=1)(params, y['x']) @ direction
             # print(rnd(hvp_pred, hvp_pred_naive))
 
             vxx_loss = np.sum((hvp_label - hvp_pred)**2)
 
-            # TODO weighting. 
-            # how do we handle this? a few options: 
+            # TODO weighting.
+            # how do we handle this? a few options:
             # - set fixed parameters in algo_params and get them directly here
             # - use a second, learning rate type schedule to only use them during the
             #   last part of training ("finetuing")
-            # not sure what the advantage of the second one would be. certainly a bit 
-            # more implementation effort though. so probably it is easiest to just 
-            # set the parameters in algoparams. maybe normalise the weights here so 
-            # we always have a convex combination of terms? could simplify tuning slightly. 
+            # not sure what the advantage of the second one would be. certainly a bit
+            # more implementation effort though. so probably it is easiest to just
+            # set the parameters in algoparams. maybe normalise the weights here so
+            # we always have a convex combination of terms? could simplify tuning slightly.
 
         else:
             vxx_loss = 0.
 
         # make convex combination by normalising weights.
-        # multiplying this by a constant is the same as adjusting the learning rate so 
-        # we might as well take that degree of freedom away. 
+        # multiplying this by a constant is the same as adjusting the learning rate so
+        # we might as well take that degree of freedom away.
         weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
         sobolev_losses = np.array([v_loss, vx_loss, vxx_loss])
 
@@ -521,19 +521,19 @@ class nn_wrapper():
         return weights @ sobolev_losses, sobolev_losses
 
 
-    # vmap the loss across a batch and get its mean. 
+    # vmap the loss across a batch and get its mean.
     # tuple output so the gradient is only taken of the first argument below (with has_aux=True)
     def sobolev_loss_batch_mean(self, k, params, ys, algo_params):
 
-        # the size of the actual batch, not what algo_params says. 
+        # the size of the actual batch, not what algo_params says.
         # then we can use the same function e.g. for evaluating loss on test set.
-        ks = jax.random.split(k, ys['x'].shape[0]) 
-        
-        losses, loss_terms = jax.vmap(self.sobolev_loss, in_axes=(0, None, 0, None))(ks, params, ys, algo_params)
+        ks = jax.random.split(k, ys['x'].shape[0])
 
-        # mean across batch dim. 
+        losses, loss_terms = jax.vmap(self.sobolev_loss, in_axes=(0, 0, None, None))(ks, ys, params, algo_params)
+
+        # mean across batch dim.
         # should be scalar and (3,) respectively.
-        return np.mean(losses), np.mean(loss_terms, axis=0) 
+        return np.mean(losses), np.mean(loss_terms, axis=0)
 
 
 
@@ -541,27 +541,27 @@ class nn_wrapper():
     def train_sobolev(self, key, ys, nn_params, algo_params, ys_test=None):
 
         '''
-        new training method. main changes wrt self.train: 
+        new training method. main changes wrt self.train:
 
-         - data format is now this: 
+         - data format is now this:
            ys a dict with keys:
-             'x': (N_pts, nx) array of state space points just like before. 
-             'v': (N_pts, 1) array of value function evaluations at those x. 
+             'x': (N_pts, nx) array of state space points just like before.
+             'v': (N_pts, 1) array of value function evaluations at those x.
              'vx': (N_pts, nx) array of value gradient = costate evaluations
            optionally:
-             'vxx': (N_pts, nx, nx) array of value hessians = costate jacobian evaluations. 
-        
-           this should make it easy to train with or without hessians with the same code. 
-           maybe we can also initially train with v and vx and only "fine-tune" with the hessian? 
+             'vxx': (N_pts, nx, nx) array of value hessians = costate jacobian evaluations.
+
+           this should make it easy to train with or without hessians with the same code.
+           maybe we can also initially train with v and vx and only "fine-tune" with the hessian?
 
          - loss includes (optionally) the hessian error. probably the stochastic approx
-           from the main sobolev training paper is best. 
+           from the main sobolev training paper is best.
 
-         - testset generation not in here. pass ys_test to evaluate test loss during training. 
+         - testset generation not in here. pass ys_test to evaluate test loss during training.
 
-        TODO as of now the test set is just a random subset of all points. 
+        TODO as of now the test set is just a random subset of all points.
         should we instead take a couple entire trajectories as test set? because
-        if 90% of the points on some trajectory are in the training set it is kind of 
+        if 90% of the points on some trajectory are in the training set it is kind of
         not a huge feat to have low loss on the remaining 10%
         if OTOH we test with entire trajectories unseen in training the test loss kind of
         is more meaningful...
@@ -569,10 +569,10 @@ class nn_wrapper():
         '''
 
 
-        # make sure it is of correct shape? 
+        # make sure it is of correct shape?
         testset_exists = ys_test is not None
 
-        # does this still make sense? 
+        # does this still make sense?
         N_datapts = ys['x'].shape[0]
         batchsize = algo_params['nn_batchsize']
         N_epochs = algo_params['nn_N_epochs']
@@ -605,7 +605,7 @@ class nn_wrapper():
 
         def update_step(key, ys, opt_state, params):
 
-            # differentiate the whole thing wrt argument 1 = nn params. 
+            # differentiate the whole thing wrt argument 1 = nn params.
             (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_batch_mean, argnums=1, has_aux=True)(
                 key, params, ys, algo_params
             )
@@ -619,7 +619,7 @@ class nn_wrapper():
             # unpack the 'carry' state
             nn_params, opt_state, k = carry
 
-            k_batch, k_loss, k_new = jax.random.split(k, 3)
+            k_batch, k_loss, k_test, k_new = jax.random.split(k, 4)
 
             # obtain minibatch
             batch_idx = jax.random.choice(k_batch, N_datapts, (batchsize,))
@@ -635,8 +635,15 @@ class nn_wrapper():
                 'loss_terms': loss_terms,
             }
 
-            # here is the spot where we could also evaluate test loss
-            # and put it in the aux_output dict.
+            # if given, calculate test loss.
+            # probably quite expensive to do this every iteration though...
+            # this if is "compile time"
+            if ys_test is not None:
+                k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
+                test_loss, test_loss_terms = self.sobolev_loss_batch_mean(
+                    k_test, nn_params_new, ys_test, algo_params
+                )
+                aux_output['test_loss_terms'] = test_loss_terms
 
             new_carry = (nn_params_new, opt_state_new, k_new)
             return new_carry, aux_output
@@ -650,7 +657,7 @@ class nn_wrapper():
 
 
         # the training loop!
-        # currently the input argument is unused -- could also put the PRNG key there. 
+        # currently the input argument is unused -- could also put the PRNG key there.
         # or sobolev loss weights if we decide to change them during training...
         init_carry = (nn_params, opt_state, key)
         final_carry, outputs = jax.lax.scan(f_scan, init_carry, np.arange(total_iters))

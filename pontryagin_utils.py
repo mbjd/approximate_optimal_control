@@ -411,6 +411,102 @@ def u_star_general_activeset(x, costate, problem_params):
 
 
 
+def define_backward_solver(problem_params, algo_params):
+
+    # define RHS of the optimally controlled system in backward time
+    # this is basically the PMP plus an extra derivative to get vxx
+    def f_extended(t, state, args=None):
+
+        # state variables = x and quadratic taylor expansion of V.
+        x   = state['x']
+        v   = state['v']
+        vx  = state['vx']
+        vxx = state['vxx']
+
+        nx = problem_params['nx']
+
+        H = lambda x, u, λ: problem_params['l'](x, u) + λ.T @ problem_params['f'](x, u)
+
+        # RHS of the necessary conditions without the hessian.
+        def pmp_rhs(state, costate):
+
+            u_star = u_star_2d(state, costate, problem_params)
+            nx = problem_params['nx']
+
+            state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
+            costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
+
+            return state_dot, costate_dot
+
+        # its derivatives, for propagation of Vxx.
+        # fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, vx)
+        # flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, vx)
+
+        # certified this is the same. maybe more efficient?
+        full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, vx)
+        (fx, flam), (gx, glam) = full_jacobian
+
+
+        # we calculate this here one extra time, could be optimised
+        u_star = u_star_2d(x, vx, problem_params)
+
+        # calculate all the RHS terms
+        v_dot = -problem_params['l'](x, u_star)
+        x_dot, vx_dot = pmp_rhs(x, vx)
+        vxx_dot = gx + glam @ vxx - vxx @ fx - vxx @ flam @ vxx
+
+
+        # and pack them in a nice dict for the state.
+        state_dot = dict()
+        state_dot['x'] = x_dot
+        state_dot['t'] = 1.
+        state_dot['v'] = v_dot
+        state_dot['vx'] = vx_dot
+        state_dot['vxx'] = vxx_dot
+
+        if args is not None and args == 'debug':
+            # hacky way to get debug output.
+            # just be sure to have args=None within anything jitted.
+            aux_output = {
+                'fx': fx,
+                'flam': flam,
+                'gx': gx,
+                'glam': glam,
+                'u_star': u_star,
+            }
+
+            return state_dot, aux_output
+
+        return state_dot
+
+    def solve_backward(y_f, algo_params):
+
+        state_f = y_f
+
+        term = diffrax.ODETerm(f_extended)
+
+        relax_factor = 1.
+        step_ctrl = diffrax.PIDController(
+            rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
+            atol=relax_factor*algo_params['pontryagin_solver_atol'],
+            # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
+            dtmin = 0.0005,  # just to avoid getting stuck completely
+            dtmax = 0.5,
+        )
+
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+        T = 4. # TODO have this as algoparam
+
+        backward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+        )
+
+        return backward_sol
+
+    return solve_backward, f_extended
 
 
 def u_star_new(x, costate, problem_params):

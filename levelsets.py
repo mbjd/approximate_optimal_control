@@ -47,7 +47,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(500, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(5000, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -56,117 +56,6 @@ def testbed(problem_params, algo_params):
     vfs = jax.vmap(V_f)(xfs)
 
     assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
-
-    # define RHS of the backward system, including Vxx
-    def f_extended(t, state, args=None):
-
-        # state variables = x and quadratic taylor expansion of V.
-        x   = state['x']
-        v   = state['v']
-        vx  = state['vx']
-        vxx = state['vxx']
-
-        nx = problem_params['nx']
-
-        H = lambda x, u, λ: problem_params['l'](x, u) + λ.T @ problem_params['f'](x, u)
-
-        # RHS of the necessary conditions without the hessian.
-        def pmp_rhs(state, costate):
-
-            u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
-            nx = problem_params['nx']
-
-            state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
-            costate_dot = -jax.jacobian(H, argnums=0)(state, u_star, costate).reshape(nx)
-
-            return state_dot, costate_dot
-
-        # its derivatives, for propagation of Vxx.
-        # fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, vx)
-        # flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, vx)
-
-        # certified this is the same. maybe more efficient?
-        full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, vx)
-        (fx, flam), (gx, glam) = full_jacobian
-
-
-        # we calculate this here one extra time, could be optimised
-        u_star = pontryagin_utils.u_star_2d(x, vx, problem_params)
-
-        # calculate all the RHS terms
-        v_dot = -problem_params['l'](x, u_star)
-        x_dot, vx_dot = pmp_rhs(x, vx)
-        vxx_dot = gx + glam @ vxx - vxx @ fx - vxx @ flam @ vxx
-
-
-        # and pack them in a nice dict for the state.
-        state_dot = dict()
-        state_dot['x'] = x_dot
-        state_dot['t'] = 1.
-        state_dot['v'] = v_dot
-        state_dot['vx'] = vx_dot
-        state_dot['vxx'] = vxx_dot
-
-        if args is not None and args == 'debug':
-            # hacky way to get debug output.
-            # just be sure to have args=None within anything jitted.
-            aux_output = {
-                'fx': fx,
-                'flam': flam,
-                'gx': gx,
-                'glam': glam,
-                'u_star': u_star,
-            }
-
-            return state_dot, aux_output
-
-        return state_dot
-
-    def solve_backward(x_f, algo_params, y_f=None):
-
-        # P_lqr = hessian of value fct.
-        # everything else follows from usual differentiation rules.
-        v_f = 0.5 * x_f.T @ P_lqr @ x_f
-        vx_f = P_lqr @ x_f
-        vxx_f = P_lqr
-
-
-        state_f = {
-            'x': x_f,
-            't': 0,
-            'v': v_f,
-            'vx': vx_f,
-            'vxx': vxx_f,
-        }
-
-        if y_f is not None:
-            # assume we have been handed the complete ODE state, as opposed to just
-            # the system state.
-            # could also make a separate function that constructs this itself from nn v.
-            state_f = y_f
-
-        term = diffrax.ODETerm(f_extended)
-
-        relax_factor = 1.
-        step_ctrl = diffrax.PIDController(
-            rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
-            atol=relax_factor*algo_params['pontryagin_solver_atol'],
-            # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.0005,  # just to avoid getting stuck completely
-            dtmax = 0.5,
-        )
-
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
-
-        T = 4.
-
-        backward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
-        )
-
-        return backward_sol
 
 
 
@@ -288,7 +177,31 @@ def testbed(problem_params, algo_params):
         # ipdb.set_trace()
 
 
-    sols_orig = jax.vmap(solve_backward, in_axes=(0, None))(xfs, algo_params)
+    solve_backward, f_extended = pontryagin_utils.define_backward_solver(
+    	problem_params, algo_params
+    )
+
+    def solve_backward_lqr(x_f, algo_params):
+
+        # P_lqr = hessian of value fct.
+        # everything else follows from usual differentiation rules.
+
+        v_f = 0.5 * x_f.T @ P_lqr @ x_f
+        vx_f = P_lqr @ x_f
+        vxx_f = P_lqr
+
+        state_f = {
+            'x': x_f,
+            't': 0,
+            'v': v_f,
+            'vx': vx_f,
+            'vxx': vxx_f,
+        }
+
+        return solve_backward(state_f, algo_params)
+
+    sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
+    ipdb.set_trace()
 
     # find some way to alert if NaN occurs in this whole pytree?
     # wasn't there a jax option that halts on nan immediately??

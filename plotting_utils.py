@@ -109,6 +109,29 @@ def plot_sol(sol, problem_params):
     # ipdb.set_trace()
 
 
+
+def plot_us(sols, problem_params, rotate=True, c='C0'):
+
+    # plot all the u trajectories of a vmapped solutions object.
+
+    # we flatten them here -- the inf padding breaks up the plot nicely
+    all_xs = sols.ys['x'].reshape(-1, problem_params['nx'])
+    all_lams = sols.ys['vx'].reshape(-1, problem_params['nx'])
+    us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(all_xs, all_lams, problem_params)
+
+    if rotate:
+        diff_and_sum = np.array([[1, -1], [1, 1]]).T
+        us = us @ diff_and_sum
+        pl.xlabel('u0 - u1')
+        pl.ylabel('u0 + u1')
+    else:
+        pl.xlabel('u0')
+        pl.ylabel('u1')
+
+    pl.plot(us[:, 0], us[:, 1], alpha=0.1, marker='.', c=c)
+    pl.legend()
+
+
 def plot_controlcost_vs_traindata():
 
     # axis 0: which PRNG key was used?

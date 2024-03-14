@@ -23,6 +23,180 @@ import tqdm
 from operator import itemgetter
 
 
+
+
+def plot_taylor_sanitycheck(sol, problem_params):
+
+	# possibly this stopped working when i moved it outside of the testbed function
+	# but hopefully we won't be needing this so much anyway. 
+    # see if the lambda = vx and S = vxx are remotely plausible.
+
+    pl.figure(f'taylor sanity check')
+
+    # does a part of both of the above functions plus the retrieval of the solutions.
+    # plot v(x(t)) alone
+    interp_ts = np.linspace(sol.t0, sol.t1, 1000)
+    interp_ys = jax.vmap(sol.evaluate)(interp_ts)
+    pl.plot(sol.ys['t'], sol.ys['v'], linestyle='', marker='.', color='C0', alpha=0.4)
+    pl.plot(interp_ts, interp_ys['v'], linestyle='--', label='v(x(t))', color='C0', alpha=0.4)
+
+    us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(sol.ys['x'], sol.ys['vx'], problem_params)
+    fs = jax.vmap(problem_params['f'], in_axes=(0, 0))(sol.ys['x'], us)
+
+    # the total time derivative of v we're after
+    v_ts = jax.vmap(np.dot)(sol.ys['vx'], fs)
+
+    # for each of the derivatives, plot a small line.
+
+    def line_params(t, v, v_t):
+
+        line_len = 0.1
+        diffvec_unscaled = np.array([1, v_t])
+        diffvec = line_len * diffvec_unscaled / np.linalg.norm(diffvec_unscaled)
+
+        # nan in between to break up lines.
+        xs = np.array([t-diffvec[0], t+diffvec[0], np.nan])
+        ys = np.array([v-diffvec[1], v+diffvec[1], np.nan])
+        return xs, ys
+
+    xs, ys = jax.vmap(line_params)(sol.ys['t'], sol.ys['v'], v_ts)
+
+    pl.plot(xs.flatten(), ys.flatten(), label='d/dt v(x(t))', color='C1', alpha=0.5)
+
+
+    # now the hessians, def the hardest part...
+
+    def line_params_hessian(ode_state, f_value):
+
+        t_len = 0.02
+        n = 20
+
+        dts = np.concatenate([np.linspace(-t_len, t_len, n), np.array([np.nan])])
+        dxs = np.vstack([np.linspace(-f_value * t_len, +f_value * t_len, n), np.nan * np.ones(problem_params['nx'])])
+
+        xs = ode_state['x'] + dxs
+        ts = ode_state['t'] + dts
+
+        vs_taylor = jax.vmap(lambda dx: ode_state['v'] + ode_state['vx'] @ dx + 0.5 * dx.T @ ode_state['vxx'] @ dx)(dxs)
+
+        return ts, vs_taylor
+
+    def line_params_twice_hessian(ode_state, f_value):
+
+        t_len = 0.02
+        N = 20
+
+        dts = np.concatenate([np.linspace(-t_len, t_len, N), np.array([np.nan])])
+        dxs = np.vstack([np.linspace(-f_value * t_len, +f_value * t_len, N), np.nan * np.ones(problem_params['nx'])])
+
+        xs = ode_state['x'] + dxs
+        ts = ode_state['t'] + dts
+
+        vs_taylor = jax.vmap(lambda dx: ode_state['v'] + ode_state['vx'] @ dx + 0.5 * 2 * dx.T @ ode_state['vxx'] @ dx)(dxs)
+
+        return ts, vs_taylor
+
+    ts, vs = jax.vmap(line_params_hessian, in_axes=(0, 0))(sol.ys, fs)
+
+    pl.plot(ts.flatten(), vs.flatten(), alpha=.5, color='C2', label='hessian')
+
+    # also interesting:
+    pl.figure()
+    idx = 20
+    state_idx = jax.tree_util.tree_map(itemgetter(idx), sol.ys)
+    ts, vs = line_params_hessian(state_idx, fs[idx])
+    pl.plot(ts, vs, label='v taylor')
+    ts, vstwice = line_params_twice_hessian(state_idx, fs[idx])
+    pl.plot(ts, vstwice, label='v taylor but twice hessian')
+    pl.scatter(state_idx['t'], state_idx['v'], color='C0')
+    pl.plot(ts, jax.vmap(sol.evaluate)(ts)['v'], label='v sol')
+    pl.plot(ts, jax.vmap(sol.evaluate)(ts)['v'] - vs, label='diff')
+    pl.plot(ts, jax.vmap(sol.evaluate)(ts)['v'] - vstwice, label='diff with twice hessian')
+
+
+    pl.legend()
+    # ipdb.set_trace()
+
+
+def debug_nan_sol(sols_orig, solve_backward):
+    # long debugging session.
+
+    # conclusion: if NaNs pop up or the vxx terms become unreasonably large,
+    # try decreasing dtmin a bit. fixed everything in this case.
+
+    # just the first one
+    # nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0].item()
+    nan_idx = 153
+    bad_sol = jax.tree_util.tree_map(itemgetter(nan_idx), sols_orig)
+
+    # serialise solution to analyse after switching to 64 bit.
+    # import flax
+    # bs = flax.serialization.msgpack_serialize(bad_sol.ys)
+    # f = open('tmp/bad_ys.msgpack', 'wb')
+    # f.write(bs)
+    # f.close()
+
+    # f = open('tmp/bad_ys.msgpack', 'rb')
+    # bs = f.read()
+    # bad_ys = flax.serialization.msgpack_restore(bs)
+
+    def plot_badsol_from_y(y):
+
+        # recreate the solution in 64 bit precision.
+        newsol = solve_backward(y, algo_params)
+
+        plotting_utils.plot_sol(newsol, problem_params)
+
+    # plot_badsol_from_idx(30)
+    # pl.show()
+
+    # ipdb.set_trace()
+
+
+    # start sol with higher precision from a state close to the last one.
+    restart_state_idx = bad_sol.stats['num_accepted_steps'].item() - 5
+
+    # not really needed, still fails, rhs actually does return very high values :(
+    # restart_y = jax.tree_util.tree_map(itemgetter(restart_state_idx), bad_sol.ys)
+
+    # algo_params_tight = algo_params.copy()
+    # algo_params_tight['pontryagin_solver_atol'] = 1e-7
+    # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
+
+    # # first arg irrelevant if last given
+    # sol_tight = solve_backward(restart_y['x'], algo_params_tight, y_f=restart_y)
+
+    # # evaluate the right hand side again to see where it produces shit.
+    # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
+    rhs_evals_orig = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, None)
+
+    rhs_evals, aux_outputs = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, 'debug')
+
+    ax = pl.subplot(211)
+    pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+    pl.ylabel('vxx trajectory components')
+    pl.subplot(212, sharex=ax)
+    pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+    pl.ylabel('vxx rhs components')
+
+    pl.figure()
+    plotting_utils.plot_sol(bad_sol)
+
+    pl.show()
+
+
+
+
+    ipdb.set_trace()
+
+
+    # even in the original one we see clearly a spike at the end, where it goes from
+    # about 5e3 up to 1e8 in 3 steps.
+
+
+
+    
+
 def main(problem_params, algo_params):
     pass
 
@@ -47,7 +221,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(5000, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(500, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -63,118 +237,9 @@ def testbed(problem_params, algo_params):
 
 
 
-    def plot_us(sols, rotate=True, c='C0'):
-
-        # plot all the u trajectories of a vmapped solutions object.
-
-        # we flatten them here -- the inf padding breaks up the plot nicely
-        all_xs = sols.ys['x'].reshape(-1, 6)
-        all_lams = sols.ys['vx'].reshape(-1, 6)
-        us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(all_xs, all_lams, problem_params)
-
-        diff_and_sum = np.array([[1, -1], [1, 1]]).T
-        if rotate:
-            us = us @ diff_and_sum
-            pl.xlabel('u0 - u1')
-            pl.ylabel('u0 + u1')
-        else:
-            pl.xlabel('u0')
-            pl.ylabel('u1')
-
-
-        pl.plot(us[:, 0], us[:, 1], alpha=0.1, marker='.', c=c)
 
 
 
-    def plot_taylor_sanitycheck(sol):
-
-        # see if the lambda = vx and S = vxx are remotely plausible.
-
-        pl.figure(f'taylor sanity check')
-
-        # does a part of both of the above functions plus the retrieval of the solutions.
-        # plot v(x(t)) alone
-        interp_ts = np.linspace(sol.t0, sol.t1, 1000)
-        interp_ys = jax.vmap(sol.evaluate)(interp_ts)
-        pl.plot(sol.ys['t'], sol.ys['v'], linestyle='', marker='.', color='C0', alpha=0.4)
-        pl.plot(interp_ts, interp_ys['v'], linestyle='--', label='v(x(t))', color='C0', alpha=0.4)
-
-        us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(sol.ys['x'], sol.ys['vx'], problem_params)
-        fs = jax.vmap(problem_params['f'], in_axes=(0, 0))(sol.ys['x'], us)
-
-        # the total time derivative of v we're after
-        v_ts = jax.vmap(np.dot)(sol.ys['vx'], fs)
-
-        # for each of the derivatives, plot a small line.
-
-        def line_params(t, v, v_t):
-
-            line_len = 0.1
-            diffvec_unscaled = np.array([1, v_t])
-            diffvec = line_len * diffvec_unscaled / np.linalg.norm(diffvec_unscaled)
-
-            # nan in between to break up lines.
-            xs = np.array([t-diffvec[0], t+diffvec[0], np.nan])
-            ys = np.array([v-diffvec[1], v+diffvec[1], np.nan])
-            return xs, ys
-
-        xs, ys = jax.vmap(line_params)(sol.ys['t'], sol.ys['v'], v_ts)
-
-        pl.plot(xs.flatten(), ys.flatten(), label='d/dt v(x(t))', color='C1', alpha=0.5)
-
-
-        # now the hessians, def the hardest part...
-
-        def line_params_hessian(ode_state, f_value):
-
-            t_len = 0.02
-            n = 20
-
-            dts = np.concatenate([np.linspace(-t_len, t_len, n), np.array([np.nan])])
-            dxs = np.vstack([np.linspace(-f_value * t_len, +f_value * t_len, n), np.nan * np.ones(problem_params['nx'])])
-
-            xs = ode_state['x'] + dxs
-            ts = ode_state['t'] + dts
-
-            vs_taylor = jax.vmap(lambda dx: ode_state['v'] + ode_state['vx'] @ dx + 0.5 * dx.T @ ode_state['vxx'] @ dx)(dxs)
-
-            return ts, vs_taylor
-
-        def line_params_twice_hessian(ode_state, f_value):
-
-            t_len = 0.02
-            N = 20
-
-            dts = np.concatenate([np.linspace(-t_len, t_len, N), np.array([np.nan])])
-            dxs = np.vstack([np.linspace(-f_value * t_len, +f_value * t_len, N), np.nan * np.ones(problem_params['nx'])])
-
-            xs = ode_state['x'] + dxs
-            ts = ode_state['t'] + dts
-
-            vs_taylor = jax.vmap(lambda dx: ode_state['v'] + ode_state['vx'] @ dx + 0.5 * 2 * dx.T @ ode_state['vxx'] @ dx)(dxs)
-
-            return ts, vs_taylor
-
-        ts, vs = jax.vmap(line_params_hessian, in_axes=(0, 0))(sol.ys, fs)
-
-        pl.plot(ts.flatten(), vs.flatten(), alpha=.5, color='C2', label='hessian')
-
-        # also interesting:
-        pl.figure()
-        idx = 20
-        state_idx = jax.tree_util.tree_map(itemgetter(idx), sol.ys)
-        ts, vs = line_params_hessian(state_idx, fs[idx])
-        pl.plot(ts, vs, label='v taylor')
-        ts, vstwice = line_params_twice_hessian(state_idx, fs[idx])
-        pl.plot(ts, vstwice, label='v taylor but twice hessian')
-        pl.scatter(state_idx['t'], state_idx['v'], color='C0')
-        pl.plot(ts, jax.vmap(sol.evaluate)(ts)['v'], label='v sol')
-        pl.plot(ts, jax.vmap(sol.evaluate)(ts)['v'] - vs, label='diff')
-        pl.plot(ts, jax.vmap(sol.evaluate)(ts)['v'] - vstwice, label='diff with twice hessian')
-
-
-        pl.legend()
-        # ipdb.set_trace()
 
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
@@ -201,91 +266,9 @@ def testbed(problem_params, algo_params):
         return solve_backward(state_f, algo_params)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
-    ipdb.set_trace()
 
     # find some way to alert if NaN occurs in this whole pytree?
     # wasn't there a jax option that halts on nan immediately??
-
-    def debug_nan_sol(sols_orig):
-        # long debugging session.
-
-        # conclusion: if NaNs pop up or the vxx terms become unreasonably large,
-        # try decreasing dtmin a bit. fixed everything in this case.
-
-        # just the first one
-        # nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0].item()
-        nan_idx = 153
-        bad_sol = jax.tree_util.tree_map(itemgetter(nan_idx), sols_orig)
-
-        # serialise solution to analyse after switching to 64 bit.
-        # import flax
-        # bs = flax.serialization.msgpack_serialize(bad_sol.ys)
-        # f = open('tmp/bad_ys.msgpack', 'wb')
-        # f.write(bs)
-        # f.close()
-
-        # f = open('tmp/bad_ys.msgpack', 'rb')
-        # bs = f.read()
-        # bad_ys = flax.serialization.msgpack_restore(bs)
-
-
-        def plot_badsol_from_y(y):
-
-            # recreate the solution in 64 bit precision.
-            newsol = solve_backward(y['x'], algo_params, y_f=y)
-
-            plotting_utils.plot_sol(newsol, problem_params)
-
-        # plot_badsol_from_idx(30)
-        # pl.show()
-
-        # ipdb.set_trace()
-
-
-        # start sol with higher precision from a state close to the last one.
-        restart_state_idx = bad_sol.stats['num_accepted_steps'].item() - 5
-
-        # not really needed, still fails, rhs actually does return very high values :(
-        # restart_y = jax.tree_util.tree_map(itemgetter(restart_state_idx), bad_sol.ys)
-
-        # algo_params_tight = algo_params.copy()
-        # algo_params_tight['pontryagin_solver_atol'] = 1e-7
-        # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
-
-        # # first arg irrelevant if last given
-        # sol_tight = solve_backward(restart_y['x'], algo_params_tight, y_f=restart_y)
-
-        # # evaluate the right hand side again to see where it produces shit.
-        # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
-        rhs_evals_orig = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, None)
-
-        rhs_evals, aux_outputs = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, 'debug')
-
-        ax = pl.subplot(211)
-        pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
-        pl.ylabel('vxx trajectory components')
-        pl.subplot(212, sharex=ax)
-        pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
-        pl.ylabel('vxx rhs components')
-
-        pl.figure()
-        plotting_utils.plot_sol(bad_sol)
-
-        pl.show()
-
-
-
-
-        ipdb.set_trace()
-
-
-        # even in the original one we see clearly a spike at the end, where it goes from
-        # about 5e3 up to 1e8 in 3 steps.
-
-
-
-
-
 
 
     '''
@@ -351,8 +334,9 @@ def testbed(problem_params, algo_params):
             train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
     )
 
+    pl.figure('sobolev with vxx')
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
-    pl.figure()
+    pl.figure('sobolev without vxx')
     plotting_utils.plot_nn_train_outputs(oups)
 
     pl.show()
@@ -492,8 +476,11 @@ def testbed(problem_params, algo_params):
     # vxx_weight_sweep()
 
 
-    def plot_trajectory_vs_nn(idx, params):
+    def plot_trajectory_vs_nn(idx, params, v_nn_unnormalised):
 
+    	# outside, do this: 
+        # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+    	
         sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
 
         pl.figure()
@@ -508,11 +495,10 @@ def testbed(problem_params, algo_params):
 
         pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
         pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
-        lqr_vs = jax.vmap(V_f)(interp_ys['x'])
-        pl.plot(interp_ts, lqr_vs, label='LQR V(x(t))', color='C1', alpha=.5)
+        # lqr_vs = jax.vmap(V_f)(interp_ys['x'])
+        # pl.plot(interp_ts, lqr_vs, label='LQR V(x(t))', color='C1', alpha=.5)
 
         # same with the NN
-        v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
         vs = jax.vmap(v_nn_unnormalised, in_axes=(None, 0))(params, interp_ys['x'])
         pl.plot(interp_ts, vs, c='C1', label='NN v(x(t))')
         pl.legend()
@@ -563,7 +549,7 @@ def testbed(problem_params, algo_params):
     x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .2
 
     sol = forward_sim_nn(x0s[0], params)
-    sols = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
+    sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
     sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
 
     visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))

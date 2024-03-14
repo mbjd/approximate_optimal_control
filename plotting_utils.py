@@ -262,7 +262,7 @@ def plot_nn_train_outputs_old(outputs):
 
 
 
-def plot_nn_train_outputs(outputs, a=.5):
+def plot_nn_train_outputs(outputs, alpha=.5, legend=True):
 
     # pl.figure('NN training visualisation', figsize=(15, 10))
 
@@ -272,22 +272,28 @@ def plot_nn_train_outputs(outputs, a=.5):
     # (just like returned by the training function)
     # 'lr': (N,) array of learning rates
 
-    # training subplot
-    ax = pl.subplot(211)
-    pl.loglog(outputs['train_loss_terms'], label=('v', 'vx', 'vxx'), alpha=a)
-    pl.ylabel('training losses')
-    pl.grid('on')
-    pl.legend()
 
     # training subplot
-    pl.subplot(212, sharex=ax, sharey=ax)
-    pl.loglog(outputs['test_loss_terms'], label=('v', 'vx', 'vxx'), alpha=a)
+    ax = pl.subplot(211)
+    ax.set_prop_cycle(None)
+    pl.loglog(outputs['train_loss_terms'], label=('v', 'vx', 'vxx'), alpha=alpha)
+    pl.ylabel('training losses')
+    pl.grid('on')
+
+    if legend:
+        pl.legend()
+
+    # training subplot
+    ax = pl.subplot(212, sharex=ax, sharey=ax)
+    ax.set_prop_cycle(None)
+    pl.loglog(outputs['test_loss_terms'], label=('v', 'vx', 'vxx'), alpha=alpha)
     pl.ylabel('test losses (fixed PRNGKey)')
     pl.grid('on')
 
     pl.loglog(outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.33)
 
-    pl.legend()
+    if legend:
+        pl.legend()
 
 
 

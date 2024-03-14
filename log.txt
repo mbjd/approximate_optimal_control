@@ -1770,4 +1770,21 @@ fixed. simple but apparently this works!
 
 2023-04-14
 
+big refactoring spree. cleaned up current testbed, put backward solver in
+place of the old one in pontryagin_utils, etc. 
 
+
+tried nn ensemble with jax.vmap, only altering training key (responsible for
+batch selection and stochastic sobolev approximation). looks alright actually!
+ofcourse takes nx more time. other, more sgld inspired approaches might be
+nicer, then we only repeat the "tail" of the training. 
+
+for N=8, we have nice uncertainty bands that roughly correspond to the actual
+trajectories in the training set. as reported by many others we have
+overconfidence outside of the training region. if this is problematic we can
+switch to repulsive ensembles..? but probably it will work just fine without
+repulsiveness. 
+
+still this only works for low value level sets and breaks down completely for
+v_k > 100 or so. still don't know why. list of possible reasons in log entry
+2023-04-12 towards the end. 

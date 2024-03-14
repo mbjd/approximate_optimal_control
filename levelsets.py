@@ -221,7 +221,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(500, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(50, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -281,65 +281,93 @@ def testbed(problem_params, algo_params):
     # choose initial value level.
     v_k = 1000 * problem_params['V_f']
     v_k = np.inf  # fullest gas
-    v_k = 5  # full gas
+    v_k = 50  # full gas
     print(f'target value level: {v_k}')
+    pl.rcParams['figure.figsize'] = (16, 10)
 
-    # extract corresponding data points for NN fitting.
-    # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
-    bool_train_idx = sols_orig.ys['v'] < v_k
+    for i, v_k in enumerate(np.logspace(0, 3, 100)):
 
-    # value "band" instead.
-    bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
+	    # extract corresponding data points for NN fitting.
+	    # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
+	    bool_train_idx = sols_orig.ys['v'] < v_k
 
-    all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+	    # value "band" instead.
+	    bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
 
-    # split into train/test set.
+	    vs_flat = sols_orig.ys['v'].flatten()
+	    argsort_vs_flat = np.argsort(vs_flat)
 
-    train_ys, test_ys = nn_utils.train_test_split(all_ys)
+	    pl.plot()
 
-    print(f'dataset size: {bool_train_idx.sum()} (= {bool_train_idx.mean()*100:.2f}%)')
+	    all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
 
-    v_nn = nn_utils.nn_wrapper(
-        input_dim=problem_params['nx'],
-        layer_dims=algo_params['nn_layerdims'],
-        output_dim=1
-    )
+	    # split into train/test set.
+
+	    train_ys, test_ys = nn_utils.train_test_split(all_ys)
+
+	    print(f'dataset size: {bool_train_idx.sum()} points (= {bool_train_idx.mean()*100:.2f}%)')
+	    n_data = count_floats(train_ys)
+	    print(f'corresponding to {n_data} degrees of freedom')
+
+	    v_nn = nn_utils.nn_wrapper(
+	        input_dim=problem_params['nx'],
+	        layer_dims=algo_params['nn_layerdims'],
+	        output_dim=1
+	    )
 
 
-    normaliser = nn_utils.data_normaliser(train_ys)
+	    normaliser = nn_utils.data_normaliser(train_ys)
 
-    ys_n = normaliser.normalise_all_dict(train_ys)
-    test_ys_n = normaliser.normalise_all_dict(test_ys)
+	    ys_n = normaliser.normalise_all_dict(train_ys)
+	    test_ys_n = normaliser.normalise_all_dict(test_ys)
 
 
-    init_key, key = jax.random.split(key)
-    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+	    init_key, key = jax.random.split(key)
+	    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
-    # to get a feel for over/underparameterisation.
-    n_params = count_floats(params_init)
-    n_data = count_floats(train_ys)
-    print(f'params/data ratio = {n_params/n_data:.4f}')
+	    # to get a feel for over/underparameterisation.
+	    n_params = count_floats(params_init)
+	    n_data = count_floats(train_ys)
+	    print(f'params/data ratio = {n_params/n_data:.4f}')
 
-    # train once with new sobolev loss...
+	    # train once with new sobolev loss...
+	    train_key, key = jax.random.split(key)
+	    params_sobolev, oups_sobolev = v_nn.train_sobolev(
+	            train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
+	    )
+
+	    # # and once without
+	    # algo_params_fake = algo_params.copy()
+	    # algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
+	    # train_key, key = jax.random.split(key)
+	    # params, oups = v_nn.train_sobolev(
+	    #         train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
+	    # )
+
+	    pl.figure('sobolev with vxx')
+	    plotting_utils.plot_nn_train_outputs(oups_sobolev)
+	    pl.savefig(f'tmp/vk_sweep_{i}_{v_k}.png')
+	    pl.close('all')
+	    # pl.figure('sobolev without vxx')
+	    # plotting_utils.plot_nn_train_outputs(oups)
+
+    '''
+
+    # instead go straight to training a whole ensemble. 
+    # surprisingly the progress bar just works now!
     train_key, key = jax.random.split(key)
-    params_sobolev, oups_sobolev = v_nn.train_sobolev(
-            train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
-    )
+    params_vmap, oups_vmap = v_nn.train_sobolev_ensemble(
+    	train_key, ys_n, params_init, algo_params, ys_test=test_ys_n,
+	)
 
-    # and once without
-    algo_params_fake = algo_params.copy()
-    algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
-    train_key, key = jax.random.split(key)
-    params, oups = v_nn.train_sobolev(
-            train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
-    )
-
-    pl.figure('sobolev with vxx')
-    plotting_utils.plot_nn_train_outputs(oups_sobolev)
-    pl.figure('sobolev without vxx')
-    plotting_utils.plot_nn_train_outputs(oups)
+    # plot results
+    for j in range(algo_params['nn_ensemble_size']):
+    	oups = jax.tree_util.tree_map(itemgetter(j), oups_vmap)
+    	plotting_utils.plot_nn_train_outputs(oups, alpha=.1, legend=j==0)
+    '''
 
     pl.show()
+
 
 
     ipdb.set_trace()
@@ -483,10 +511,9 @@ def testbed(problem_params, algo_params):
     	
         sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
 
-        pl.figure()
         ax = pl.subplot(211)
 
-        interp_ts = np.linspace(sol.t0, sol.t1)
+        interp_ts = np.linspace(sol.t0, sol.t1, 200)
 
         xs = sol.ys['x']
         ts = sol.ys['t']
@@ -533,7 +560,7 @@ def testbed(problem_params, algo_params):
 
 
         term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         # simulate for pretty damn long
@@ -546,6 +573,8 @@ def testbed(problem_params, algo_params):
         return forward_sol
 
 
+
+    '''
     x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .2
 
     sol = forward_sim_nn(x0s[0], params)
@@ -554,6 +583,7 @@ def testbed(problem_params, algo_params):
 
     visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
     visualiser.plot_trajectories_meshcat(sols_sobolev, color=(.5, .5, .7))
+	'''
 
     ipdb.set_trace()
 

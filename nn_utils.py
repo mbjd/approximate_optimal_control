@@ -339,7 +339,8 @@ class nn_wrapper():
 
         total_decay = algo_params['lr_final'] / algo_params['lr_init']
 
-        # how does this know about total_iters???
+        # regardless of whether or not steps are used, the decay rate 
+        # sets the decay *per transition step*. 
         lr_schedule = optax.exponential_decay(
                 init_value = algo_params['lr_init'],
                 transition_steps = total_iters // N_lr_steps,
@@ -347,6 +348,17 @@ class nn_wrapper():
                 end_value=algo_params['lr_final'],
                 staircase=algo_params['lr_staircase']
         )
+
+        # another one get multiple params that occur close to the 
+        # end of training. 
+        posterior_schedule = optax.exponential_decay(
+                init_value = algo_params['lr_init'],
+                transition_steps = total_iters // N_lr_steps,
+                decay_rate = (total_decay) ** (1/N_lr_steps),
+                end_value=algo_params['lr_final'],
+                staircase=algo_params['lr_staircase']
+        )
+
 
         optim = optax.adam(learning_rate=lr_schedule)
         opt_state = optim.init(nn_params)
@@ -416,3 +428,14 @@ class nn_wrapper():
         nn_params, _, _ = final_carry
 
         return nn_params, outputs
+
+    def train_sobolev_ensemble(self, key, ys, nn_params, algo_params, ys_test=None):
+
+        # train ensemble by vmapping the whole training procedure with different prng key. 
+
+        keys = jax.random.split(key, algo_params['nn_ensemble_size'])
+
+        train_with_key = lambda k: self.train_sobolev(k, ys, nn_params, algo_params, ys_test=ys_test)
+
+        # vmap only the random key. even keep same initialisation!
+        return jax.vmap(train_with_key)(keys)

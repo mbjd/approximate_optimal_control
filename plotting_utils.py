@@ -17,6 +17,98 @@ import numpy as onp
 from functools import partial
 cmap = 'viridis'
 
+import pontryagin_utils
+
+def plot_sol(sol, problem_params):
+
+    # adapted from plot_forward_backward in ddp_optimizer
+    # this works regardless of v/t reparameterisation.
+    # all the x axes are physical times as stored in sol.ys['t']
+    # all interpolations are done with ODE solver "t", so whatever independent
+    # variable we happen to have
+
+    interp_ts = np.linspace(sol.t0, sol.t1, 5001)
+
+    # plot the state trajectory of the forward pass, interpolation & nodes.
+    ax1 = pl.subplot(221)
+
+    pl.plot(sol.ys['t'], sol.ys['x'], marker='.', linestyle='', alpha=1)
+    # pl.plot(sol.ys['t'], sol.ys['v'], marker='.', linestyle='', alpha=1)
+    interp_ys = jax.vmap(sol.evaluate)(interp_ts)
+    pl.gca().set_prop_cycle(None)
+    pl.plot(interp_ys['t'], interp_ys['x'], alpha=0.5, label=problem_params['state_names'])
+    # pl.plot(interp_ys['t'], interp_ys['v'], alpha=0.5, label='v(x(t))')
+    pl.legend()
+
+
+    pl.subplot(222, sharex=ax1)
+    us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(
+        sol.ys['x'], sol.ys['vx'], problem_params
+    )
+    def u_t(t):
+        state_t = sol.evaluate(t)
+        return pontryagin_utils.u_star_2d(state_t['x'], state_t['vx'], problem_params)
+
+    us_interp = jax.vmap(u_t)(interp_ts)
+
+    pl.plot(sol.ys['t'], us, linestyle='', marker='.')
+    pl.gca().set_prop_cycle(None)
+    pl.plot(interp_ys['t'], us_interp, label=('u_0', 'u_1'))
+    pl.legend()
+
+    if 'vxx' not in sol.ys:
+        # from here on we only plot hessian related stuff
+        # so if that was not calculated, exit.
+        return
+
+
+    # plot the eigenvalues of S from the backward pass.
+    pl.subplot(223, sharex=ax1)
+
+    # eigenvalues at nodes.
+    sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
+
+    S_eigenvalues = jax.vmap(sorted_eigs)(sol.ys['vxx'])
+    eigv_label = ['S(t) eigenvalues'] + [None] * (problem_params['nx']-1)
+
+    eig_plot_fct = pl.plot  # = pl.semilogy
+
+    eig_plot_fct(sol.ys['t'], S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
+    # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
+    eig_plot_fct(sol.ys['t'], S_eigenvalues, color='C0')
+
+    # eigenvalues interpolated. though this is kind of dumb seeing how the backward
+    # solver very closely steps to the non-differentiable points.
+    sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
+    eig_plot_fct(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
+
+    # product of all eigenvalues = det(S)
+    # dets = np.prod(S_eigenvalues, axis=1)
+    # eig_plot_fct(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
+
+
+    pl.legend()
+
+    pl.subplot(224, sharex=ax1)
+    # and raw Vxx entries.
+    vxx_entries = interp_ys['vxx'].reshape(-1, problem_params['nx']**2)
+    label = ['entries of Vxx(t)'] + [None] * (problem_params['nx']**2-1)
+    pl.plot(interp_ys['t'], vxx_entries, label=label, color='green', alpha=.3)
+    pl.legend()
+
+
+    # or, pd-ness of the ricatti equation terms.
+    # oups = jax.vmap(ricatti_rhs_eigenvalues)(sol.ys)
+
+    # for j, k in enumerate(oups.keys()):
+    #     # this is how we do it dadaTadadadaTada this is how we do it
+    #     label = k # if len(oups[k].shape) == 1 else [k] + [None] * (oups[k].shape[1]-1)
+    #     pl.plot(sol.ys['t'], oups[k], label=label, color=f'C{j}', alpha=.5)
+
+    pl.legend()
+    # ipdb.set_trace()
+
+
 def plot_controlcost_vs_traindata():
 
     # axis 0: which PRNG key was used?

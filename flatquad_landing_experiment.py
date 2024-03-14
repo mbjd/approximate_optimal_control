@@ -372,7 +372,7 @@ if __name__ == '__main__':
     # current_weird_experiment(problem_params, algo_params)
     # u_star_debugging(problem_params, algo_params)
 
-    levelsets.main(problem_params, algo_params)
+    levelsets.testbed(problem_params, algo_params)
 
     ipdb.set_trace()
 

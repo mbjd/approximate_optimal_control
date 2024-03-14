@@ -24,6 +24,9 @@ from operator import itemgetter
 
 
 def main(problem_params, algo_params):
+    pass
+
+def testbed(problem_params, algo_params):
 
     # possibly cleaner implementation of this.
     # idea: learn V(x) for some level set V(x) <= v_k.
@@ -168,94 +171,7 @@ def main(problem_params, algo_params):
 
 
 
-    def plot_sol(sol):
 
-        # adapted from plot_forward_backward in ddp_optimizer
-        # this works regardless of v/t reparameterisation.
-        # all the x axes are physical times as stored in sol.ys['t']
-        # all interpolations are done with ODE solver "t", so whatever independent
-        # variable we happen to have
-
-        interp_ts = np.linspace(sol.t0, sol.t1, 5001)
-
-        # plot the state trajectory of the forward pass, interpolation & nodes.
-        ax1 = pl.subplot(221)
-
-        pl.plot(sol.ys['t'], sol.ys['x'], marker='.', linestyle='', alpha=1)
-        # pl.plot(sol.ys['t'], sol.ys['v'], marker='.', linestyle='', alpha=1)
-        interp_ys = jax.vmap(sol.evaluate)(interp_ts)
-        pl.gca().set_prop_cycle(None)
-        pl.plot(interp_ys['t'], interp_ys['x'], alpha=0.5, label=problem_params['state_names'])
-        # pl.plot(interp_ys['t'], interp_ys['v'], alpha=0.5, label='v(x(t))')
-        pl.legend()
-
-
-        pl.subplot(222, sharex=ax1)
-        us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(
-            sol.ys['x'], sol.ys['vx'], problem_params
-        )
-        def u_t(t):
-            state_t = sol.evaluate(t)
-            return pontryagin_utils.u_star_2d(state_t['x'], state_t['vx'], problem_params)
-
-        us_interp = jax.vmap(u_t)(interp_ts)
-
-        pl.plot(sol.ys['t'], us, linestyle='', marker='.')
-        pl.gca().set_prop_cycle(None)
-        pl.plot(interp_ys['t'], us_interp, label=('u_0', 'u_1'))
-        pl.legend()
-
-        if 'vxx' not in sol.ys:
-            # from here on we only plot hessian related stuff
-            # so if that was not calculated, exit.
-            return
-
-
-        # plot the eigenvalues of S from the backward pass.
-        pl.subplot(223, sharex=ax1)
-
-        # eigenvalues at nodes.
-        sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
-
-        S_eigenvalues = jax.vmap(sorted_eigs)(sol.ys['vxx'])
-        eigv_label = ['S(t) eigenvalues'] + [None] * (problem_params['nx']-1)
-
-        eig_plot_fct = pl.plot  # = pl.semilogy
-
-        eig_plot_fct(sol.ys['t'], S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
-        # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
-        eig_plot_fct(sol.ys['t'], S_eigenvalues, color='C0')
-
-        # eigenvalues interpolated. though this is kind of dumb seeing how the backward
-        # solver very closely steps to the non-differentiable points.
-        sorted_eigs_interp = jax.vmap(sorted_eigs)(interp_ys['vxx'])
-        eig_plot_fct(interp_ys['t'], sorted_eigs_interp, color='C0', linestyle='--', alpha=.5)
-
-        # product of all eigenvalues = det(S)
-        # dets = np.prod(S_eigenvalues, axis=1)
-        # eig_plot_fct(sol.ys['t'], dets, color='C1', marker='.', label='prod(eigs(S))', alpha=.5)
-
-
-        pl.legend()
-
-        pl.subplot(224, sharex=ax1)
-        # and raw Vxx entries.
-        vxx_entries = interp_ys['vxx'].reshape(-1, problem_params['nx']**2)
-        label = ['entries of Vxx(t)'] + [None] * (problem_params['nx']**2-1)
-        pl.plot(interp_ys['t'], vxx_entries, label=label, color='green', alpha=.3)
-        pl.legend()
-
-
-        # or, pd-ness of the ricatti equation terms.
-        # oups = jax.vmap(ricatti_rhs_eigenvalues)(sol.ys)
-
-        # for j, k in enumerate(oups.keys()):
-        #     # this is how we do it dadaTadadadaTada this is how we do it
-        #     label = k # if len(oups[k].shape) == 1 else [k] + [None] * (oups[k].shape[1]-1)
-        #     pl.plot(sol.ys['t'], oups[k], label=label, color=f'C{j}', alpha=.5)
-
-        pl.legend()
-        # ipdb.set_trace()
 
 
     def plot_us(sols, rotate=True, c='C0'):
@@ -405,7 +321,7 @@ def main(problem_params, algo_params):
             # recreate the solution in 64 bit precision.
             newsol = solve_backward(y['x'], algo_params, y_f=y)
 
-            plot_sol(newsol)
+            plotting_utils.plot_sol(newsol, problem_params)
 
         # plot_badsol_from_idx(30)
         # pl.show()
@@ -440,7 +356,7 @@ def main(problem_params, algo_params):
         pl.ylabel('vxx rhs components')
 
         pl.figure()
-        plot_sol(bad_sol)
+        plotting_utils.plot_sol(bad_sol)
 
         pl.show()
 
@@ -462,7 +378,7 @@ def main(problem_params, algo_params):
     '''
     for j in range(10, 15):
         pl.figure(str(j))
-        plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig))
+        plotting_utils.plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig), problem_params)
     pl.show()
     '''
 
@@ -522,14 +438,12 @@ def main(problem_params, algo_params):
             train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
     )
 
-
-
-
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
     pl.figure()
     plotting_utils.plot_nn_train_outputs(oups)
 
     pl.show()
+
 
     ipdb.set_trace()
 
@@ -705,10 +619,6 @@ def main(problem_params, algo_params):
         pl.plot(interp_ts, lqr_vxs, label='lqr Vx', c='C2', alpha=.5)
         pl.legend()
 
-    plot_trajectory_vs_nn(12, params)
-    plot_trajectory_vs_nn(12, params_sobolev)
-    ipdb.set_trace()
-    pl.show()
 
     def forward_sim_nn(x0, params):
 
@@ -748,56 +658,24 @@ def main(problem_params, algo_params):
 
     ipdb.set_trace()
 
+    # initial step: 
+    # - generate data from uniform backward shooting
+    # - do train_and_prune step to find value nn and known value level.
+    # - start loop
+
     for k in range(5):
 
-        '''
-        basic idea for value step scheduling:
-         - set "target" v_k+1. intuitively: how far can we simulate backward without the sensitivity problem
-           completely messing us up? something like:
-               (small multiple of) fastest time constant * minimal dv/dt
-           the fastest time constant we can assume we know, take from linearisation or estimate from previously generated data
-           dv/dt = -l(x, u), and the bottleneck are the trajectories which stay on low l for some time.
-           probably we can just take the smallest l(x, u) encountered in the last "value band" V_k \\ V_k-1.
-           (if we don't exclude the sublevel set V_k-1 then the lowest will always be l=0 at equilibrium)
-         - sample lots of states in the value band V_k+1 \\ V_k. This hinges on extrapolation! we should make sure that
-           this set is bounded, maybe by "pushing up" the value function slightly so the extrapolated one is an overestimate?
-           or if we don't ensure it is bounded, make it work somehow otherwise
-         - simulate forward. there should be an easy "upper bound" on the time duration of these trajectories until we enter V_k
-           based on also the minimal dv/dt. simulate for that amount of time, if not in V_k, ignore that point.
-         - from remaining points where forward sim landed (maybe take the point where trajectory entered V_k? or lowest uncertainty?)
-           do backward PMP.
-         - fit NN again with new data, maybe enlarging the training dataset in smaller value levelset steps.
-         - evaluate posterior uncertainty for many "test points" in V_k+1 \\ V_k. Estimate somehow the largest value step v_k+1
-           we can accept without having large uncertainty in V_k+1. Simple way: just set V_k+1 = largest value for which no test
-           point has too large uncertainty. Probably there is something nicer though based on statistics and shit.
-         - repeat.
+        # active learning with level-set ideas embedded. 
+        # first pseudocode algo in idea dump
 
-        generally we already have a dataset which goes beyond the current value level set. we might also try an initial step where
-        we extend all current points up to v_k+1 and fit the NN with that incomplete data. then probably the forward simulations
-        will be closer to optimal and we get better sampling distributions.
+        x_proposals = propse_points(v_nn, vk)
 
-        '''
-        # main loop, first draft.
-        vj_goal = vj_prev * 1.5
+        sols = jax.vmap(solve_backward, in_axes=(0, None))(x_proposals, algo_params)
 
-        # obtain solutions.
-        # TODO give algoparams to this function...
-        # sols_orig = jax.vmap(solve_backward)(xfs)
+        # somehow store the solutions in our big dataset
+        data = np.concatenate([data, sols.ys])
 
-
-
-
-        # train NN by using that data, maybe including an actually continuous
-        # sweep of v_k -> v_k+1 by adding data during training.
-        raise NotImplementedError
-
-        # find out up to which value level the NN is actually accurate
-        # (i.e. has low posterior uncertainty)
-        raise NotImplementedError
-
-
-        # vk = largest v for which we have low enough uncertainty in sublevel set
-
+        params, v_known = train_and_prune(v_nn, params, v_known, data)
 
     '''
     # this is only really useful if computing much more than N_plot trajectories...

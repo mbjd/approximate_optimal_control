@@ -1764,3 +1764,10 @@ functional priors: this idea exists and bhavya did some work on it! i
 
 BNN: find last layer weight distribution using BLR with previous layers
 fixed. simple but apparently this works!
+
+
+
+
+2023-04-14
+
+

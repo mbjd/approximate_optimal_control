@@ -261,6 +261,49 @@ def plot_nn_train_outputs_old(outputs):
 
 
 
+    
+
+def plot_trajectory_vs_nn(sol, params, v_nn_unnormalised):
+
+    # outside, do this: 
+    # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+    
+
+    ax = pl.subplot(211)
+
+    interp_ts = np.linspace(sol.t0, sol.t1, 200)
+
+    xs = sol.ys['x']
+    ts = sol.ys['t']
+    vs = sol.ys['v']
+    interp_ys = jax.vmap(sol.evaluate)(interp_ts)
+
+    nx = sol.ys['x'].shape[-1]
+    onelabel = lambda s: [s] + [None] * (nx-1)
+
+    pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
+    pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
+
+    # same with the NN
+    vs = jax.vmap(v_nn_unnormalised, in_axes=(None, 0))(params, interp_ys['x'])
+    pl.plot(interp_ts, vs, c='C1', label='NN v(x(t))')
+    pl.legend()
+
+    # and now the same for vx
+    pl.subplot(212, sharex=ax)
+
+    vxs = sol.ys['vx']
+    pl.plot(interp_ts, interp_ys['vx'], alpha=.5, label=onelabel('trajectory vx(x(t))'), c='C0')
+    pl.plot(ts, vxs, alpha=.5, linestyle='', marker='.', c='C0')
+
+    nn_vx_fct = jax.jacobian(v_nn_unnormalised, argnums=1)
+    nn_vxs = jax.vmap(nn_vx_fct, in_axes=(None, 0))(params, interp_ys['x'])
+    pl.plot(interp_ts, nn_vxs, label=onelabel('NN v_x(x(t))'), c='C1')
+
+    pl.legend()
+
+
+
 
 def plot_nn_train_outputs(outputs, alpha=.5, legend=True):
 

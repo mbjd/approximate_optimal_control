@@ -352,7 +352,7 @@ if __name__ == '__main__':
 
         'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 64,  # small batches good! friends don't let friends blabla
-        'nn_N_epochs': 128,
+        'nn_N_epochs': 64,
         'nn_testset_fraction': 0.05,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
@@ -362,7 +362,7 @@ if __name__ == '__main__':
         'nn_ensemble_size': 8,
 
         # relative importance of the losses for v, vx, vxx.
-        'nn_sobolev_weights': np.array([1., 2., 1.]),
+        'nn_sobolev_weights': np.array([1., 2., 0.01]),
 
         'nn_progressbar': True,
     }

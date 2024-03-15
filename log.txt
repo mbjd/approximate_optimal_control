@@ -1788,3 +1788,86 @@ repulsiveness.
 still this only works for low value level sets and breaks down completely for
 v_k > 100 or so. still don't know why. list of possible reasons in log entry
 2023-04-12 towards the end. 
+
+
+
+2023-04-15
+
+taking a closer look at the output of data normalisation to see if maybe vx
+and vxx (which we can't just freely normalise) have very unsuitable magnitudes. 
+
+but it looks pretty reasonable unfortunately. v has obviously zero mean and
+unit variance, and so does each x component. the vx entries have means mostly
+below .1 in magnitude, and variances below 1. vxx has most means very close to
+0, and some ranging up to +/- 5. stds mostly between 1e-3 and 1, about uniform
+looking on a log scale, with one ranging up to almost 10.
+
+as it stands now none of these numbers should be a reason for concern, in fact
+they look nicer than i expected. though i can definitely imagine situations
+where it might turn out worse.
+
+the intuition i am currently subscribing most to is this: during training for
+the more "difficult" datasets we see generally the vxx loss being the highest
+during training, especially in the long tail section. combined with the fact
+that the vxx weight is mostly on the same order of magnitude as the other
+ones, i believe that the total gradient signal is dominated by the vxx loss,
+slowing down progress on vx. current experiment: try lower vxx weights. maybe
+we can split the training into phases? first train with vxx weight 0 until we
+have a decent fit, and then enable it again. or do some trick like clipping
+the influence of the vxx gradient? but this is probably a bit of a hassle and
+i would really rather specify a loss function and use a standard optimiser
+than tweak the optimiser when really we are kind of encoding a different loss
+function by doing so. 
+
+i also have the feeling that the vxx loss, and to a degree the vx loss, may be
+more "ill conditioned" as a function of nn parameters. not sure why though. 
+
+anyway, with a lower vxx weight it is actually not that bad! we get 1e-2 ish
+vxx test loss on the full dataset (4 second uniform backward shooting, 200
+trajectories.). the trajectory vs nn plot looks alright, not very thrilling,
+certainly approximation could be made better still, but the overall shape of
+the vx functions is well captured. 
+
+closed loop testing of the resulting controller is also pretty nice! for
+initial states sampled from N(0, 5I) we see probably about half of them being
+stabilised. although, I feel like once the fast system (phi, omega) is
+stabilised they kind of move inwards "too slow"? should compare w/ lqr again
+to be sure, maybe not. 
+
+but nevertheless, I think it's impresseive that even though the trajectories
+generated are from a *very* specific weird distribution (fast system
+immediately excited in backward time, so no progress to speak of on slow
+system), the stabilisation works for a relatively wide range of initial
+states! this is promising, as it is exactly this type of extrapolation we are
+planning to rely heavily on. 
+
+
+
+aaaaaaaaalso, been thinking about state space topology. if we want to make
+global solutions make sense, then the state space should be uniquely
+paramerised (does this have a precise meaning?), and right now we have the
+angle which is mod 2pi, so several state vectors for the same physical states.
+
+
+a transformation Phi -> (sin Phi, cos Phi) solves this easily. but introduces
+new questions.  
+
+if we transform the whole system, before simulation, there are some more concerns.
+
+  the state could leave the manifold ||sin Phi, cos Phi|| = 1. Baumgarte to
+  the rescue!
+
+  more importantly, does PMP change significantly when we go to manifold state
+  spaces? skimmed some papers on this and it seems very cumbersome. i am ready
+  to learn the basics of differential geometry but not about to do a math
+  major! but this is probably nevertheless the "most correct" solution...
+
+
+if we transform this after simulation, just for nn training,
+then how do we transform the costate, and vxx?
+
+  probably this is some not too crazy derivative trickery. just that the
+  derivative is not defined in all diretions anymore. i mean it is still the same 
+  basic change -- we now have a function defined on a manifold, and so are its gradients
+  so this still needs to be treated in the correct way if we do it like that. 
+

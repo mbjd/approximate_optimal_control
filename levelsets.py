@@ -23,12 +23,106 @@ import tqdm
 from operator import itemgetter
 
 
+# look at normalised data.
+def data_normalisation_experiment():
+
+    N = 100
+    vs = np.logspace(0, 3, N)
+    for i, v_k in enumerate(vs):
+
+        # extract corresponding data points for NN fitting.
+        # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
+        bool_train_idx = sols_orig.ys['v'] < v_k
+
+        # value "band" instead.
+        bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
+
+        vs_flat = sols_orig.ys['v'].flatten()
+        argsort_vs_flat = np.argsort(vs_flat)
+
+        pl.plot()
+
+        all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+
+        # split into train/test set.
+
+        train_ys, test_ys = nn_utils.train_test_split(all_ys)
+
+        print(f'dataset size: {bool_train_idx.sum()} points (= {bool_train_idx.mean()*100:.2f}%)')
+        n_data = count_floats(train_ys)
+        print(f'corresponding to {n_data} degrees of freedom')
+
+        v_nn = nn_utils.nn_wrapper(
+            input_dim=problem_params['nx'],
+            layer_dims=algo_params['nn_layerdims'],
+            output_dim=1
+        )
+
+
+        normaliser = nn_utils.data_normaliser(train_ys)
+
+        ys_n = normaliser.normalise_all_dict(train_ys)
+        test_ys_n = normaliser.normalise_all_dict(test_ys)
+
+        means = jax.tree_util.tree_map(lambda n: np.expand_dims(n.mean(axis=0), 0), ys_n)
+        stds  = jax.tree_util.tree_map(lambda n: np.expand_dims(n.std(axis=0), 0), ys_n)
+        if i==0:
+            all_means = means
+            all_stds = stds
+        else:
+            concat0 = lambda a, b: np.concatenate([a, b], axis=0)
+            all_means = jax.tree_util.tree_map(concat0, all_means, means)
+            all_stds = jax.tree_util.tree_map(concat0, all_stds, stds)
+
+
+    # append a nan to break up plot lines.
+    all_means = jax.tree_util.tree_map(concat0, all_means, jax.tree_util.tree_map(lambda n: n * np.nan, means))
+    all_stds = jax.tree_util.tree_map(concat0, all_stds, jax.tree_util.tree_map(lambda n: n * np.nan, stds))
+    N = N+1  # because of the NaN at the end
+
+
+
+    pl.figure('data normalisation plot')
+
+    nx = problem_params['nx']
+    xs_one = np.arange(N)
+    xs_nx = np.arange(N * nx) % (N)
+    xs_nx_sq = np.arange(N * nx**2) % N
+
+    plot_wrt_v = True
+    if plot_wrt_v:
+    	xs_one = vs[xs_one]
+    	xs_nx = vs[xs_nx]
+    	xs_nx_sq = vs[xs_nx_sq]
+
+    pl.subplot(211)
+    pl.plot(xs_one, all_means['v'], label='v mean', alpha=.5)
+
+    vx_means = all_means['vx'].T.flatten()
+    pl.plot(xs_nx, vx_means, label='vx mean', alpha=.5)
+
+    vxx_means = all_means['vxx'].swapaxes(0, 2).flatten()
+    pl.plot(xs_nx_sq, vxx_means, label='vxx mean', alpha=.5)
+    pl.legend()
+
+    pl.subplot(212)
+    pl.plot(xs_one, all_stds['v'], label='v std', alpha=.5)
+
+    vx_means = all_stds['vx'].T.flatten()
+    pl.plot(xs_nx, vx_means, label='vx std', alpha=.5)
+
+    vxx_means = all_stds['vxx'].swapaxes(0, 2).flatten()
+    pl.plot(xs_nx_sq, vxx_means, label='vxx std', alpha=.5)
+    pl.legend()
+    pl.show()
+
+
 
 
 def plot_taylor_sanitycheck(sol, problem_params):
 
-	# possibly this stopped working when i moved it outside of the testbed function
-	# but hopefully we won't be needing this so much anyway. 
+    # possibly this stopped working when i moved it outside of the testbed function
+    # but hopefully we won't be needing this so much anyway. 
     # see if the lambda = vx and S = vxx are remotely plausible.
 
     pl.figure(f'taylor sanity check')
@@ -221,7 +315,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(50, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(200, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -243,7 +337,7 @@ def testbed(problem_params, algo_params):
 
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
-    	problem_params, algo_params
+        problem_params, algo_params
     )
 
     def solve_backward_lqr(x_f, algo_params):
@@ -267,6 +361,32 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
+
+    '''
+    # this is only really useful if computing much more than N_plot trajectories...
+    # plot only the N_plot ones with lowest initial cost-to-go.
+    v0s = jax.vmap(lambda s: s.evaluate(s.t1)['v'])(sols_orig)
+    N_plot = 50
+
+    # the highest v0 we're going to plot
+    v0s = np.nan_to_num(v0s, nan=np.inf)
+    v0_cutoff = np.percentile(v0s, N_plot/v0s.shape[0] * 100)
+
+    bool_plot_idx = v0s <= v0_cutoff
+
+    sols_plot = jax.tree_util.tree_map(lambda node: node[bool_plot_idx], sols_orig)
+    sols_notplot = jax.tree_util.tree_map(lambda node: node[~bool_plot_idx], sols_orig)
+
+    visualiser.plot_trajectories_meshcat(sols_plot)
+
+    pl.plot(sols_plot.ys['t'].flatten(), sols_plot.ys['v'].flatten(), alpha=.2, c='C0', label='plotted sols')
+    pl.plot(sols_notplot.ys['t'].flatten(), sols_notplot.ys['v'].flatten(), alpha=.2, c='C1', label='not plotted sols')
+    pl.legend()
+    pl.show()
+
+    '''
+    # visualiser.plot_trajectories_meshcat(sols_orig)
+
     # find some way to alert if NaN occurs in this whole pytree?
     # wasn't there a jax option that halts on nan immediately??
 
@@ -281,75 +401,76 @@ def testbed(problem_params, algo_params):
     # choose initial value level.
     v_k = 1000 * problem_params['V_f']
     v_k = np.inf  # fullest gas
-    v_k = 50  # full gas
+    v_k = 2000
     print(f'target value level: {v_k}')
     pl.rcParams['figure.figsize'] = (16, 10)
 
-    for i, v_k in enumerate(np.logspace(0, 3, 100)):
 
-	    # extract corresponding data points for NN fitting.
-	    # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
-	    bool_train_idx = sols_orig.ys['v'] < v_k
+    # extract corresponding data points for NN fitting.
+    # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
+    bool_train_idx = sols_orig.ys['v'] < v_k
 
-	    # value "band" instead.
-	    bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
+    # value "band" instead.
+    bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
 
-	    vs_flat = sols_orig.ys['v'].flatten()
-	    argsort_vs_flat = np.argsort(vs_flat)
+    vs_flat = sols_orig.ys['v'].flatten()
+    argsort_vs_flat = np.argsort(vs_flat)
 
-	    pl.plot()
+    pl.plot()
 
-	    all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+    all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
 
-	    # split into train/test set.
+    # split into train/test set.
 
-	    train_ys, test_ys = nn_utils.train_test_split(all_ys)
+    train_ys, test_ys = nn_utils.train_test_split(all_ys)
 
-	    print(f'dataset size: {bool_train_idx.sum()} points (= {bool_train_idx.mean()*100:.2f}%)')
-	    n_data = count_floats(train_ys)
-	    print(f'corresponding to {n_data} degrees of freedom')
+    print(f'dataset size: {bool_train_idx.sum()} points (= {bool_train_idx.mean()*100:.2f}%)')
+    n_data = count_floats(train_ys)
+    print(f'corresponding to {n_data} degrees of freedom')
 
-	    v_nn = nn_utils.nn_wrapper(
-	        input_dim=problem_params['nx'],
-	        layer_dims=algo_params['nn_layerdims'],
-	        output_dim=1
-	    )
-
-
-	    normaliser = nn_utils.data_normaliser(train_ys)
-
-	    ys_n = normaliser.normalise_all_dict(train_ys)
-	    test_ys_n = normaliser.normalise_all_dict(test_ys)
+    v_nn = nn_utils.nn_wrapper(
+        input_dim=problem_params['nx'],
+        layer_dims=algo_params['nn_layerdims'],
+        output_dim=1
+    )
 
 
-	    init_key, key = jax.random.split(key)
-	    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+    normaliser = nn_utils.data_normaliser(train_ys)
 
-	    # to get a feel for over/underparameterisation.
-	    n_params = count_floats(params_init)
-	    n_data = count_floats(train_ys)
-	    print(f'params/data ratio = {n_params/n_data:.4f}')
+    ys_n = normaliser.normalise_all_dict(train_ys)
+    test_ys_n = normaliser.normalise_all_dict(test_ys)
 
-	    # train once with new sobolev loss...
-	    train_key, key = jax.random.split(key)
-	    params_sobolev, oups_sobolev = v_nn.train_sobolev(
-	            train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
-	    )
 
-	    # # and once without
-	    # algo_params_fake = algo_params.copy()
-	    # algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
-	    # train_key, key = jax.random.split(key)
-	    # params, oups = v_nn.train_sobolev(
-	    #         train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
-	    # )
 
-	    pl.figure('sobolev with vxx')
-	    plotting_utils.plot_nn_train_outputs(oups_sobolev)
-	    pl.savefig(f'tmp/vk_sweep_{i}_{v_k}.png')
-	    pl.close('all')
-	    # pl.figure('sobolev without vxx')
-	    # plotting_utils.plot_nn_train_outputs(oups)
+
+    init_key, key = jax.random.split(key)
+    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+    # to get a feel for over/underparameterisation.
+    n_params = count_floats(params_init)
+    n_data = count_floats(train_ys)
+    print(f'params/data ratio = {n_params/n_data:.4f}')
+
+    # train once with new sobolev loss...
+    train_key, key = jax.random.split(key)
+    params_sobolev, oups_sobolev = v_nn.train_sobolev(
+            train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
+    )
+
+    # # and once without
+    # algo_params_fake = algo_params.copy()
+    # algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
+    # train_key, key = jax.random.split(key)
+    # params, oups = v_nn.train_sobolev(
+    #         train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
+    # )
+
+    pl.figure('sobolev with vxx')
+    plotting_utils.plot_nn_train_outputs(oups_sobolev)
+    # pl.savefig(f'tmp/vk_sweep_{i}_{v_k}.png')
+    # pl.close('all')
+    # pl.figure('sobolev without vxx')
+    # plotting_utils.plot_nn_train_outputs(oups)
 
     '''
 
@@ -357,22 +478,28 @@ def testbed(problem_params, algo_params):
     # surprisingly the progress bar just works now!
     train_key, key = jax.random.split(key)
     params_vmap, oups_vmap = v_nn.train_sobolev_ensemble(
-    	train_key, ys_n, params_init, algo_params, ys_test=test_ys_n,
-	)
+        train_key, ys_n, params_init, algo_params, ys_test=test_ys_n,
+    )
 
     # plot results
     for j in range(algo_params['nn_ensemble_size']):
-    	oups = jax.tree_util.tree_map(itemgetter(j), oups_vmap)
-    	plotting_utils.plot_nn_train_outputs(oups, alpha=.1, legend=j==0)
+        oups = jax.tree_util.tree_map(itemgetter(j), oups_vmap)
+        plotting_utils.plot_nn_train_outputs(oups, alpha=.1, legend=j==0)
     '''
+
+
+    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+    idx = 20
+    sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
+
+    pl.figure()
+    plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
 
     pl.show()
 
 
 
-    ipdb.set_trace()
-
-    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
 
     def sobolev_weight_gridsearch():
@@ -504,47 +631,6 @@ def testbed(problem_params, algo_params):
     # vxx_weight_sweep()
 
 
-    def plot_trajectory_vs_nn(idx, params, v_nn_unnormalised):
-
-    	# outside, do this: 
-        # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-    	
-        sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
-
-        ax = pl.subplot(211)
-
-        interp_ts = np.linspace(sol.t0, sol.t1, 200)
-
-        xs = sol.ys['x']
-        ts = sol.ys['t']
-        vs = sol.ys['v']
-        interp_ys = jax.vmap(sol.evaluate)(interp_ts)
-
-        pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
-        pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
-        # lqr_vs = jax.vmap(V_f)(interp_ys['x'])
-        # pl.plot(interp_ts, lqr_vs, label='LQR V(x(t))', color='C1', alpha=.5)
-
-        # same with the NN
-        vs = jax.vmap(v_nn_unnormalised, in_axes=(None, 0))(params, interp_ys['x'])
-        pl.plot(interp_ts, vs, c='C1', label='NN v(x(t))')
-        pl.legend()
-
-        # and now the same for vx
-        pl.subplot(212, sharex=ax)
-
-        vxs = sol.ys['vx']
-        pl.plot(interp_ts, interp_ys['vx'], alpha=.5, label='trajectory vx(x(t))', c='C0')
-        pl.plot(ts, vxs, alpha=.5, linestyle='', marker='.', c='C0')
-
-        nn_vx_fct = jax.jacobian(v_nn_unnormalised, argnums=1)
-        nn_vxs = jax.vmap(nn_vx_fct, in_axes=(None, 0))(params, interp_ys['x'])
-        pl.plot(interp_ts, nn_vxs, label='NN v_x(x(t))', c='C1')
-
-        lqr_vxs = jax.vmap(jax.jacobian(V_f))(interp_ys['x'])
-        pl.plot(interp_ts, lqr_vxs, label='lqr Vx', c='C2', alpha=.5)
-        pl.legend()
-
 
     def forward_sim_nn(x0, params):
 
@@ -574,16 +660,14 @@ def testbed(problem_params, algo_params):
 
 
 
-    '''
     x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .2
 
-    sol = forward_sim_nn(x0s[0], params)
-    sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
+    # sol = forward_sim_nn(x0s[0], params)
+    # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
     sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
 
-    visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
-    visualiser.plot_trajectories_meshcat(sols_sobolev, color=(.5, .5, .7))
-	'''
+    # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
+    visualiser.plot_trajectories_meshcat(sols_sobolev)
 
     ipdb.set_trace()
 
@@ -607,23 +691,6 @@ def testbed(problem_params, algo_params):
         params, v_known = train_and_prune(v_nn, params, v_known, data)
 
     '''
-    # this is only really useful if computing much more than N_plot trajectories...
-    # plot only the N_plot ones with lowest initial cost-to-go.
-    v0s = jax.vmap(lambda s: s.evaluate(s.t1)['v'])(sols_orig)
-    N_plot = 200
-
-    # the highest v0 we're going to plot
-    v0_cutoff = np.percentile(v0s, N_plot/v0s.shape[0] * 100)
-
-    bool_plot_idx = v0s <= v0_cutoff
-
-    sols_plot = jax.tree_util.tree_map(lambda node: node[bool_plot_idx], sols_orig)
-    sols_notplot = jax.tree_util.tree_map(lambda node: node[~bool_plot_idx], sols_orig)
-
-    visualiser.plot_trajectories_meshcat(sols_plot)
-
-    pl.plot(sols_plot.ys['t'].flatten(), sols_plot.ys['v'].flatten(), alpha=.2, c='C0', label='plotted sols')
-    pl.plot(sols_notplot.ys['t'].flatten(), sols_notplot.ys['v'].flatten(), alpha=.2, c='C1', label='not plotted sols')
     '''
 
 

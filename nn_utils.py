@@ -36,6 +36,7 @@ def train_test_split(ys, train_frac=0.9):
 
     return train_ys, test_ys
 
+
 class data_normaliser(object):
 
     def __init__(self, train_ode_states):
@@ -231,7 +232,8 @@ class nn_wrapper():
 
             # random vector on unit sphere.
             # would it be just as good to just choose one of the basis vectors [0, .., 1, .., 0]?
-            # then we basically extract one column of the hessian.
+            # then we basically extract one column of the hessian. that idea is also mentioned here:
+            # https://www.semanticscholar.org/reader/6edc6ff5a92567ff119f69266c291bab1285357f
 
             direction = jax.random.normal(key, shape=(self.input_dim,))
             direction = direction / np.linalg.norm(direction)

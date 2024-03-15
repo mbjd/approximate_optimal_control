@@ -296,7 +296,7 @@ if __name__ == '__main__':
         posx, posy, Phi, vx, vy, omega = x
 
         # state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
-        state_length_scales = np.array([1, 1, np.deg2rad(30), .5, .5, np.deg2rad(120)])
+        state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), .5, .5, np.deg2rad(120)])
         Q = np.diag(1/state_length_scales**2)
         state_cost = x.T @ Q @ x
 

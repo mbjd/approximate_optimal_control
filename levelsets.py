@@ -23,6 +23,48 @@ import tqdm
 from operator import itemgetter
 
 
+def plot_distributions(ys_n):
+
+	pl.figure()
+
+	# try to display the distribution of the different (normalised) variables. 
+	# plot essentially the cdf of them. 
+
+	norm_xs = np.linspace(-5, 5, 201)
+	norm_ys = jax.scipy.stats.norm.cdf(norm_xs)
+
+	def plot_data(arr, label):
+
+		# plot cdf of all data points. can be of any shape -- first axis
+		# is assumed to 
+
+		# +1 for NaN we are adding
+		N = arr.shape[0] + 1
+		pt_shape = arr.shape[1:]
+
+		# sort and add a nan to each member of point.
+		sorted_arr = arr.sort(axis=0)
+		nan_pt = arr[0:1] * np.nan  # range to keep leading axis
+		sorted_arr = np.concatenate([sorted_arr, nan_pt], axis=0)
+
+		ys = np.linspace(np.zeros(pt_shape), np.ones(pt_shape), N)
+		pl.plot(sorted_arr.ravel(order='F'), ys.ravel(order='F'), alpha=.5, label=label)
+		pl.plot(norm_xs, norm_ys, c='black', linestyle='--', alpha=.5)
+		pl.legend()
+
+
+
+	pl.subplot(221)
+	plot_data(ys_n['x'], 'x entries')
+	pl.subplot(222)
+	plot_data(ys_n['v'], 'v')
+	pl.subplot(223)
+	plot_data(ys_n['vx'], 'vx entries')
+	pl.subplot(224)
+	plot_data(ys_n['vxx'], 'vxx entries')
+
+
+
 # look at normalised data.
 def data_normalisation_experiment():
 
@@ -365,7 +407,7 @@ def testbed(problem_params, algo_params):
     # find some way to alert if NaN occurs in this whole pytree?
     # wasn't there a jax option that halts on nan immediately??
 
-    visualiser.plot_trajectories_meshcat(sols_orig)
+    # visualiser.plot_trajectories_meshcat(sols_orig)
 
 
     '''
@@ -402,10 +444,12 @@ def testbed(problem_params, algo_params):
     '''
 
     # choose initial value level.
-    v_k = 1000 * problem_params['V_f']
-    v_k = np.inf  # fullest gas
-    v_k = 2000
-    print(f'target value level: {v_k}')
+    # v_k = 1000 * problem_params['V_f']
+    # v_k = np.inf  # fullest gas
+    v_k = 100
+
+    value_interval = [v_k/1000, v_k]
+    print(f'value interval: {value_interval}')
     pl.rcParams['figure.figsize'] = (16, 10)
 
 
@@ -414,12 +458,11 @@ def testbed(problem_params, algo_params):
     bool_train_idx = sols_orig.ys['v'] < v_k
 
     # value "band" instead.
-    bool_train_idx = np.logical_and(sols_orig.ys['v'] < v_k, sols_orig.ys['v'] > 0.1)
+    bool_train_idx = np.logical_and(sols_orig.ys['v'] >= value_interval[0], sols_orig.ys['v'] <= value_interval[1]) 
+    valid_idx = np.logical_and(~np.isnan(sols_orig.ys['v']), ~np.isinf(sols_orig.ys['v'])) 
 
     vs_flat = sols_orig.ys['v'].flatten()
     argsort_vs_flat = np.argsort(vs_flat)
-
-    pl.plot()
 
     all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
 
@@ -427,7 +470,8 @@ def testbed(problem_params, algo_params):
 
     train_ys, test_ys = nn_utils.train_test_split(all_ys)
 
-    print(f'dataset size: {bool_train_idx.sum()} points (= {bool_train_idx.mean()*100:.2f}%)')
+    perc = 100 * bool_train_idx.sum() / valid_idx.sum()
+    print(f'dataset size: {bool_train_idx.sum()} points (= {perc:.2f}% of valid points)')
     n_data = count_floats(train_ys)
     print(f'corresponding to {n_data} degrees of freedom')
 
@@ -443,6 +487,11 @@ def testbed(problem_params, algo_params):
     ys_n = normaliser.normalise_all_dict(train_ys)
     test_ys_n = normaliser.normalise_all_dict(test_ys)
 
+    plot_distributions(ys_n)
+    pl.show()
+    # ipdb.set_trace()
+
+
 
 
 
@@ -457,7 +506,7 @@ def testbed(problem_params, algo_params):
     # train once with new sobolev loss...
     train_key, key = jax.random.split(key)
     params_sobolev, oups_sobolev = v_nn.train_sobolev(
-            train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
+        train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
     )
 
     # # and once without
@@ -482,6 +531,15 @@ def testbed(problem_params, algo_params):
         params, oups = v_nn.train_sobolev(train_key, ys_n, params_init, algo_params, ys_test=test_ys_n)
         plotting_utils.plot_nn_train_outputs(oups, legend=ep==1)
     pl.show()
+
+    # or batch size
+
+    train_key, key = jax.random.split(key)
+    for bs in 2 ** np.arange(10):
+        print(bs)
+        algo_params['nn_batchsize'] = bs
+        params, oups = v_nn.train_sobolev(train_key, ys_n, params_init, algo_params, ys_test=test_ys_n)
+        plotting_utils.plot_nn_train_outputs(oups, legend=ep==1, alpha=0.1)
 	'''
 
 

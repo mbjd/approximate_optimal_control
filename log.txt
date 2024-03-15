@@ -1851,6 +1851,21 @@ are a case of overfitting, where test loss is higher again. redoing it up to
 2**12 epochs to look at that more clearly. 
 
 
+still the fits are pretty shitty once we go above values of about 1000, or
+where the input constraint switching starts to become more regular...
+
+
+made a small utility function to plot the cdfs of the different normalised
+variables. maybe we find the reason of our shitty fits? although, the
+distributions seem very reasonable, even for the thin high value band cases
+that fail completely with current settings...
+
+
+
+
+
+
+
 
 aaaaaaaaalso, been thinking about state space topology. if we want to make
 global solutions make sense, then the state space should be uniquely
@@ -1870,6 +1885,9 @@ if we transform the whole system, before simulation, there are some more concern
   spaces? skimmed some papers on this and it seems very cumbersome. i am ready
   to learn the basics of differential geometry but not about to do a math
   major! but this is probably nevertheless the "most correct" solution...
+  maybe i should ask some of the control guys at ifa if they happen to know it
+  even a bit? 
+
 
 
 if we transform this after simulation, just for nn training,
@@ -1879,5 +1897,7 @@ then how do we transform the costate, and vxx?
   derivative is not defined in all diretions anymore. i mean it is still the same 
   basic change -- we now have a function defined on a manifold, and so are its gradients
   so this still needs to be treated in the correct way if we do it like that. 
+
+
 
 

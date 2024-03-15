@@ -45,18 +45,21 @@ class data_normaliser(object):
         # ['v'].shape == (N_pts,)
         # ['vx'].shape == (N_pts, nx)
 
+        # we scale each x component and v to zero mean and unit variance.
+        # then some standard differentiation rules tell us how vx and vxx
+        # must be changed under the linear change of variables.
+
         x_means = train_ode_states['x'].mean(axis=0)
         x_stds  = train_ode_states['x'].std(axis=0)
 
         self.normalise_x = lambda x: (x - x_means) / x_stds
         self.unnormalise_x = lambda xn: xn * x_stds + x_means
 
-        # scale v to unit variance only.
-        # ignore vx, hope it will be ~1 as well.
+        v_mean = train_ode_states['v'].mean()
         v_std  = train_ode_states['v'].std()
 
-        self.normalise_v = lambda v: v / v_std
-        self.unnormalise_v = lambda vn: vn * v_std
+        self.normalise_v = lambda v: (v-v_mean) / v_std
+        self.unnormalise_v = lambda vn: vn * v_std + v_mean
 
         # now the hard part, vx.
         self.normalise_vx = lambda vx: vx * x_stds / v_std

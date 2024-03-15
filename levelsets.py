@@ -91,9 +91,9 @@ def data_normalisation_experiment():
 
     plot_wrt_v = True
     if plot_wrt_v:
-    	xs_one = vs[xs_one]
-    	xs_nx = vs[xs_nx]
-    	xs_nx_sq = vs[xs_nx_sq]
+        xs_one = vs[xs_one]
+        xs_nx = vs[xs_nx]
+        xs_nx_sq = vs[xs_nx_sq]
 
     pl.subplot(211)
     pl.plot(xs_one, all_means['v'], label='v mean', alpha=.5)
@@ -631,6 +631,27 @@ def testbed(problem_params, algo_params):
     # vxx_weight_sweep()
 
 
+    def forward_sim_lqr(x0):
+
+        def forwardsim_rhs(t, x, args):
+
+            lam_x = P_lqr @ x  # <- for lqr instead
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            return problem_params['f'](x, u)
+
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+        )
+
+        return forward_sol
 
     def forward_sim_nn(x0, params):
 
@@ -660,14 +681,23 @@ def testbed(problem_params, algo_params):
 
 
 
-    x0s = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * .2
+    # cover a couple different magnitudes
+    x0s = np.concatenate([
+        jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
+        jax.random.normal(jax.random.PRNGKey(1), shape=(100, 6)) * .31,
+        jax.random.normal(jax.random.PRNGKey(2), shape=(100, 6)) * 1,
+        jax.random.normal(jax.random.PRNGKey(3), shape=(100, 6)) * 3,
+        jax.random.normal(jax.random.PRNGKey(4), shape=(100, 6)) * 10,
+    ], axis=0)
 
     # sol = forward_sim_nn(x0s[0], params)
     # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
     sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
+    sols_lqr = jax.vmap(forward_sim_lqr)(x0s)
 
     # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
     visualiser.plot_trajectories_meshcat(sols_sobolev)
+    visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
 
     ipdb.set_trace()
 

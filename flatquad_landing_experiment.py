@@ -346,23 +346,39 @@ if __name__ == '__main__':
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
         'pontryagin_solver_maxsteps': 256, # nice if it is not waaay too much
+        # not very relevant if we can just "resume" the trajectory in a later solve
+        # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x 
+        # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
+        # state space regions. 
+        'pontryagin_solver_T': 3,  
+
         # causes it not to quit when hitting maxsteps. probably still all subsequent
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,
 
         'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 64,  # small batches good! friends don't let friends blabla
-        'nn_N_epochs': 64,
+        'nn_N_epochs': 512,
         'nn_testset_fraction': 0.05,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.01,
+        'lr_init': 0.02,
         'lr_final': 0.0001,
 
         'nn_ensemble_size': 8,
 
         # relative importance of the losses for v, vx, vxx.
-        'nn_sobolev_weights': np.array([1., 2., 0.01]),
+        # mostly we care about representing vx with great accuracy, 
+        # the other two can be thought of as "hints"/priors/inductive biases
+        # to fit the correct vx function. 
+        'nn_sobolev_weights': np.array([0.1, 5., 0.01]),
+
+        # inversely proportional to approx training loss magnitudes. 
+        # intuition: then we make sure the three "loss signals" are similar in magnitude
+        # is this smart? this probably doesn't mean the gradients are similar (different "sharpness...")
+        # 'nn_sobolev_weights': 1/np.array([1e-5, 1e-4, 1e-2]),
+        # = 1/np.array([1e-3, 1e-2, 1.])
+        # = [1000, 100, 1]. does this make sense? ---> results in worse vx test loss. 
 
         'nn_progressbar': True,
     }

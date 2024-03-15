@@ -496,7 +496,7 @@ def define_backward_solver(problem_params, algo_params):
 
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
-        T = 4. # TODO have this as algoparam
+        T = algo_params['pontryagin_solver_T']
 
         backward_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,

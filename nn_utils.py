@@ -293,7 +293,7 @@ class nn_wrapper():
 
 
 
-    @filter_jit
+    # @filter_jit
     def train_sobolev(self, key, ys, nn_params, algo_params, ys_test=None):
 
         '''

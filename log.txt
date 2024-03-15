@@ -1843,6 +1843,15 @@ planning to rely heavily on.
 
 
 
+
+did an experiment to find out how many epochs we actually need. learning rate
+from .01 to .0001 exponential decay. epochs 2 ** np.arange(14), largest 8192. 
+while longer training does usually help, it looks like the last two at least
+are a case of overfitting, where test loss is higher again. redoing it up to
+2**12 epochs to look at that more clearly. 
+
+
+
 aaaaaaaaalso, been thinking about state space topology. if we want to make
 global solutions make sense, then the state space should be uniquely
 paramerised (does this have a precise meaning?), and right now we have the
@@ -1870,4 +1879,5 @@ then how do we transform the costate, and vxx?
   derivative is not defined in all diretions anymore. i mean it is still the same 
   basic change -- we now have a function defined on a manifold, and so are its gradients
   so this still needs to be treated in the correct way if we do it like that. 
+
 

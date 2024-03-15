@@ -361,6 +361,12 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
+    # ipdb.set_trace()
+    # find some way to alert if NaN occurs in this whole pytree?
+    # wasn't there a jax option that halts on nan immediately??
+
+    visualiser.plot_trajectories_meshcat(sols_orig)
+
 
     '''
     # this is only really useful if computing much more than N_plot trajectories...
@@ -386,9 +392,6 @@ def testbed(problem_params, algo_params):
 
     '''
     # visualiser.plot_trajectories_meshcat(sols_orig)
-
-    # find some way to alert if NaN occurs in this whole pytree?
-    # wasn't there a jax option that halts on nan immediately??
 
 
     '''
@@ -467,11 +470,26 @@ def testbed(problem_params, algo_params):
 
     pl.figure('sobolev with vxx')
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
+    pl.show()
+
+    '''
+    # sweep over epoch size.
+	# conclusion: longer is better in this case up to about 2048. (512 almost as good though). after that
+	# test loss goes up again. 
+    for ep in 2**np.arange(12):
+        print(ep)
+        algo_params['nn_N_epochs'] = ep
+        params, oups = v_nn.train_sobolev(train_key, ys_n, params_init, algo_params, ys_test=test_ys_n)
+        plotting_utils.plot_nn_train_outputs(oups, legend=ep==1)
+    pl.show()
+	'''
+
+
+
     # pl.savefig(f'tmp/vk_sweep_{i}_{v_k}.png')
     # pl.close('all')
     # pl.figure('sobolev without vxx')
     # plotting_utils.plot_nn_train_outputs(oups)
-
     '''
 
     # instead go straight to training a whole ensemble. 
@@ -649,6 +667,7 @@ def testbed(problem_params, algo_params):
             term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'],
+            throw=algo_params['throw'],
         )
 
         return forward_sol
@@ -675,6 +694,7 @@ def testbed(problem_params, algo_params):
             term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'],
+            throw=algo_params['throw'],
         )
 
         return forward_sol

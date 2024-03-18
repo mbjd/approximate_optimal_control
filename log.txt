@@ -1113,7 +1113,7 @@ not be happening, u* (i think) is piecewise linear....
 
 
 
-2023-02-26
+2024-02-26
 
 investigating that u* numerical jitteryness. implemented alternative smooth
 version, which  finds a convex combination of all candidate solutions that
@@ -1450,7 +1450,7 @@ time. ways to remedy this could include:
 
 
 
-2023-03-05
+2024-03-05
 
 
 set the goal of making a very basic mockup of the backward shooting, NN
@@ -1498,7 +1498,7 @@ time \o/
 
 
 
-2023-03-07
+2024-03-07
 
 
 ran some experiments of generating many, many trajectories, then plotting the
@@ -1520,7 +1520,7 @@ linear coordinate transformation. is pretty simple. implement tomorrow.
 also tomorrow: finish/clean up that writeup...
 
 
-2023-03-08
+2024-03-08
 
 made a nice data normalisation class, accounting for how the gradient gets
 squashed under linear coordinate change. looks much better with normalised
@@ -1583,7 +1583,7 @@ next tasks:
 
 
 
-2023-04-12
+2024-03-12
 
 second order sobolev is implemented and works (not sure why no log entry
 before...)
@@ -1699,7 +1699,7 @@ next steps, mostly carried from yesterday:
 - make first (hopefully, barely) working draft of main iteration! even if shit.
 
 
-2024-04-13
+2024-03-13
 
 still trying to find good nn tuning. currently doing grid search over
 relative weights for vx and vxx loss.
@@ -1768,7 +1768,7 @@ fixed. simple but apparently this works!
 
 
 
-2023-04-14
+2024-03-14
 
 big refactoring spree. cleaned up current testbed, put backward solver in
 place of the old one in pontryagin_utils, etc. 
@@ -1787,11 +1787,11 @@ repulsiveness.
 
 still this only works for low value level sets and breaks down completely for
 v_k > 100 or so. still don't know why. list of possible reasons in log entry
-2023-04-12 towards the end. 
+2024-03-12 towards the end. 
 
 
 
-2023-04-15
+2024-03-15
 
 taking a closer look at the output of data normalisation to see if maybe vx
 and vxx (which we can't just freely normalise) have very unsuitable magnitudes. 
@@ -1897,7 +1897,5 @@ then how do we transform the costate, and vxx?
   derivative is not defined in all diretions anymore. i mean it is still the same 
   basic change -- we now have a function defined on a manifold, and so are its gradients
   so this still needs to be treated in the correct way if we do it like that. 
-
-
 
 

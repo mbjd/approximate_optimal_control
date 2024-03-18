@@ -25,43 +25,43 @@ from operator import itemgetter
 
 def plot_distributions(ys_n):
 
-	pl.figure()
+    pl.figure()
 
-	# try to display the distribution of the different (normalised) variables. 
-	# plot essentially the cdf of them. 
+    # try to display the distribution of the different (normalised) variables. 
+    # plot essentially the cdf of them. 
 
-	norm_xs = np.linspace(-5, 5, 201)
-	norm_ys = jax.scipy.stats.norm.cdf(norm_xs)
+    norm_xs = np.linspace(-5, 5, 201)
+    norm_ys = jax.scipy.stats.norm.cdf(norm_xs)
 
-	def plot_data(arr, label):
+    def plot_data(arr, label):
 
-		# plot cdf of all data points. can be of any shape -- first axis
-		# is assumed to 
+        # plot cdf of all data points. can be of any shape -- first axis
+        # is assumed to 
 
-		# +1 for NaN we are adding
-		N = arr.shape[0] + 1
-		pt_shape = arr.shape[1:]
+        # +1 for NaN we are adding
+        N = arr.shape[0] + 1
+        pt_shape = arr.shape[1:]
 
-		# sort and add a nan to each member of point.
-		sorted_arr = arr.sort(axis=0)
-		nan_pt = arr[0:1] * np.nan  # range to keep leading axis
-		sorted_arr = np.concatenate([sorted_arr, nan_pt], axis=0)
+        # sort and add a nan to each member of point.
+        sorted_arr = arr.sort(axis=0)
+        nan_pt = arr[0:1] * np.nan  # range to keep leading axis
+        sorted_arr = np.concatenate([sorted_arr, nan_pt], axis=0)
 
-		ys = np.linspace(np.zeros(pt_shape), np.ones(pt_shape), N)
-		pl.plot(sorted_arr.ravel(order='F'), ys.ravel(order='F'), alpha=.5, label=label)
-		pl.plot(norm_xs, norm_ys, c='black', linestyle='--', alpha=.5)
-		pl.legend()
+        ys = np.linspace(np.zeros(pt_shape), np.ones(pt_shape), N)
+        pl.plot(sorted_arr.ravel(order='F'), ys.ravel(order='F'), alpha=.5, label=label)
+        pl.plot(norm_xs, norm_ys, c='black', linestyle='--', alpha=.5)
+        pl.legend()
 
 
 
-	pl.subplot(221)
-	plot_data(ys_n['x'], 'x entries')
-	pl.subplot(222)
-	plot_data(ys_n['v'], 'v')
-	pl.subplot(223)
-	plot_data(ys_n['vx'], 'vx entries')
-	pl.subplot(224)
-	plot_data(ys_n['vxx'], 'vxx entries')
+    pl.subplot(221)
+    plot_data(ys_n['x'], 'x entries')
+    pl.subplot(222)
+    plot_data(ys_n['v'], 'v')
+    pl.subplot(223)
+    plot_data(ys_n['vx'], 'vx entries')
+    pl.subplot(224)
+    plot_data(ys_n['vxx'], 'vxx entries')
 
 
 

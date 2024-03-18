@@ -208,18 +208,8 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
         for t, y in zip(sols_ts[sol_i], sols_ys[sol_i]):
             
             # data is inf-padded by diffrax. 
-            if np.any(y == np.inf):
+            if np.any(y == np.inf) or np.any(np.isnan(y)):
                 break
-
-            # this is not used anymore. for any time reparametersation, use a dict state with 
-            # state['x'] = system state and state['t'] = physical time. if type(sol.ys) == dict
-            # this form of state will be assumed (see start of function)
-            '''
-            if not t_is_indep:
-                # assume instead that t is in the last 'extended state' variable. 
-                # will fail silently (and produce very weird visualisation) if this some other variable
-                t = y[-1]
-            '''
 
             # apparently we have 30 fps and the animation time is in frames
             anim_t = 30*float(t)

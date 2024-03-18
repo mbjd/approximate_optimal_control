@@ -1899,3 +1899,49 @@ then how do we transform the costate, and vxx?
   so this still needs to be treated in the correct way if we do it like that. 
 
 
+2024-03-18
+
+took another look at the deteriorating training with higher value level. found
+suspicious vxx entries (like 1e17, surely this is an instance of the random
+instability rather than the actual solution). 
+
+took vxx loss out completely. now if we specify only 2 sobolev weights all vxx
+stuff is skipped entirely. at first glance it looks like the fit is indeed
+(practically and qualitatively) just as good as the one with vxx -- still we
+have a much larger RoA in closed loop than the training dataset which is very
+nice. all while saving lots of computation. was calculating vxx misguided from
+the start?? but this still for v_k = 100. 
+
+increaing it to 3000 where previously it failed. got nice training loss curves
+but unbearably high test loss. whyyy? visually the fit looks alright though,
+with vx curves quite close to training trajectory vx but oscillating around it
+(certainly with very bad vxx approx)
+
+not able to get better results with training on v and vx only after doing some
+parameter tuning. also not able to fix vxx issues. whaaat do
+
+
+plotting the offending trajectories it seems that they are all ones where
+angular rate is first in one direction, then changes, before finally
+stabilising at the equilibrium. does this somehow connect intuitively to the
+toy example above? 
+
+
+
+-> did some more thinking about vxx growing unbearably large. made a long
+writeup here, but ended up converting it to latex. is now in idea dump.
+conclusion: vxx terms can definitely go unbounded, and specifically when an
+eigenvalue goes to -infinity it corresponds to a starting self-intersection of
+level sets, or equivalently a focal point of characteristic curves. 
+
+
+
+... did some more tuning, switching on and off the vxx loss,
+over/underparameterisation etc. got pretty much nowhere, same things work as before.
+
+interestingly, when trying to fit a thin value band (example from 250 to 300),
+the train/test losses look really quite bad but the trajectory vs nn plot
+seems to indicate that the fit is pretty nice within the value band, and even
+extrapolates a bit. 
+
+

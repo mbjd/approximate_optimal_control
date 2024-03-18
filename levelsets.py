@@ -23,6 +23,7 @@ import tqdm
 from operator import itemgetter
 
 
+
 def plot_distributions(ys_n):
 
     pl.figure()
@@ -61,8 +62,8 @@ def plot_distributions(ys_n):
     pl.subplot(223)
     plot_data(ys_n['vx'], 'vx entries')
     if 'vxx' in ys_n:
-	    pl.subplot(224)
-	    plot_data(ys_n['vxx'], 'vxx entries')
+        pl.subplot(224)
+        plot_data(ys_n['vxx'], 'vxx entries')
 
 
 
@@ -255,15 +256,25 @@ def plot_taylor_sanitycheck(sol, problem_params):
     # ipdb.set_trace()
 
 
-def debug_nan_sol(sols_orig, solve_backward):
+def debug_nan_sol(sols_orig, problem_params, algo_params):
+
+    if not 'vxx' in sols_orig.ys:
+        print('debug_nan_sol highlights possible issues in the vxx trajectory.')
+        print('however, there is no vxx here. returning without doing anything. ')
+        return
+
     # long debugging session.
+    solve_backward, f_extended = pontryagin_utils.define_backward_solver(
+        problem_params, algo_params
+    )
 
     # conclusion: if NaNs pop up or the vxx terms become unreasonably large,
     # try decreasing dtmin a bit. fixed everything in this case.
 
     # just the first one
-    # nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0].item()
-    nan_idx = 153
+    all_nan_idx = np.where(np.isnan(sols_orig.ys['vxx']).any(axis=(1,2,3)))[0]
+    nan_idx = all_nan_idx[0]
+    print(f'NaN in solutions {all_nan_idx}, plotting details for {nan_idx}')
     bad_sol = jax.tree_util.tree_map(itemgetter(nan_idx), sols_orig)
 
     # serialise solution to analyse after switching to 64 bit.
@@ -277,17 +288,77 @@ def debug_nan_sol(sols_orig, solve_backward):
     # bs = f.read()
     # bad_ys = flax.serialization.msgpack_restore(bs)
 
-    def plot_badsol_from_y(y):
+    '''
+    def plot_badsol_from_idx(idx):
+
+        y = jtm(itemgetter(idx), bad_sol.ys)
 
         # recreate the solution in 64 bit precision.
         newsol = solve_backward(y, algo_params)
 
         plotting_utils.plot_sol(newsol, problem_params)
 
-    # plot_badsol_from_idx(30)
-    # pl.show()
+    for idx in (50, 100, 200, 400):
+        pl.figure(idx)
+        plot_badsol_from_idx(idx)
+    
+    '''
 
-    # ipdb.set_trace()
+    def estimate_vxx_lstsq(dx_size, t_eval=-4.7):
+
+        # perturb state at index 50 slightly and see what happens. 
+        # evaluate the resulting solutions at t_eval and estimate vxx there. 
+
+        dxs = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * dx_size
+
+        def solve_perturbed(y, dx):
+
+            y_perturbed = {
+                't': y['t'],
+                'x': y['x'] + dx,
+                'v': y['v'] + y['vx'] @ dx,
+                'vx': y['vx'] + y['vxx'] @ dx,
+                'vxx': y['vxx']  # no info here.
+            }
+
+            newsol = solve_backward(y_perturbed, algo_params)
+
+            return newsol
+
+        y = jtm(itemgetter(50), bad_sol.ys)
+        newsols = jax.vmap(solve_perturbed, in_axes=(None, 0))(y, dxs)
+
+
+        # for new sols (which start at y with t=0...)
+        t_eval_new = t_eval - y['t']
+
+        xs = jax.vmap(lambda sol: sol.evaluate(t_eval_new)['x'])(newsols)
+        vxs = jax.vmap(lambda sol: sol.evaluate(t_eval_new)['vx'])(newsols)
+
+        x_mean = xs.mean(axis=0)
+        vx_mean = vxs.mean(axis=0)
+
+        # try to estimate the hessian (= jacobian of map x -> vx) from data. 
+        # taylor expansion: vx(x + dx) \approx vx(x) + vxx dx
+        # transposing     : vx.T(x + dx) \approx vx.T(x) + dx.T vxx.T
+        # subtracting mean: vx.T(x+dx) - vx.T(x) \approx dx.T vxx
+        # for lstsq         b                            A    x
+        # so, lstsq(dxs as stacked row vecs, vxs-mean stacked as row vecs)
+        # should do the trick. 
+        vxx_est, _, _, _ = np.linalg.lstsq(dxs, vxs - vxs.mean(axis=0)[None, :])
+
+        return vxx_est
+
+    t_eval = -4.7
+    vxx_sol = bad_sol.evaluate(t_eval)['vxx']
+    vxx_est = estimate_vxx_lstsq(.001, t_eval=t_eval)
+    # wtf these don't seem to be similar in any way...
+    ipdb.set_trace()
+
+
+    
+
+    ipdb.set_trace()
 
 
     # start sol with higher precision from a state close to the last one.
@@ -309,19 +380,28 @@ def debug_nan_sol(sols_orig, solve_backward):
 
     rhs_evals, aux_outputs = jax.vmap(f_extended, in_axes=(0, 0, None))(bad_sol.ts, bad_sol.ys, 'debug')
 
+    pl.figure()
     ax = pl.subplot(211)
-    pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+    steps = bad_sol.ts.shape[0]
+    pl.plot(bad_sol.ts, bad_sol.ys['vxx'].reshape(steps, -1), '.-', c='C0', alpha=.5)
     pl.ylabel('vxx trajectory components')
     pl.subplot(212, sharex=ax)
-    pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(257, -1), '.-', c='C0', alpha=.5)
+    pl.plot(bad_sol.ts, rhs_evals['vxx'].reshape(steps, -1), '.-', c='C0', alpha=.5)
     pl.ylabel('vxx rhs components')
 
     pl.figure()
-    plotting_utils.plot_sol(bad_sol)
+    plotting_utils.plot_sol(bad_sol, problem_params)
+
+
+
+    # another plot. 
+    # plot v on the x axis against ||vxx|| on the y axis. 
+    all_vs = sols_orig.ys['v'].reshape(-1)
+    all_vxxs = sols_orig.ys['vxx'].reshape((-1, 6, 6))
+    pl.figure()
+    pl.loglog(all_vs, np.linalg.norm(all_vxxs, axis=(1,2)), alpha=.2)
 
     pl.show()
-
-
 
 
     ipdb.set_trace()
@@ -358,7 +438,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(200, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(2000, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -406,53 +486,17 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
-    # ipdb.set_trace()
-    # debug_nan_sol(sols_orig, problem_params, algo_params)
-    # find some way to alert if NaN occurs in this whole pytree?
-    # wasn't there a jax option that halts on nan immediately??
+    debug_nan_sol(sols_orig, problem_params, algo_params)
+    ipdb.set_trace()
 
-    # visualiser.plot_trajectories_meshcat(sols_orig)
-
-
-    '''
-    # this is only really useful if computing much more than N_plot trajectories...
-    # plot only the N_plot ones with lowest initial cost-to-go.
-    v0s = jax.vmap(lambda s: s.evaluate(s.t1)['v'])(sols_orig)
-    N_plot = 50
-
-    # the highest v0 we're going to plot
-    v0s = np.nan_to_num(v0s, nan=np.inf)
-    v0_cutoff = np.percentile(v0s, N_plot/v0s.shape[0] * 100)
-
-    bool_plot_idx = v0s <= v0_cutoff
-
-    sols_plot = jax.tree_util.tree_map(lambda node: node[bool_plot_idx], sols_orig)
-    sols_notplot = jax.tree_util.tree_map(lambda node: node[~bool_plot_idx], sols_orig)
-
-    visualiser.plot_trajectories_meshcat(sols_plot)
-
-    pl.plot(sols_plot.ys['t'].flatten(), sols_plot.ys['v'].flatten(), alpha=.2, c='C0', label='plotted sols')
-    pl.plot(sols_notplot.ys['t'].flatten(), sols_notplot.ys['v'].flatten(), alpha=.2, c='C1', label='not plotted sols')
-    pl.legend()
-    pl.show()
-
-    '''
-    # visualiser.plot_trajectories_meshcat(sols_orig)
-
-
-    '''
-    for j in range(10, 15):
-        pl.figure(str(j))
-        plotting_utils.plot_sol(jax.tree_util.tree_map(itemgetter(j), sols_orig), problem_params)
-    pl.show()
-    '''
-
+    
     # choose initial value level.
     # v_k = 1000 * problem_params['V_f']
     # v_k = np.inf  # fullest gas
-    v_k = 100
+    v_k = 300
 
-    value_interval = [v_k/1000, v_k]
+    # value_interval = [v_k/1000, v_k]
+    value_interval = [250, v_k]
     print(f'value interval: {value_interval}')
     pl.rcParams['figure.figsize'] = (16, 10)
 
@@ -472,7 +516,7 @@ def testbed(problem_params, algo_params):
 
     # split into train/test set.
 
-    train_ys, test_ys = nn_utils.train_test_split(all_ys)
+    train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
 
     perc = 100 * bool_train_idx.sum() / valid_idx.sum()
     print(f'dataset size: {bool_train_idx.sum()} points (= {perc:.2f}% of valid points)')
@@ -527,8 +571,8 @@ def testbed(problem_params, algo_params):
 
     '''
     # sweep over epoch size.
-	# conclusion: longer is better in this case up to about 2048. (512 almost as good though). after that
-	# test loss goes up again. 
+    # conclusion: longer is better in this case up to about 2048. (512 almost as good though). after that
+    # test loss goes up again. 
     for ep in 2**np.arange(12):
         print(ep)
         algo_params['nn_N_epochs'] = ep
@@ -544,7 +588,7 @@ def testbed(problem_params, algo_params):
         algo_params['nn_batchsize'] = bs
         params, oups = v_nn.train_sobolev(train_key, ys_n, params_init, algo_params, ys_test=test_ys_n)
         plotting_utils.plot_nn_train_outputs(oups, legend=ep==1, alpha=0.1)
-	'''
+    '''
 
 
 

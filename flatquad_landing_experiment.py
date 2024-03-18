@@ -343,10 +343,10 @@ if __name__ == '__main__':
 
 
     algo_params = {
-        'pontryagin_solver_vxx': False,
+        'pontryagin_solver_vxx': True,
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
-        'pontryagin_solver_maxsteps': 256, # nice if it is not waaay too much
+        'pontryagin_solver_maxsteps': 512, # nice if it is not waaay too much
         # not very relevant if we can just "resume" the trajectory in a later solve
         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x 
         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
@@ -357,10 +357,11 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,
 
-        'nn_layerdims': (32, 32, 32),
+        # big question: should we aim for over- or underparameterisation? 
+        'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
-        'nn_N_epochs': 1024,
-        'nn_testset_fraction': 0.05,
+        'nn_N_epochs': 128,
+        'nn_train_fraction': .9,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
@@ -372,8 +373,8 @@ if __name__ == '__main__':
         # mostly we care about representing vx with great accuracy, 
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function. 
-        # 'nn_sobolev_weights': np.array([0.1, 1., 0.01]),
-        'nn_sobolev_weights': np.array([0.1, 1.]),
+        'nn_sobolev_weights': np.array([0.1, 1., 0.01]),
+        # 'nn_sobolev_weights': np.array([0.1, 10.]),
 
         # inversely proportional to approx training loss magnitudes. 
         # intuition: then we make sure the three "loss signals" are similar in magnitude

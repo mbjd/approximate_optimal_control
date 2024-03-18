@@ -421,7 +421,9 @@ def define_backward_solver(problem_params, algo_params):
         x   = state['x']
         v   = state['v']
         vx  = state['vx']
-        vxx = state['vxx']
+
+        if algo_params['pontryagin_solver_vxx']:
+            vxx = state['vxx']
 
         nx = problem_params['nx']
 
@@ -438,13 +440,6 @@ def define_backward_solver(problem_params, algo_params):
 
             return state_dot, costate_dot
 
-        # its derivatives, for propagation of Vxx.
-        # fx, gx = jax.jacobian(pmp_rhs, argnums=0)(x, vx)
-        # flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x, vx)
-
-        # certified this is the same. maybe more efficient?
-        full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, vx)
-        (fx, flam), (gx, glam) = full_jacobian
 
 
         # we calculate this here one extra time, could be optimised
@@ -453,7 +448,6 @@ def define_backward_solver(problem_params, algo_params):
         # calculate all the RHS terms
         v_dot = -problem_params['l'](x, u_star)
         x_dot, vx_dot = pmp_rhs(x, vx)
-        vxx_dot = gx + glam @ vxx - vxx @ fx - vxx @ flam @ vxx
 
 
         # and pack them in a nice dict for the state.
@@ -462,7 +456,15 @@ def define_backward_solver(problem_params, algo_params):
         state_dot['t'] = 1.
         state_dot['v'] = v_dot
         state_dot['vx'] = vx_dot
-        state_dot['vxx'] = vxx_dot
+
+        if algo_params['pontryagin_solver_vxx']:
+            # do everything related to the hessian calculation only here.
+            full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, vx)
+            (fx, flam), (gx, glam) = full_jacobian
+
+            vxx_dot = gx + glam @ vxx - vxx @ fx - vxx @ flam @ vxx
+
+            state_dot['vxx'] = vxx_dot
 
         if args is not None and args == 'debug':
             # hacky way to get debug output.

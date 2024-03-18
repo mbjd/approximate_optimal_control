@@ -13,12 +13,12 @@ from typing import Sequence, Optional
 from equinox import filter_jit
 
 # other, trivial stuff
-import numpy as onp
-import matplotlib.pyplot as pl
+# import numpy as onp
+# import matplotlib.pyplot as pl
 
 import ipdb
 
-from tqdm import tqdm
+# from tqdm import tqdm
 from functools import partial
 from misc import *
 
@@ -209,11 +209,8 @@ class nn_wrapper():
         v_loss  = (v_pred - y['v' ]) ** 2
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
 
-        # if the corresponding weight is 0 we can also skip calculating the hessian loss...
-        # if 'vxx' in y and algo_params['nn_sobolev_weights'][2] > 0:
-        # but that messes up jit...
-        # if 'vxx' in y:
-        if True:
+        # if there are three weights they are for (v, vx, vxx). if only two, (v, vx).
+        if algo_params['nn_sobolev_weights'].shape == (3,):
 
             # instead of calculating the whole hessian (of v_pred wrt x) and comparing
             # it with y['vxx'], we instead compute the hessian vector product in a
@@ -253,28 +250,29 @@ class nn_wrapper():
 
             vxx_loss = np.sum((hvp_label - hvp_pred)**2)
 
-            # TODO weighting.
-            # how do we handle this? a few options:
-            # - set fixed parameters in algo_params and get them directly here
-            # - use a second, learning rate type schedule to only use them during the
-            #   last part of training ("finetuing")
-            # not sure what the advantage of the second one would be. certainly a bit
-            # more implementation effort though. so probably it is easiest to just
-            # set the parameters in algoparams. maybe normalise the weights here so
-            # we always have a convex combination of terms? could simplify tuning slightly.
+            # make convex combination by normalising weights.
+            # multiplying this by a constant is the same as adjusting the learning rate so
+            # we might as well take that degree of freedom away.
+            weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
+            sobolev_losses = np.array([v_loss, vx_loss, vxx_loss])
+
+            # we can have two outputs, the first of which is the one being differentiated if we use
+            # jax.value_and_grad(..., has_aux=True) later.
+            return weights @ sobolev_losses, sobolev_losses
+
+
+        elif algo_params['nn_sobolev_weights'].shape == (2,):
+
+            weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
+            sobolev_losses = np.array([v_loss, vx_loss])
+
+            # append nan to aux output to have equal shapes for plotting
+            sobolev_losses_emptyvxx = np.array([v_loss, vx_loss, np.nan])
+
+            return weights @ sobolev_losses, sobolev_losses_emptyvxx
 
         else:
-            vxx_loss = 0.
-
-        # make convex combination by normalising weights.
-        # multiplying this by a constant is the same as adjusting the learning rate so
-        # we might as well take that degree of freedom away.
-        weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
-        sobolev_losses = np.array([v_loss, vx_loss, vxx_loss])
-
-        # we can have two outputs, the first of which is the one being differentiated if we use
-        # jax.value_and_grad(..., has_aux=True) later.
-        return weights @ sobolev_losses, sobolev_losses
+            raise ValueError('nn sobolev weight must be an array of shape (3,) (including vxx) or (2,) (without vxx)')
 
 
     # vmap the loss across a batch and get its mean.

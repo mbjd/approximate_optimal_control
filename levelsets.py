@@ -60,8 +60,9 @@ def plot_distributions(ys_n):
     plot_data(ys_n['v'], 'v')
     pl.subplot(223)
     plot_data(ys_n['vx'], 'vx entries')
-    pl.subplot(224)
-    plot_data(ys_n['vxx'], 'vxx entries')
+    if 'vxx' in ys_n:
+	    pl.subplot(224)
+	    plot_data(ys_n['vxx'], 'vxx entries')
 
 
 
@@ -396,14 +397,17 @@ def testbed(problem_params, algo_params):
             't': 0,
             'v': v_f,
             'vx': vx_f,
-            'vxx': vxx_f,
         }
+
+        if algo_params['pontryagin_solver_vxx']:
+            state_f['vxx'] = vxx_f
 
         return solve_backward(state_f, algo_params)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
     # ipdb.set_trace()
+    # debug_nan_sol(sols_orig, problem_params, algo_params)
     # find some way to alert if NaN occurs in this whole pytree?
     # wasn't there a jax option that halts on nan immediately??
 

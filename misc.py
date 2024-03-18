@@ -21,6 +21,7 @@ import time
 import tqdm
 import operator
 
+from jax.tree_util import tree_map as jtm
 
 # various small utility functions.
 

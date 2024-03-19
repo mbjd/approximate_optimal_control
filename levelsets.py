@@ -439,7 +439,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(2000, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(200, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -450,6 +450,7 @@ def testbed(problem_params, algo_params):
     assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
 
+    pl.rcParams['figure.figsize'] = (16, 10)
 
 
 
@@ -496,33 +497,59 @@ def testbed(problem_params, algo_params):
     # v_k = np.inf  # fullest gas
     v_k = 500
 
-    # value_interval = [v_k/1000, v_k]
-    value_interval = [v_k/10, v_k]
+    # thin band
+    # value_interval = [v_k/3, v_k]
+    # thick band :) 
+    value_interval = [v_k/5000, v_k]
     print(f'value interval: {value_interval}')
-    pl.rcParams['figure.figsize'] = (16, 10)
 
 
-    # extract corresponding data points for NN fitting.
-    # this is a multi dim bool index! indexing a multidim array with it effectively flattens it.
-    bool_train_idx = sols_orig.ys['v'] < v_k
+    def select_train_pts(value_interval, sols):
 
-    # value "band" instead.
-    bool_train_idx = np.logical_and(sols_orig.ys['v'] >= value_interval[0], sols_orig.ys['v'] <= value_interval[1]) 
-    valid_idx = np.logical_and(~np.isnan(sols_orig.ys['v']), ~np.isinf(sols_orig.ys['v'])) 
+    	# ideas for additional functionality: 
+    	# - include not only strictly the value interval, but at least n_min pts from each trajectory. 
+    	#   so that if no points happen to be within the value band we include a couple (lower) ones
+    	#   to still hopefully improve the fit. 
+    	# - return only a random subsample of the data (with a specified fraction)
+    	# - throw away points of the same trajectory that are closer than some threshold (in time or state space?)
+    	#   this is also a form of subsampling but maybe better than random. 
 
-    vs_flat = sols_orig.ys['v'].flatten()
-    argsort_vs_flat = np.argsort(vs_flat)
+        v_lower, v_upper = value_interval
 
-    all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+        v_finite = np.logical_and(~np.isnan(sols.ys['v']), ~np.isinf(sols.ys['v'])) 
+
+        v_in_interval = np.logical_and(sols.ys['v'] >= v_lower, sols.ys['v'] <= v_upper) 
+
+        # sols.ys['vxx'].shape == (N_trajectories, N_ts, nx, nx)
+        # get the frobenius norms of the hessian & throw out large ones. 
+        vxx_norms = np.linalg.norm(sols.ys['vxx'], axis=(2, 3))
+        vxx_acceptable = vxx_norms < 1e4  # some random upper bound based on looking at a plot of v vs ||vxx||
+
+        bool_train_idx = np.logical_and(v_in_interval, vxx_acceptable)
+        all_ys = jtm(lambda node: node[bool_train_idx], sols.ys)
+
+        perc = 100 * bool_train_idx.sum() / v_finite.sum()
+
+        print(f'full (train+test) dataset size: {bool_train_idx.sum()} points (= {perc:.2f}% of valid points)')
+        n_data = count_floats(all_ys)
+        print(f'corresponding to {n_data} degrees of freedom')
+
+        # check if there are still NaNs left -- should not be the case. 
+        contains_nan = jtm(lambda n: np.isnan(n).any(), all_ys)
+        contains_nan_any = jax.tree_util.tree_reduce(operator.or_, contains_nan)
+
+        if contains_nan_any:
+            print('There are still NaNs in training data. dropping into debugger. have fun')
+            ipdb.set_trace()
+
+        return all_ys
+
+    all_ys = select_train_pts(value_interval, sols_orig)
 
     # split into train/test set.
 
     train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
 
-    perc = 100 * bool_train_idx.sum() / valid_idx.sum()
-    print(f'dataset size: {bool_train_idx.sum()} points (= {perc:.2f}% of valid points)')
-    n_data = count_floats(train_ys)
-    print(f'corresponding to {n_data} degrees of freedom')
 
     v_nn = nn_utils.nn_wrapper(
         input_dim=problem_params['nx'],
@@ -631,13 +658,13 @@ def testbed(problem_params, algo_params):
 
 
     if 'params' in oups_sobolev:
-    	# experimentally we output ALL parameters encountered during the whole training. 
-    	# this gives us effectively a huge NN ensemble, with (maybe) some sort of useful
-    	# model diversity. 
+        # experimentally we output ALL parameters encountered during the whole training. 
+        # this gives us effectively a huge NN ensemble, with (maybe) some sort of useful
+        # model diversity. 
 
-    	sliced_params = jtm(lambda node: node[-1024::128], oups_sobolev['params'])
-    	plotting_utils.plot_trajectory_vs_nn_ensemble(sol, sliced_params, v_nn_unnormalised)
-    	pl.show()
+        sliced_params = jtm(lambda node: node[-1024::128], oups_sobolev['params'])
+        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, sliced_params, v_nn_unnormalised)
+        pl.show()
 
 
 

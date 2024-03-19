@@ -1945,3 +1945,25 @@ seems to indicate that the fit is pretty nice within the value band, and even
 extrapolates a bit. 
 
 
+
+2024-03-19
+
+experimenting with NN ensemble. specifically, the sort where we take multiple
+parameter sets encountered during training, and basically repeat the "tail" of
+the training loop N times. Like SGLD but wihthout proper noise injection, only
+relying on SGD noise. 
+
+This seems to be much worse than just vmapping the entire training loop
+though. We get very overconfident predictions outside the region of training
+data, barely larger uncertainty than within. OTOH, with vmap they are still
+overconfident but seem kind of reasonable and *do* grow once we leave the
+training data region. also, vmapping is just easier, and actually not even
+that much slower than training a single one! maybe a single one doesn't max
+out the vectorisation capabilities (of my shitty local cpu...)
+
+I will go with the vmap approach for now. it is simpler, slightly brute force
+for sure, but I am fine with that (especially if we switch to Euler/TPU or
+whatever.). Also it is much more obvious how we might include "functional
+priors" there: just generate a set of random points and labels at the start of
+training -- vmapping with individual PRNG key will also randomise this prior,
+thus we should be able to get even better model diversity in this way. 

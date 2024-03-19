@@ -132,56 +132,6 @@ def plot_us(sols, problem_params, rotate=True, c='C0'):
     pl.legend()
 
 
-def plot_controlcost_vs_traindata():
-
-    # axis 0: which PRNG key was used?
-    # axis 1: which point number?
-    # axis 2: which type of data?
-    #  index 0: number of training points used (-> x axis for plot)
-    #  index 1: costate test loss
-    #  index 2: mean control cost
-    #  index 3: std. dev. control cost.
-
-    # we swap here for easier plotting
-    data = np.load('datasets/trainpts_controlcost_data.npy').swapaxes(0, 1)
-
-    N_trainpts, costate_testloss, cost_mean, cost_std = np.split(data, np.arange(1, data.shape[2]), axis=2)
-
-    # all the same
-    N_trainpts = N_trainpts[:, 0]
-    N_seeds = data.shape[1]
-
-    labels = ['' for _ in range(N_seeds)]
-    labels[0] = 'costate test loss'
-    # pl.subplot(121)
-    a = .3
-    pl.loglog(N_trainpts, costate_testloss.squeeze(), c='tab:blue', marker='.', alpha=a, label=labels)
-
-
-    labels[0] = 'mean control cost'
-    pl.loglog(N_trainpts, cost_mean.squeeze(), c='tab:green', marker='.', alpha=a, label=labels)
-    pl.xlabel('Training set size')
-
-
-    pl.legend()
-
-    # pl.subplot(122)
-
-    # labels[0] = 'control cost vs. λ test loss'
-    # pl.loglog(costate_testloss.squeeze(), cost_mean.squeeze(), c='tab:orange', marker='.', alpha=a, label=labels)
-    # pl.xlabel('λ test loss')
-    # pl.ylabel('control cost')
-
-    pl.legend()
-    pl.show()
-
-
-
-    ipdb.set_trace()
-
-
-
-
 
 
 def plot_ellipse(Q, N_pts=101):
@@ -302,6 +252,66 @@ def plot_trajectory_vs_nn(sol, params, v_nn_unnormalised):
 
     pl.legend()
 
+
+
+def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
+
+    # outside, do this: 
+    # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+    ax = pl.subplot(211)
+
+    interp_ts = np.linspace(sol.t0, sol.t1, 200)
+
+    xs = sol.ys['x']
+    ts = sol.ys['t']
+    vs = sol.ys['v']
+    interp_ys = jax.vmap(sol.evaluate)(interp_ts)
+
+    nx = sol.ys['x'].shape[-1]
+    onelabel = lambda s: [s] + [None] * (nx-1)
+
+    pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
+    pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
+
+    # same with the NN
+    # inner vmap for ys, outer vmap for params.
+    vs = jax.vmap(jax.vmap(v_nn_unnormalised, in_axes=(None, 0)), in_axes=(0, None))(vmapped_params, interp_ys['x'])
+    vs_mean = vs.mean(axis=0)
+    vs_std = vs.std(axis=0)
+    pl.plot(interp_ts, vs_mean, c='C1', label='NN v mean')
+    pl.fill_between(interp_ts, vs_mean - 3 * vs_std, vs_mean + 3 * vs_std, color='C1', alpha=.2, label='NN v 3σ band')
+    pl.legend()
+
+    # and now the same for vx
+    pl.subplot(212, sharex=ax)
+
+    vxs = sol.ys['vx']
+    pl.plot(interp_ts, interp_ys['vx'], alpha=.5, label=onelabel('trajectory vx(x(t))'), c='C0')
+    pl.plot(ts, vxs, alpha=.5, linestyle='', marker='.', c='C0')
+
+    nn_vx_fct = jax.jacobian(v_nn_unnormalised, argnums=1)
+
+    # shaped (N_params, N_ts, nx)
+    vxs = jax.vmap(jax.vmap(nn_vx_fct, in_axes=(None, 0)), in_axes=(0, None))(vmapped_params, interp_ys['x'])
+
+    # mean/std of NN ensemble
+    vx_means = vxs.mean(axis=0)
+    vx_stds = vxs.std(axis=0)
+
+    nx = sol.ys['x'].shape[-1]
+    # do this in a loop because fill_between does not like vectorised data
+    for j in range(nx):
+
+        label = 'NN vx mean' if j==0 else None
+        pl.plot(interp_ts, vx_means[:, j], label=label, c='C1')
+
+        lower = vx_means[:, j] - 3*vx_stds[:, j]
+        upper = vx_means[:, j] + 3*vx_stds[:, j]
+        label = 'NN vx 3σ band' if j==0 else None
+        pl.fill_between(interp_ts, lower, upper, color='C1', alpha=.2, label=label)
+
+    pl.legend()
 
 
 

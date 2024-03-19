@@ -352,17 +352,6 @@ class nn_wrapper():
                 staircase=algo_params['lr_staircase']
         )
 
-        # another one get multiple params that occur close to the 
-        # end of training. 
-        posterior_schedule = optax.exponential_decay(
-                init_value = algo_params['lr_init'],
-                transition_steps = total_iters // N_lr_steps,
-                decay_rate = (total_decay) ** (1/N_lr_steps),
-                end_value=algo_params['lr_final'],
-                staircase=algo_params['lr_staircase']
-        )
-
-
         optim = optax.adam(learning_rate=lr_schedule)
         opt_state = optim.init(nn_params)
 
@@ -399,6 +388,10 @@ class nn_wrapper():
             aux_output = {
                 'lr': lr_schedule(opt_state[0].count),
                 'train_loss_terms': loss_terms,
+                # outputting ALL params here is possible but not recommended. 
+                # will use huge memory and slow everything down (update, it seems equally fast during training...)
+                # anyway vmapping the whole trainign procedure gives much better model diversity out of the box. 
+                # 'params': nn_params_new,
             }
 
             # if given, calculate test loss.
@@ -431,6 +424,7 @@ class nn_wrapper():
         nn_params, _, _ = final_carry
 
         return nn_params, outputs
+
 
     def train_sobolev_ensemble(self, key, ys, nn_params, algo_params, ys_test=None):
 

@@ -353,7 +353,8 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     vxx_sol = bad_sol.evaluate(t_eval)['vxx']
     vxx_est = estimate_vxx_lstsq(.001, t_eval=t_eval)
     # wtf these don't seem to be similar in any way...
-    ipdb.set_trace()
+    # is it because the hessian also changes "quickly" and is thus not well
+    # represented by the "discrete difference" of vx? 
 
 
     
@@ -486,17 +487,17 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
-    debug_nan_sol(sols_orig, problem_params, algo_params)
-    ipdb.set_trace()
+    # debug_nan_sol(sols_orig, problem_params, algo_params)
+    # ipdb.set_trace()
 
     
     # choose initial value level.
     # v_k = 1000 * problem_params['V_f']
     # v_k = np.inf  # fullest gas
-    v_k = 300
+    v_k = 500
 
     # value_interval = [v_k/1000, v_k]
-    value_interval = [250, v_k]
+    value_interval = [v_k/10, v_k]
     print(f'value interval: {value_interval}')
     pl.rcParams['figure.figsize'] = (16, 10)
 
@@ -535,7 +536,7 @@ def testbed(problem_params, algo_params):
     ys_n = normaliser.normalise_all_dict(train_ys)
     test_ys_n = normaliser.normalise_all_dict(test_ys)
 
-    plot_distributions(ys_n)
+    # plot_distributions(ys_n)
     pl.show()
     # ipdb.set_trace()
 
@@ -557,6 +558,7 @@ def testbed(problem_params, algo_params):
         train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
     )
 
+
     # # and once without
     # algo_params_fake = algo_params.copy()
     # algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
@@ -567,7 +569,23 @@ def testbed(problem_params, algo_params):
 
     pl.figure('sobolev with vxx')
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
+
+    params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
+        train_key, ys_n, params_init, algo_params
+    )
+
+    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+    idx = 20
+    sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
+
+    pl.figure()
+    plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
+
+    pl.figure()
+    plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
     pl.show()
+
 
     '''
     # sweep over epoch size.
@@ -612,15 +630,16 @@ def testbed(problem_params, algo_params):
     '''
 
 
-    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+    if 'params' in oups_sobolev:
+    	# experimentally we output ALL parameters encountered during the whole training. 
+    	# this gives us effectively a huge NN ensemble, with (maybe) some sort of useful
+    	# model diversity. 
 
-    idx = 20
-    sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
+    	sliced_params = jtm(lambda node: node[-1024::128], oups_sobolev['params'])
+    	plotting_utils.plot_trajectory_vs_nn_ensemble(sol, sliced_params, v_nn_unnormalised)
+    	pl.show()
 
-    pl.figure()
-    plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
 
-    pl.show()
 
 
 
@@ -836,6 +855,8 @@ def testbed(problem_params, algo_params):
 
         # active learning with level-set ideas embedded. 
         # first pseudocode algo in idea dump
+
+        # e.g. here: continue all solutions that terminate below current v_k target or similar
 
         x_proposals = propse_points(v_nn, vk)
 

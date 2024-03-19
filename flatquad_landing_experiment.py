@@ -358,11 +358,11 @@ if __name__ == '__main__':
         'throw': False,
 
         # big question: should we aim for over- or underparameterisation? 
-        'nn_layerdims': (64, 64, 64),
+        'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
         'nn_N_epochs': 128,
         'nn_train_fraction': .9,
-        'lr_staircase': False,
+        'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.0001,

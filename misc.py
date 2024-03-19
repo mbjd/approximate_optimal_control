@@ -31,5 +31,7 @@ def rnd(a, b):
 
 def count_floats(pytree):
     # counts total number of elements of a pytree with jax array nodes.
-    node_sizes = jax.tree_util.tree_map(lambda n: n.size, pytree)
+    float_dtype = np.zeros(1).dtype  # will be float32 or float64 depending on settings.
+    node_sizes = jax.tree_util.tree_map(lambda n: n.size if n.dtype == float_dtype else 0, pytree)
     return jax.tree_util.tree_reduce(operator.add, node_sizes)
+

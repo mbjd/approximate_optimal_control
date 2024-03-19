@@ -274,13 +274,15 @@ def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
     pl.plot(interp_ts, interp_ys['v'], alpha=.5, label='trajectory v(x(t))', c='C0')
     pl.plot(ts, vs, alpha=.5, linestyle='', marker='.', c='C0')
 
+    confidence_width = 1  # make small to look better.
+
     # same with the NN
     # inner vmap for ys, outer vmap for params.
     vs = jax.vmap(jax.vmap(v_nn_unnormalised, in_axes=(None, 0)), in_axes=(0, None))(vmapped_params, interp_ys['x'])
     vs_mean = vs.mean(axis=0)
     vs_std = vs.std(axis=0)
     pl.plot(interp_ts, vs_mean, c='C1', label='NN v mean')
-    pl.fill_between(interp_ts, vs_mean - 3 * vs_std, vs_mean + 3 * vs_std, color='C1', alpha=.2, label='NN v 3σ band')
+    pl.fill_between(interp_ts, vs_mean - confidence_width * vs_std, vs_mean + confidence_width * vs_std, color='C1', alpha=.2, label=f'NN v {confidence_width}σ band')
     pl.legend()
 
     # and now the same for vx
@@ -306,9 +308,9 @@ def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
         label = 'NN vx mean' if j==0 else None
         pl.plot(interp_ts, vx_means[:, j], label=label, c='C1')
 
-        lower = vx_means[:, j] - 3*vx_stds[:, j]
-        upper = vx_means[:, j] + 3*vx_stds[:, j]
-        label = 'NN vx 3σ band' if j==0 else None
+        lower = vx_means[:, j] - confidence_width*vx_stds[:, j]
+        upper = vx_means[:, j] + confidence_width*vx_stds[:, j]
+        label = f'NN vx {confidence_width}σ band' if j==0 else None
         pl.fill_between(interp_ts, lower, upper, color='C1', alpha=.2, label=label)
 
     pl.legend()

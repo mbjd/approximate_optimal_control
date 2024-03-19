@@ -358,14 +358,14 @@ if __name__ == '__main__':
         'throw': False,
 
         # big question: should we aim for over- or underparameterisation? 
-        'nn_layerdims': (32, 32, 32),
+        'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
-        'nn_N_epochs': 128,
-        'nn_train_fraction': .9,
-        'lr_staircase': True,
+        'nn_N_epochs': 64,
+        'nn_train_fraction': .98,
+        'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.0005,
 
         'nn_ensemble_size': 8,
 
@@ -373,7 +373,7 @@ if __name__ == '__main__':
         # mostly we care about representing vx with great accuracy, 
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function. 
-        'nn_sobolev_weights': np.array([0.1, 1., 0.01]),
+        'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         # 'nn_sobolev_weights': np.array([0.1, 10.]),
 
         # inversely proportional to approx training loss magnitudes. 

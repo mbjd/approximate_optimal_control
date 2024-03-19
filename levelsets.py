@@ -67,6 +67,116 @@ def plot_distributions(ys_n):
 
 
 
+
+# many of these functions probably don't work. they were hacked together within the testbed function
+# and depend on some variables there. if needed again, put back there or include variables as proper arguments.
+
+def sobolev_weight_gridsearch():
+
+    # perform a 2d grid search over a range of vx and vxx sobolev weights.
+    # v weight = 1 always -- because we normalise the weights this explores all degrees of freedom.
+    # from initial experiments we guess the rough range where interesting things happen
+
+    # we save the raw loss terms for v, vx, vxx which are the same regardless of weights.
+    # not exactly sure what our end goal to optimise for should be though.
+
+    N = 16
+
+    vx_weights = np.logspace(-2, 2, N)
+    vxx_weights = np.logspace(-2, 2, N)
+
+    all_testlossterms = np.zeros((N, N, 3))
+
+    key = jax.random.PRNGKey(0)
+
+    for i, vx_w in enumerate(vx_weights):
+        for j, vxx_w in enumerate(vxx_weights):
+
+            # train nn with those hyperparams.
+            algo_params['nn_sobolev_weights'] = np.array([1., vx_w, vxx_w])
+            init_key, train_key, key = jax.random.split(key, 3)
+            params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+            params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
+
+            # evaluate & store test loss.
+            _, test_lossterms = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
+            all_testlossterms = all_testlossterms.at[i, j, :].set(test_lossterms)
+
+            # ipdb.set_trace()
+
+    norm = matplotlib.colors.LogNorm(all_testlossterms.min(), all_testlossterms.max())
+
+    ax = pl.subplot(131)
+    pl.imshow(all_testlossterms[:, :, 0], norm=norm)
+    ax.set_title('v test loss')
+    ax = pl.subplot(132)
+    pl.imshow(all_testlossterms[:, :, 1], norm=norm)
+    ax.set_title('vx test loss')
+    ax = pl.subplot(133)
+    pl.imshow(all_testlossterms[:, :, 2], norm=norm)
+    ax.set_title('vxx test loss')
+    pl.colorbar()
+    pl.show()
+
+    ipdb.set_trace()
+
+    # middle of the pack seems to look nicest here... so both 1.36???
+
+# sobolev_weight_gridsearch()
+
+
+
+def vxx_weight_sweep():
+    # new sobolev training method.
+    pl.rcParams['figure.figsize'] = (16, 9)
+    vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 128)])
+    hessian_rnds = np.zeros_like(vxx_weights)
+    final_training_errs = np.zeros((vxx_weights.shape[0], 3))
+    test_errs = np.zeros((vxx_weights.shape[0], 3))
+
+    key = jax.random.PRNGKey(0)
+
+    for i, vxx_weight in tqdm.tqdm(enumerate(vxx_weights)):
+
+        algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(vxx_weight)
+
+        init_key, key = jax.random.split(key)
+        params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+        train_key, key = jax.random.split(key)
+        params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
+
+        # the value function back in the "unnormalised" domain, ie. the actual state space.
+        v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+        # and its hessian at 0 just as a sanity check.
+        hess_vnn_unnormalised = lambda params, x: jax.hessian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
+        H0 = hess_vnn_unnormalised(params_sobolev, np.zeros(6,))
+
+        # compute some statistics :)
+        hess_rnd = rnd(H0, P_lqr)
+        loss_means = oups_sobolev['loss_terms'][-100:, :].mean(axis=0)
+        # print(hess_rnd)
+        hessian_rnds = hessian_rnds.at[i].set(hess_rnd)
+        final_training_errs = final_training_errs.at[i, :].set(loss_means)
+        _, test_lossterms = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
+        test_errs = test_errs.at[i, :].set(test_lossterms)
+
+        '''
+        pl.figure(f'vxx weight: {vxx_weight:.8f}')
+        pl.suptitle(f'vxx weight: {vxx_weight:.8f}')
+        pl.loglog(oups_sobolev['loss_terms'], label=('v', 'vx', 'vxx'), alpha=.5)
+        pl.grid('on')
+        pl.ylim([1e-7, 1e1])
+        pl.legend()
+        figpath = f'./tmp/losses_{i:04d}_{vxx_weight:.3f}.png'
+        pl.savefig(figpath)
+        print(f'saved "{figpath}"')
+        pl.close('all')
+        '''
+
+
+
+
 # look at normalised data.
 def data_normalisation_experiment():
 
@@ -658,9 +768,11 @@ def testbed(problem_params, algo_params):
 
 
     if 'params' in oups_sobolev:
+
         # experimentally we output ALL parameters encountered during the whole training. 
         # this gives us effectively a huge NN ensemble, with (maybe) some sort of useful
-        # model diversity. 
+        # model diversity. update: no, not really any useful model diversity, the extrapolation
+        # tends to stay almost precis
 
         sliced_params = jtm(lambda node: node[-1024::128], oups_sobolev['params'])
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, sliced_params, v_nn_unnormalised)
@@ -671,109 +783,6 @@ def testbed(problem_params, algo_params):
 
 
 
-
-    def sobolev_weight_gridsearch():
-
-        # perform a 2d grid search over a range of vx and vxx sobolev weights.
-        # v weight = 1 always -- because we normalise the weights this explores all degrees of freedom.
-        # from initial experiments we guess the rough range where interesting things happen
-
-        # we save the raw loss terms for v, vx, vxx which are the same regardless of weights.
-        # not exactly sure what our end goal to optimise for should be though.
-
-        N = 16
-
-        vx_weights = np.logspace(-2, 2, N)
-        vxx_weights = np.logspace(-2, 2, N)
-
-        all_testlossterms = np.zeros((N, N, 3))
-
-        key = jax.random.PRNGKey(0)
-
-        for i, vx_w in enumerate(vx_weights):
-            for j, vxx_w in enumerate(vxx_weights):
-
-                # train nn with those hyperparams.
-                algo_params['nn_sobolev_weights'] = np.array([1., vx_w, vxx_w])
-                init_key, train_key, key = jax.random.split(key, 3)
-                params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
-                params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
-
-                # evaluate & store test loss.
-                _, test_lossterms = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
-                all_testlossterms = all_testlossterms.at[i, j, :].set(test_lossterms)
-
-                # ipdb.set_trace()
-
-        norm = matplotlib.colors.LogNorm(all_testlossterms.min(), all_testlossterms.max())
-
-        ax = pl.subplot(131)
-        pl.imshow(all_testlossterms[:, :, 0], norm=norm)
-        ax.set_title('v test loss')
-        ax = pl.subplot(132)
-        pl.imshow(all_testlossterms[:, :, 1], norm=norm)
-        ax.set_title('vx test loss')
-        ax = pl.subplot(133)
-        pl.imshow(all_testlossterms[:, :, 2], norm=norm)
-        ax.set_title('vxx test loss')
-        pl.colorbar()
-        pl.show()
-
-        ipdb.set_trace()
-
-        # middle of the pack seems to look nicest here... so both 1.36???
-
-    # sobolev_weight_gridsearch()
-
-
-
-    def vxx_weight_sweep():
-        # new sobolev training method.
-        pl.rcParams['figure.figsize'] = (16, 9)
-        vxx_weights = np.concatenate([np.zeros(1,), np.logspace(-1, 5, 128)])
-        hessian_rnds = np.zeros_like(vxx_weights)
-        final_training_errs = np.zeros((vxx_weights.shape[0], 3))
-        test_errs = np.zeros((vxx_weights.shape[0], 3))
-
-        key = jax.random.PRNGKey(0)
-
-        for i, vxx_weight in tqdm.tqdm(enumerate(vxx_weights)):
-
-            algo_params['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(vxx_weight)
-
-            init_key, key = jax.random.split(key)
-            params_sobolev = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
-
-            train_key, key = jax.random.split(key)
-            params_sobolev, oups_sobolev = v_nn.train_sobolev(train_key, ys_n, params_sobolev, algo_params)
-
-            # the value function back in the "unnormalised" domain, ie. the actual state space.
-            v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-            # and its hessian at 0 just as a sanity check.
-            hess_vnn_unnormalised = lambda params, x: jax.hessian(v_nn_unnormalised, argnums=1)(params, x).squeeze()
-            H0 = hess_vnn_unnormalised(params_sobolev, np.zeros(6,))
-
-            # compute some statistics :)
-            hess_rnd = rnd(H0, P_lqr)
-            loss_means = oups_sobolev['loss_terms'][-100:, :].mean(axis=0)
-            # print(hess_rnd)
-            hessian_rnds = hessian_rnds.at[i].set(hess_rnd)
-            final_training_errs = final_training_errs.at[i, :].set(loss_means)
-            _, test_lossterms = v_nn.sobolev_loss_batch_mean(key, params_sobolev, test_ys_n, algo_params)
-            test_errs = test_errs.at[i, :].set(test_lossterms)
-
-            '''
-            pl.figure(f'vxx weight: {vxx_weight:.8f}')
-            pl.suptitle(f'vxx weight: {vxx_weight:.8f}')
-            pl.loglog(oups_sobolev['loss_terms'], label=('v', 'vx', 'vxx'), alpha=.5)
-            pl.grid('on')
-            pl.ylim([1e-7, 1e1])
-            pl.legend()
-            figpath = f'./tmp/losses_{i:04d}_{vxx_weight:.3f}.png'
-            pl.savefig(figpath)
-            print(f'saved "{figpath}"')
-            pl.close('all')
-            '''
 
         ax = pl.subplot(211)
 

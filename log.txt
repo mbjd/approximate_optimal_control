@@ -1967,3 +1967,40 @@ whatever.). Also it is much more obvious how we might include "functional
 priors" there: just generate a set of random points and labels at the start of
 training -- vmapping with individual PRNG key will also randomise this prior,
 thus we should be able to get even better model diversity in this way. 
+
+
+
+ALSO recently several things were on my mind where we are not using the
+"proper" implementation and I always feel the itch to change it to a better one. 
+
+- u* optimisation: this would surely be better addressed by detecting active
+set switching events, stepping exactly to those, then changing the RHS. kind
+of like that paper about optimisation-constrained ODEs as DAEs. ATM the
+adaptive solver + explicit mpqp(-ish thing) works, but generates much more
+data than necessary. maybe just subsample the data before giving it to NN?
+although this should be qualitatively the same as using the whole data set but
+fewer epochs... also same as that old question about resampling trajectories
+with the interpolation to be evenly sampled...
+
+- fundamentals about the state space being a manifold, see bottom of
+2024-03-15
+
+tell this lenart&bhavya to get predictable but reassuring answer to not worry
+too much about those? 
+
+
+meeting traktandenliste:
+
+mainly:
+ - go over active learning problem formulations.
+
+"daily business" recap:
+ - realisations that Vxx can have infinitely neg eigenvalues
+   -> need practical fix to avoid messing up nn training
+ - NN ensemble experiments
+ - stuff is quite slow. beg for like the third time for a little euler tutorial? 
+
+other questions:
+ - administrative: when is handin date? when are those 2 weeks of vacation? 
+ - any guidelines on the shape of the final report? then i can start writing down basics
+ - how to stop myself from endless & mindless parameter tuning?!?

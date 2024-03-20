@@ -2004,3 +2004,4 @@ other questions:
  - administrative: when is handin date? when are those 2 weeks of vacation? 
  - any guidelines on the shape of the final report? then i can start writing down basics
  - how to stop myself from endless & mindless parameter tuning?!?
+

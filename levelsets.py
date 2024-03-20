@@ -616,13 +616,13 @@ def testbed(problem_params, algo_params):
 
     def select_train_pts(value_interval, sols):
 
-    	# ideas for additional functionality: 
-    	# - include not only strictly the value interval, but at least n_min pts from each trajectory. 
-    	#   so that if no points happen to be within the value band we include a couple (lower) ones
-    	#   to still hopefully improve the fit. 
-    	# - return only a random subsample of the data (with a specified fraction)
-    	# - throw away points of the same trajectory that are closer than some threshold (in time or state space?)
-    	#   this is also a form of subsampling but maybe better than random. 
+        # ideas for additional functionality: 
+        # - include not only strictly the value interval, but at least n_min pts from each trajectory. 
+        #   so that if no points happen to be within the value band we include a couple (lower) ones
+        #   to still hopefully improve the fit. 
+        # - return only a random subsample of the data (with a specified fraction)
+        # - throw away points of the same trajectory that are closer than some threshold (in time or state space?)
+        #   this is also a form of subsampling but maybe better than random. 
 
         v_lower, v_upper = value_interval
 
@@ -833,9 +833,18 @@ def testbed(problem_params, algo_params):
 
         return forward_sol
 
-    def forward_sim_nn(x0, params):
+    def forward_sim_nn(x0, params, vmap=False):
 
-        v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+
+        if vmap:
+            # we have a whole NN ensemble. use the mean here. 
+            v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            # mean across only axis resulting in a scalar. differentiate later.
+            v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(params, x).mean()
+
+        else:
+            v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
 
         def forwardsim_rhs(t, x, args):
@@ -874,10 +883,12 @@ def testbed(problem_params, algo_params):
     # sol = forward_sim_nn(x0s[0], params)
     # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
     sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
+    sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
     sols_lqr = jax.vmap(forward_sim_lqr)(x0s)
 
     # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
     visualiser.plot_trajectories_meshcat(sols_sobolev)
+    visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
     visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
 
     ipdb.set_trace()

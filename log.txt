@@ -1989,6 +1989,11 @@ tell this lenart&bhavya to get predictable but reassuring answer to not worry
 too much about those? 
 
 
+
+
+
+2024-03-20
+
 meeting traktandenliste:
 
 mainly:
@@ -2004,4 +2009,151 @@ other questions:
  - administrative: when is handin date? when are those 2 weeks of vacation? 
  - any guidelines on the shape of the final report? then i can start writing down basics
  - how to stop myself from endless & mindless parameter tuning?!?
+
+
+meeting notes (after, cleaned up. some of this very roughly in idea dump):
+
+about main active learning formulation. 
+
+looks good, hinges completely on acquisition function. should think about that
+next. is an instance of (or at least very similar to) the concept of safe
+active learning, as briefly introduced in PAI. I think the difference is this:
+
+  in safe active learning we are desperately trying to stay within some set X
+  = {x: g(x) <= 0}, while we are learning about the function g (and probably
+  also some other function which we are mainly interested in). We are then
+  trying to avoid sampling x where g *might* reasonably be <= 0, or
+  equivalently we constrain the sampling process to the region {x: p(g(x) <=
+  0) >= p_min}, with p_min some high threshold. This region is with high
+  probability an inner approximation of the true region X.
+
+  whereas in our case we are learning the function V, over some domain V_k =
+  {x: V(x) <= v_k}. However the fact that we "think" in value level set is not
+  to avoid unsafe region, but to simplify the pruning of suboptimal solution.
+  Therefore it doesn't hurt to be "optimistic" with respect to the region over
+  which we propose samples: Instead of only sampling points which very likely
+  are in V_k, we can sample points which *maybe* might be in V_k. We prefer to
+  use an outer approximation rather than an inner one. Concretely this means
+  going from the "pessimistic" or "cautious" case:
+
+    propose x with p(V(x) <= v_k) >= p_max  (p_max = 0.9 or something)
+
+  to an "optimistic" or "aggressive" one: 
+
+    propose x with p(V(x) <= v_k) >= p_max  (p_max = 0.1 or something)
+
+If we have a gaussian posterior distribution mu_v(x) and sigma_v(x), the
+former version corresponds to using an upper confidence band, and the latter
+one  to a lower confidence band. if we specify a "confidence level" of Beta
+standard deviations (as in: propose x with mu_v(x) + Beta sigma_v(x) <= v_k)
+we have the simple correspondence p_max = Phi(Beta) (with Phi the cdf of N(0,
+1). is this true? smelling like a sign error or other sneaky confusion) 
+
+
+about *batched* active learning. 
+
+in standard formulations, active learning goes like this: 
+- propose point (= argmin acquisition function)
+- evaluate oracle, add result to dataset
+- fit model
+
+obviously it is dumb to retrain the whole NN because one point is changed, so
+batched active learning should be practically preferred. but then there are
+some caveats: if the acquisition function has one clear mode (and we are
+*actually* optimising it) then all proposals will be there, rendering batching
+useless. even if using thomposon sampling or other proposal strategies naively
+there is the risk of a "low diversity" set of proposals which we want to
+avoid. Byavya showed one particular way to do this, effectively what they used
+in https://arxiv.org/abs/2310.19848, originally proposed in
+https://arxiv.org/abs/2203.09410
+
+if i understand correctly, they do the following: after training their NN (a
+single, non-bayesian one) they perform bayesian linear regression with the
+features given by the last layer activations. In that framework they are able
+to use the recursive update formula, similar to kalman filtering, to update
+posterior uncertainty estimates without retraining the whole NN (and before
+knowing about the labels -- in BLR uncertainty is independent of label
+values). This updated posterior can then be used as a cheap but accurate
+surrogate of the full retraining procedure, making the whole active learning
+procedure a double loop:
+
+D = {}
+while approximation accuracy not satisfactory: 
+    # propose batch of samples
+    batch = {}
+    for j in range(batchsize):
+        x = minimise_acquisition_fct(nn_params, last_layer_distribution)
+        batch = batch \cup {x}
+        last_layer_distribution = kalman_update(last_layer_distribution, x)
+    ys = vmap(oracle)(batch)
+    D = D \cup {(batch, ys)}
+    nn_params = train(D)
+
+looks nice. holzmüller 2023 talks AT LENGTH about different ways in which the
+acquisition function can depend on the last layer distribution, or IIRC more
+generally on how it can depend on some kernel, and how kernels may be derived
+from NNs, NN ensembles, etc. that paper is a goldmine. 
+
+practically, all this is about is just ensuring that the points in the batch
+are  far apart enough. a VERY crude baseline (that should still be better than
+random suggestion of points) could be this: 
+- sample many points uniformly from the value band V_{k+1} \ V_k
+- weight each one according to the BNN uncertainty 
+- sample $batchsize points without replacement from those many points
+  according to the distribution given by weights.
+
+I feel like due to uniform sampling we should already obtain decent diversity.
+if not, the next logical step is probably to select the points in a loop,
+marking  all those that are d-close (or the k closest...) as unavailable, to
+avoid taking close points. From there on, using those nicer kernel-distance
+methods basically amounts to replacing the euclidean or (state-space cost
+matrix weighted) distance by that kernel.
+
+
+
+about euler.
+
+asked for and got a tiny euler tutorial again. managed to login, git pull,
+setup virtualenv, and get the python script running on the login node (after
+changing it so it doesn't do any actual work. I am a good euler user i swear).
+next up: the stuff with slurm and the fancy launch script they gave me.
+
+bhavya recommends to prototype mainly with simpler 2d or 3d examples on own
+machine. then we can get euler to do the heavy lifting for 6D and larger
+systems. 
+
+
+about state space being a manifold. 
+
+bhavya suggested, as I already planned, keeping the optimal control theory and
+simulation the same, working in R^n (if we aren't pedantic about angles modulo
+2pi). For training we should then transform to a more natural representation,
+which respects the modulo 2 pi topology. Obviously this means transforming
+angles theta to [cos theta, sin theta] and angular speed omega to something
+something [-sin theta, cos theta] * omega (orthogonal to "angle"). 
+
+This involves transforming vx and vxx correctly, which is not entirely
+obvious. been working it out in idea dump for some time. The basic idea is
+this: we impose a loss involving only derivatives in the direction of the
+tangent space, which can be calculated from the vx labels in original state
+space. maybe we also regularise the derivative in direction of the normal
+space. I am pretty sure this will work nicely, but will have to convince
+myself a bit more that the math is correct. 
+
+
+
+
+
+
+
+
+</meeting notes>
+
+implementation thought: would it be nice to essentially always rely on hitting
+solver maxsteps?  that way we can always fill up the array and not waste too
+much space. (well not actually since maxsteps is apparently for accepted and
+rejected steps). but still, maybe we should aim at shorter trajectories -- we
+can always continue integrating them without incurring NN approximation error
+whenever v_k > v(t1). 
+
 

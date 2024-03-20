@@ -2156,4 +2156,13 @@ rejected steps). but still, maybe we should aim at shorter trajectories -- we
 can always continue integrating them without incurring NN approximation error
 whenever v_k > v(t1). 
 
+maybe vxx is not worth it? certainly i'd like to do some (basic) experiments
+comparing with and without. conclusive statements are impossible without
+extensive hyperparam opti for both but maybe we can make some smart-ish
+qualitative statement...
 
+next concrete steps: 
+- work out, implement, sanity check state space -> manifold mapping with vx and maybe vxx
+- hack together a first implementation of the active learning loop! 
+
+goodnight

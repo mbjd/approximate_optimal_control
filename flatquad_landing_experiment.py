@@ -296,9 +296,21 @@ if __name__ == '__main__':
         posx, posy, Phi, vx, vy, omega = x
 
         # state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
-        state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), .5, .5, np.deg2rad(120)])
+        # state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), .5, .5, np.deg2rad(120)])
+        # Q = np.diag(1/state_length_scales**2)
+        # state_cost = x.T @ Q @ x
+
+        # instead just penalise the corresponding deviation from cos(Phi)=1, sin(Phi)=0? 
+        # derivatives should be the same still (bc sin'(0) = 1)
+        x_transformed =    np.array([posx, posy, np.cos(Phi), np.sin(Phi), vx, vy, omega])
+        zero_transformed = np.array([0,    0,    np.cos(0),   np.sin(0),   0,  0,  0    ])
+
+        state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), np.deg2rad(30), .5, .5, np.deg2rad(120)])
         Q = np.diag(1/state_length_scales**2)
-        state_cost = x.T @ Q @ x
+        state_cost = (x_transformed - zero_transformed).T @ Q @ (x_transformed - zero_transformed)
+
+        # TODO write something that is kind of similar but only depends on sin and cos of theta, not theta. 
+        # bc as it is now the cost is not a well defined function of the (transformed) state. 
 
         # can we just set an input penalty that is zero at hover?
         # penalise x acc, y acc, angular acc here.

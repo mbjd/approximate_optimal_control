@@ -599,6 +599,8 @@ def testbed(problem_params, algo_params):
         return solve_backward(state_f, algo_params)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
+    # visualiser.plot_trajectories_meshcat(sols_orig)
+    # ipdb.set_trace()
 
     # debug_nan_sol(sols_orig, problem_params, algo_params)
     # ipdb.set_trace()
@@ -607,7 +609,7 @@ def testbed(problem_params, algo_params):
     # choose initial value level.
     # v_k = 1000 * problem_params['V_f']
     # v_k = np.inf  # fullest gas
-    v_k = 500
+    v_k = 20
 
     # thin band
     # value_interval = [v_k/3, v_k]
@@ -837,8 +839,6 @@ def testbed(problem_params, algo_params):
 
     def forward_sim_nn(x0, params, vmap=False):
 
-
-
         if vmap:
             # we have a whole NN ensemble. use the mean here. 
             v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
@@ -847,7 +847,6 @@ def testbed(problem_params, algo_params):
 
         else:
             v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-
 
         def forwardsim_rhs(t, x, args):
 
@@ -875,25 +874,25 @@ def testbed(problem_params, algo_params):
 
     # cover a couple different magnitudes
     x0s = np.concatenate([
-        jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
-        jax.random.normal(jax.random.PRNGKey(1), shape=(100, 6)) * .31,
+        # jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
+        # jax.random.normal(jax.random.PRNGKey(1), shape=(100, 6)) * .3,
         jax.random.normal(jax.random.PRNGKey(2), shape=(100, 6)) * 1,
-        jax.random.normal(jax.random.PRNGKey(3), shape=(100, 6)) * 3,
+        # jax.random.normal(jax.random.PRNGKey(3), shape=(100, 6)) * 3,
         jax.random.normal(jax.random.PRNGKey(4), shape=(100, 6)) * 10,
     ], axis=0)
 
     # sol = forward_sim_nn(x0s[0], params)
     # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
-    sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
+    # sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
     sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
-    sols_lqr = jax.vmap(forward_sim_lqr)(x0s)
+    # sols_lqr = jax.vmap(forward_sim_lqr)(x0s)
 
     # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
-    visualiser.plot_trajectories_meshcat(sols_sobolev)
+    # visualiser.plot_trajectories_meshcat(sols_sobolev)
     visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
-    visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
+    # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
 
-    ipdb.set_trace()
+    # ipdb.set_trace()
 
     # initial step: 
     # - generate data from uniform backward shooting
@@ -907,6 +906,151 @@ def testbed(problem_params, algo_params):
 
         # e.g. here: continue all solutions that terminate below current v_k target or similar
 
+        # proposals
+        # atm this is kind of a hybrid of optimising an acquisition funcition and sampling from 
+        # an "acquisition pdf". this whole blob of code here basically defines that pdf.
+
+
+        def v_meanstd(x, vmap_params):
+            # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function. 
+            # this serves as a *probable* overapproximation of the true value sublevel set.
+            vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
+
+            v_mean = vs_ensemble.mean()
+            v_std = vs_ensemble.std()
+
+            return v_mean, v_std
+
+        v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
+
+
+        # propose many random points from the entire state space. 
+        # fancyer: replace this with mcmc so we don't depend on defining a region a priori
+
+        all_valueband_pts = np.zeros((0, 6))
+
+        N_pts_desired = 1000  # we want 1000 points that are inside the value band. 
+        i=0
+        key = jax.random.PRNGKey(k)
+        while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
+
+            i = i + 1   # a counter so we return if it never happens. 
+
+            newkey, key = jax.random.split(key)
+
+            # sample from "the whole state space".
+            # this is kind of icky because we have to select a bounded region
+            # also already in 6D if we specify a large region we have very few
+            # samples actually in the value band. hence the loop outside. 
+            # nicer solution would be some sort of mcmc thingy...? 
+            # slightly better hack: set this region to like 1.5 * min and max
+            # of current data...
+            x_pts = jax.random.uniform(
+                key=newkey,
+                shape=(10000, problem_params['nx']),
+                minval=np.array([-20, -20, -10*np.pi, -20, -20, -20*np.pi])/8,
+                maxval=np.array([ 20,  20,  10*np.pi,  20,  20,  20*np.pi])/8,
+            )
+
+            # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+            # what kind of points do we propose? we want points x such that: 
+            # - x is withing the value band V_{k+1} \ V_k
+            # - from those, we want the ones with largest uncertainty.
+
+            v_means, v_stds = v_meanstds(x_pts, params_sobolev_ens)
+
+            optimistic_vs = v_means - 2 * v_stds
+
+            # be generous!
+            value_interval = [-np.inf, v_k*2]
+
+            is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
+            interesting_x0s = x_pts[is_in_range]
+
+            all_valueband_pts = np.concatenate([all_valueband_pts, interesting_x0s], axis=0)
+            print(all_valueband_pts.shape[0])
+
+        if all_valueband_pts.shape[0] < N_pts_desired:
+            print('did not find enough points!')
+            ipdb.set_trace()
+
+        all_valueband_pts = all_valueband_pts[0:N_pts_desired, :]
+        assert all_valueband_pts.shape == (N_pts_desired, problem_params['nx'])
+
+        # now we have 1000 points that satisfy the first requirement (be inside of the value band).
+        # as a first attempt we just sample without replacement according to acquisition function style weights.
+
+        # things to consider afterwards:
+        # - ensure the samples are not very close (some literature about this "batched active learning", max kernel distance etc.)
+        # - 
+
+        # though: the highest-uncertainty ones also tend to be high value (= far from the current data set)
+        # is this a problem? if V_k+1 is higher than it should be it might take a long time to learn
+        # forget this for now maybe its even a good thing.
+
+        v_means, v_stds = v_meanstds(all_valueband_pts, params_sobolev_ens)
+        ipdb.set_trace()
+
+
+
+        N_proposals = 200
+        '''
+        # scale -> 0 results in just the N_proposals points with highest std being chosen.
+        # scale -> infinity results in the proposals being sampled at random. 
+        std_scale = 3
+        std_scale = .5
+
+        # weights = np.exp(v_stds / std_scale)
+        # ps = weights / np.sum(weights)
+        # is this not just a softmax function?
+        # -> yes, it is :)
+
+        ps = jax.nn.softmax(v_stds / std_scale)
+
+        proposals = jax.random.choice(key, all_valueband_pts, shape=(N_proposals,), replace=False, p=ps)
+
+        all_idxs = np.arange(N_proposals)
+        proposal_idxs = jax.random.choice(key, all_idxs, shape=(N_proposals,), replace=False, p=ps)
+
+        proposed_pts = all_valueband_pts[proposal_idxs]
+
+        # but that's kind of dumb, we give a small probability of also selecting points with exactly 
+        '''
+
+        # much simpler. 
+        # possible problem: we select only "far" points with very large sigma, while neglecting
+        # the ones that are closer which maybe we should do first to even reach the far points
+        _, proposal_idxs = jax.lax.top_k(v_stds, N_proposals)
+
+
+        # next idea: set some maximum acceptable sigma, and take the lowest-v k points that exceed it. 
+        # or a uniform subsample of all the ones that exceed it. 
+        v_std_min = 0.5
+        where_uncertain = v_stds > v_std_min
+
+        # replaces the v_means where we are certain enough by inf
+        # that way once we multiply by -1 we have -inf and negative values
+        # the largest negative values = the smallest positive values
+        v_means_ = v_means + where_uncertain * np.inf
+        _, proposal_idxs = jax.lax.top_k(-v_means * where_uncertain)
+
+
+        # visualise the selection of points. 
+        pl.plot(v_means, v_stds, '. ', label='all points in value band')
+        pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='selected points')
+
+
+
+
+
+        # find out which v_k we actually reached. 
+        # TODO
+
+
+
+
+        
         x_proposals = propse_points(v_nn, vk)
 
         sols = jax.vmap(solve_backward, in_axes=(0, None))(x_proposals, algo_params)

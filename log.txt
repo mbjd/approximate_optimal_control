@@ -2117,6 +2117,10 @@ asked for and got a tiny euler tutorial again. managed to login, git pull,
 setup virtualenv, and get the python script running on the login node (after
 changing it so it doesn't do any actual work. I am a good euler user i swear).
 next up: the stuff with slurm and the fancy launch script they gave me.
+specifically i am unsure whether installing the whole venv on the login node
+was the right approach..? does that transfer to the compute node when we
+schedule jobs? or are we constrained to whatever is installed there... guess
+we just test and see
 
 bhavya recommends to prototype mainly with simpler 2d or 3d examples on own
 machine. then we can get euler to do the heavy lifting for 6D and larger
@@ -2166,3 +2170,49 @@ next concrete steps:
 - hack together a first implementation of the active learning loop! 
 
 goodnight
+
+
+
+
+2024-03-22
+
+experimenting w euler. it seems like the "module load" command needs to be ran
+at every login. 
+
+generated sbatch command using this:
+https://scicomp.ethz.ch/public/lsla/index2.html also the virtualenv seemed to
+deactivate after starting that? is this how it should be? giving 
+
+  /cluster/apps/nss/gcc-8.2.0/python/3.10.4/x86_64/bin/python
+
+as answer to "which python". after deactivating and activating the venv it is
+suddenly the correct one from venv. 
+
+
+on the other hand, running
+
+  sbatch --wrap='./flatquad_landing_experiment.py'
+
+seemed to work!! output is written to a file called slurm-$ID.out. watching it
+with tail -f feels like the real deal!!! very cool.
+
+...but then the task is killed. why? did i break some rules? (maybe it can't try using any GUI with matplotlib...)
+
+https://slurm-jobs-webgui.euler.hpc.ethz.ch/ shows a nice overview of past and
+current jobs. I was out of memory! apparently default is just 1 GB. well they
+got loads more so that's not really a problem.
+
+lots of general tips also on https://www.gdc-docs.ethz.ch/EulerManual/
+
+with srun -pty bash we can also get a shell on an actual computation node!
+works just the same, task is also killed due to memory limit. but virtualenv
+and everything works just fine on that node too. so it seems that I did that
+correctly after all. 
+
+
+
+
+
+also experimenting with sampling procedures and acquisition functions. put
+some thoughts in idea dump about how they are in some sense two sides of the
+same coin, but still w important differences.

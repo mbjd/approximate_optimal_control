@@ -481,11 +481,13 @@ def define_backward_solver(problem_params, algo_params):
 
         return state_dot
 
+    # could just as well take the algo_params already here w/ lexical closure...
     def solve_backward(y_f, algo_params):
 
         state_f = y_f
 
         term = diffrax.ODETerm(f_extended)
+
 
         relax_factor = 1.
         step_ctrl = diffrax.PIDController(

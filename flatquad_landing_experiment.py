@@ -365,6 +365,13 @@ if __name__ == '__main__':
         # state space regions. 
         'pontryagin_solver_T': 5,  
 
+        # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time. 
+        # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
+        # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound. 
+        # hopefully the state space will still be sufficiently covered. In regions where ||vxx|| would
+        # have been very high we will just have to accept the interpolation instead.
+        'vxx_max_norm': 1e4,
+
         # causes it not to quit when hitting maxsteps. probably still all subsequent
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,

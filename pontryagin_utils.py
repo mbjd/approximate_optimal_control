@@ -500,11 +500,23 @@ def define_backward_solver(problem_params, algo_params):
 
         T = algo_params['pontryagin_solver_T']
 
-        backward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
-        )
+        if 'vxx_max_norm' in algo_params and algo_params['pontryagin_solver_vxx']:
+
+            terminating_event = diffrax.DiscreteTerminatingEvent(
+                cond_fn = lambda state: np.linalg.norm(state.y['vxx']) > algo_params['vxx_max_norm']
+            )
+
+            backward_sol = diffrax.diffeqsolve(
+                term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+                stepsize_controller=step_ctrl, saveat=saveat,
+                max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+            )
+        else:
+            backward_sol = diffrax.diffeqsolve(
+                term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+                stepsize_controller=step_ctrl, saveat=saveat,
+                max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+            )
 
         return backward_sol
 

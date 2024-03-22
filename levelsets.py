@@ -633,7 +633,7 @@ def testbed(problem_params, algo_params):
         # sols.ys['vxx'].shape == (N_trajectories, N_ts, nx, nx)
         # get the frobenius norms of the hessian & throw out large ones. 
         vxx_norms = np.linalg.norm(sols.ys['vxx'], axis=(2, 3))
-        vxx_acceptable = vxx_norms < 1e4  # some random upper bound based on looking at a plot of v vs ||vxx||
+        vxx_acceptable = vxx_norms < algo_params['vxx_max_norm']  # some random upper bound based on looking at a plot of v vs ||vxx||
 
         bool_train_idx = np.logical_and(v_in_interval, vxx_acceptable)
         all_ys = jtm(lambda node: node[bool_train_idx], sols.ys)

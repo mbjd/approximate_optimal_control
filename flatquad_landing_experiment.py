@@ -342,9 +342,20 @@ if __name__ == '__main__':
         'f': f,
         'l': l,
         'h': h,
-        'T': 10.,  # problems come up if not float
+        # 'T': 10.,  # problems come up if not float
         'nx': 6,
         'state_names': ("x", "y", "Phi", "vx", "vy", "omega"),
+
+        # this is how we define the more 'topologically accurate' state space
+        # only for the NN fitting part.
+        # 'transformed_state_names': ("x", "y", "cosPhi", "sinPhi", "vx", "vy", "omega"),
+        'T': lambda x: np.concatenate([
+            x[0:2],
+            np.array([np.cos(x[2]), np.sin(x[2])]),
+            x[3:]
+        ]),
+        # 'c': lambda z: 0.5 * (np.sum(z[2:4]**2) - 1),
+
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
         'V_f': 0.001,
@@ -359,6 +370,7 @@ if __name__ == '__main__':
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
         'pontryagin_solver_maxsteps': 512, # nice if it is not waaay too much
+
         # not very relevant if we can just "resume" the trajectory in a later solve
         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x 
         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
@@ -375,6 +387,14 @@ if __name__ == '__main__':
         # causes it not to quit when hitting maxsteps. probably still all subsequent
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,
+
+        # the state space transformation, now in algo_params.
+        'use_transform': False,
+        'T': lambda x: np.concatenate([
+            x[0:2],
+            np.array([np.cos(x[2]), np.sin(x[2])]),
+            x[3:]
+        ]),
 
         # big question: should we aim for over- or underparameterisation? 
         'nn_layerdims': (64, 64, 64),

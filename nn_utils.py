@@ -25,6 +25,9 @@ from misc import *
 
 
 
+
+
+
 def train_test_split(ys, train_frac=0.9):
 
     assert 0. < train_frac <= 1., '<gordon ramsey voice> this "training fraction" is not even a fraction you donkey'
@@ -35,6 +38,82 @@ def train_test_split(ys, train_frac=0.9):
     test_ys  = jax.tree_util.tree_map(lambda n: n[split_idx:], ys)
 
     return train_ys, test_ys
+
+
+
+class coordinate_transformer(object):
+
+    '''
+
+    before fitting the NN, we like to transform the state to a different state
+    space, z = T(x). whereas the original state space is isomorphic to R^n and
+    thus easy for simulation and control theory, it often does not accurately
+    reflect state space topology. Thus we transform to a new state space which
+    is usually a nx-dimensional manifold embedded in R^nz (nz > nx).
+
+    For standard machine learning tasks this is trivial, but with gradient and
+    hessian observation we need to be careful to transform them correctly.
+    this class does that.
+
+    canonical example: if x is an angle theta, z can be [cos theta, sin theta].
+
+    we have a doppelt gemoppelt kind of situation here. The manifold Z is
+    defined in two ways:
+     - Z = T(X). whatevern the transformation sends the state space to
+     - Z = {z: c(z) = 0} with a constraint function c. 
+
+    The first gives an easy way to find a tangent space basis, the second 
+    a normal space basis. We could do with just one but then we'd have to do some
+    hacky SVD type stuff to find the other basis, subject to numerical errors. 
+    this also serves as a sanity check that the manifold is indeed what we defined 
+    it to be. 
+
+    -> update, maybe this is dumb. is it not simpler to just define the functions
+    V_nn(T(x)) in the loss, and differentiate the whole thing wrt x? 
+
+    '''
+
+    def __init__(self, problem_params):
+
+        assert 'T' in problem_params, 'coordinate transformation T must be given in problem_params'
+        assert 'c' in problem_params, 'constraint function c must be given in problem_params'
+
+        # if the functions have incorrect inputs/outputs i guess we will find out later
+
+        # T: X -> Z defines manifold as Z = T(X)
+        self.T = problem_params['T']
+        # c: R^nz -> R^(nz-nx) defines manifold as Z = {z: c(z) = 0}
+        self.c = problem_params['c']
+
+        # for these 'sanity check' evaluations it would be nice if the
+        # transformations don't have any sort of singularity at 0. 
+
+        # dimensionality of original state space
+        self.nx = problem_params['nx']
+        # dimensionality of euclidean space in which transformed state space is embedded
+        self.nz = self.T(np.zeros(self.nx)).shape[0]
+
+        ndiff = self.nz - self.nx
+        nc = self.c(np.zeros(self.nz)).shape[0]
+        if not ndiff == nc:
+            print('manifold dimensions somehow wrong.')
+            print(f'dim(original state space X) = {self.nx}')
+            print(f'dim(embedding space) = {self.nz}')
+            print(f'dim(constraint function) = {self.nc}')
+            raise ValueError('look at what I just printed dumbass')
+
+
+        dTdx = jax.jacobian(T)
+
+    def transform_y(y):
+
+        pass
+        # y a dict with entries 'x', 'v', 'vx' (, 'vxx' optionally)
+
+        # what do we want in the transformed version? 
+
+
+
 
 
 class data_normaliser(object):
@@ -203,6 +282,41 @@ class nn_wrapper():
         # this somehow messes up the batch vmap (i think?)
         # v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
         # maybe that is better? if squeeze()ing at the end of nn definition, shapes are the same
+
+        nn_apply_fct = self.nn.apply
+
+
+        if algo_params['use_transform']:
+
+            raise NotImplementedError('lots of issues with this')
+            # specifically the issue: the data we are getting here is normalised, but T 
+            # operatoes in the unnormalised state space! 
+
+            # what if here we instead just give the original data points, and make a "unified" 
+            # transformation T which both does data normalisation and mapping to the manifold? 
+            # then we can basically just specify losses asking that: 
+
+            # basically, we "absorb" the whole data normalisation into the NN as a kind of 0-th layer
+            # (but also the v scaling should influcence the output....)
+
+            # V_nn(T(x)) = v(x)
+            # jac_x [V_nn(T(x))] = v_x(x)
+            # hess_x [V_nn(T(x))] = v_xx(x)  (both sides right multiplied with random v as always)
+
+            # if we want to avoid doing the transformation every time (which is probably low overhead)
+            # we would neet to store the following, for each training point:
+            # 
+
+
+            # replace the whole apply function by apply(params, .) ∘ T
+            # this way we avoid all the differential geometry, tangent and normal spaces
+            # everything is just a nonlinear smooth function and just works. 
+            assert 'T' in algo_params
+            T = algo_params['T']
+
+            nn_apply_fct = lambda params, y: self.nn.apply(params, T(y))
+
+
         v_pred = self.nn.apply(params, y['x'])
         vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
 

@@ -414,6 +414,7 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     
     '''
 
+    '''
     def estimate_vxx_lstsq(dx_size, t_eval=-4.7):
 
         # perturb state at index 50 slightly and see what happens. 
@@ -465,6 +466,7 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     # wtf these don't seem to be similar in any way...
     # is it because the hessian also changes "quickly" and is thus not well
     # represented by the "discrete difference" of vx? 
+    '''
 
 
     

@@ -512,6 +512,7 @@ def define_backward_solver(problem_params, algo_params):
                 term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
                 stepsize_controller=step_ctrl, saveat=saveat,
                 max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+                discrete_terminating_event=terminating_event,
             )
         else:
             backward_sol = diffrax.diffeqsolve(

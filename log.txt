@@ -2216,3 +2216,20 @@ correctly after all.
 also experimenting with sampling procedures and acquisition functions. put
 some thoughts in idea dump about how they are in some sense two sides of the
 same coin, but still w important differences.
+
+
+
+2023-03-25
+
+
+made draft of selecting v_k+1 based on dv/dt and a max time horizon, something
+I had in mind for some time but never concrete. 
+
+worked on implementation of proposals and oracle step. small implementation
+questions sorted out. baby steps. still need to see how this all turns out
+when we put the pieces together. 
+
+
+goals tomorrow.
+ - whip out a working first implementation of the whole loop, no matter how shitty
+ - think in a bit more detail about the train_and_prune function

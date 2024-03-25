@@ -551,7 +551,7 @@ def testbed(problem_params, algo_params):
     key = jax.random.PRNGKey(1)
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(200, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(100, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
@@ -584,7 +584,6 @@ def testbed(problem_params, algo_params):
 
         v_f = 0.5 * x_f.T @ P_lqr @ x_f
         vx_f = P_lqr @ x_f
-        vxx_f = P_lqr
 
         state_f = {
             'x': x_f,
@@ -594,11 +593,69 @@ def testbed(problem_params, algo_params):
         }
 
         if algo_params['pontryagin_solver_vxx']:
+            vxx_f = P_lqr
             state_f['vxx'] = vxx_f
 
         return solve_backward(state_f, algo_params)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
+
+
+    def find_min_l(sols, v_lower, v_upper, problem_params):
+
+        # find the smallest value of l(x, u) in the given value band
+        # in the dataset. brute force -- calculates every l(x, u).
+
+        # in principle we should be able to find this info based on 
+        # what we already calculated during the ODE solving, or even
+        # keep some "running min" that is updated at basically no cost.
+        # but this on the other hand is much simpler implementation wise.
+
+        def l_of_y(y):
+            x = y['x']
+            vx = y['vx']
+            u = pontryagin_utils.u_star_2d(x, vx, problem_params)
+            return problem_params['l'](x, u)
+
+        # double vmap because we have N_trajectories x N_timesteps ys
+        all_ls = jax.vmap(jax.vmap(l_of_y))(sols.ys)
+
+        # add NaN to every x with v(x) > v_k 
+        is_outside_valueband = ~np.logical_and(v_lower <= sols.ys['v'], sols.ys['v'] <= v_upper)
+        all_ls_masked = all_ls + (is_outside_valueband * np.nan)
+
+        min_l = np.nanmin(all_ls_masked)    
+        return min_l
+
+
+
+    def find_min_l_alt(sols, v_lower, v_upper, problem_params):
+
+        # first extract the data, then calculate u* and l. 
+        # seems to actually be slower than the other one :(
+
+        def l_of_y(y):
+            x = y['x']
+            vx = y['vx']
+            u = pontryagin_utils.u_star_2d(x, vx, problem_params)
+            return problem_params['l'](x, u)
+
+        # add NaN to every x with v(x) > v_k 
+        is_outside_valueband = ~np.logical_and(v_lower <= sols.ys['v'], sols.ys['v'] <= v_upper)
+
+        ys_relevant = jtm(lambda n: n[~is_outside_valueband], sols.ys)
+
+        # double vmap because we have N_trajectories x N_timesteps ys
+        all_ls = jax.vmap(l_of_y)(ys_relevant)
+
+        min_l = np.nanmin(all_ls)    
+        return min_l
+    
+
+
+    # lmin = find_min_l(sols_orig, 10, 20, problem_params)
+    # ipdb.set_trace()
+    
     # visualiser.plot_trajectories_meshcat(sols_orig)
     # ipdb.set_trace()
 
@@ -811,7 +868,17 @@ def testbed(problem_params, algo_params):
 
         ipdb.set_trace()
 
-    # vxx_weight_sweep()
+    def v_meanstd(x, vmap_params):
+        # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function. 
+        # this serves as a *probable* overapproximation of the true value sublevel set.
+        vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
+
+        v_mean = vs_ensemble.mean()
+        v_std = vs_ensemble.std()
+
+        return v_mean, v_std
+
+    v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
 
 
     def forward_sim_lqr(x0):
@@ -871,6 +938,104 @@ def testbed(problem_params, algo_params):
         return forward_sol
 
 
+    def forward_sim_nn_until_value(x0, params, v_k, vmap=False):
+
+        # also simulates forward, but stops once we are with high probability
+        # inside the value level set v_k. (implemented as 2 sigma upper confidence band)
+
+        # only vmap=True is implemented.
+
+        if vmap:
+            # we have a whole NN ensemble. use the mean here. 
+            v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            # mean across only axis resulting in a scalar. differentiate later.
+            v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(params, x).mean()
+
+        else:
+            v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+        def forwardsim_rhs(t, x, args):
+
+            lam_x = jax.jacobian(v_nn_unnormalised)(x).squeeze()
+            # lam_x = P_lqr @ x  # <- for lqr instead
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            return problem_params['f'](x, u)
+
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+        # additionally, terminating event.
+        # only works for vmapped NN ensemble!
+        if not vmap:
+            raise NotImplementedError('only vmapped (NN ensemble) case implemented here.')
+
+        def event_fn(state, **kwargs):
+            # another stopping condition could be much more simply: v_std < some limit? 
+            # then we continue a bit if it happens to not be that way right at the edge 
+            # of the value level set.
+            v_mean, v_std = v_meanstd(state.y, params)
+
+            # we only quit once we're very sure that we're in the value level set. 
+            # thus we take an upper confidence band = overestimated value function = inner approx of level set
+            # return (v_mean + 2 * v_std <= v_k).item()   # if meanstd returns arrays of shape (), not floats
+            is_very_likely_in_Vk = v_mean + 2 * v_std <= v_k
+            has_low_sigma = v_std <= 0.5
+
+            # return is_very_likely_in_Vk
+
+            return np.logical_and(is_very_likely_in_Vk, has_low_sigma)
+
+        terminating_event = diffrax.DiscreteTerminatingEvent(event_fn)
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+            throw=algo_params['throw'],
+            discrete_terminating_event=terminating_event,
+        )
+
+        return forward_sol
+
+
+    def solve_backward_nn_ens(x_f, vmap_params, algo_params):
+
+        # modified from solve_backward_lqr. 
+
+        # change this (lexical closure of normaliser) if during main iteration we change 
+        # the data normalisation!!!
+
+        v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+        # mean across only axis resulting in a scalar. differentiate later.
+        v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(vmap_params, x).mean()
+
+        v_lqr = lambda x: 0.5 * x.T @ P_lqr @ x
+
+        # see if v_nn and v_lqr match up even here. 
+        # all good, same-ish jacobian and hessian at 0. 
+        # ipdb.set_trace()
+
+        # v_f = 0.5 * x_f.T @ P_lqr @ x_f
+        # vx_f = P_lqr @ x_f
+        v_f = v_nn_unnormalised(x_f)
+        vx_f = jax.jacobian(v_nn_unnormalised)(x_f)
+
+        state_f = {
+            'x': x_f,
+            't': 0,
+            'v': v_f,
+            'vx': vx_f,
+        }
+
+        if algo_params['pontryagin_solver_vxx']:
+            vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
+            state_f['vxx'] = vxx_f
+
+        return solve_backward(state_f, algo_params)
+
 
     # cover a couple different magnitudes
     x0s = np.concatenate([
@@ -884,15 +1049,14 @@ def testbed(problem_params, algo_params):
     # sol = forward_sim_nn(x0s[0], params)
     # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
     # sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
-    sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
+    # sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
     # sols_lqr = jax.vmap(forward_sim_lqr)(x0s)
 
     # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
     # visualiser.plot_trajectories_meshcat(sols_sobolev)
-    visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
+    # visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
     # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
 
-    # ipdb.set_trace()
 
     # initial step: 
     # - generate data from uniform backward shooting
@@ -910,23 +1074,33 @@ def testbed(problem_params, algo_params):
         # atm this is kind of a hybrid of optimising an acquisition funcition and sampling from 
         # an "acquisition pdf". this whole blob of code here basically defines that pdf.
 
+        # set the next value target. 
+        # in the end we should verify if we actually reached that (= achieved low uncertainty within it)
+        # if not, adjust it down so v_k always reflects the value level which we know to given tol.
+        # also, in an initial step we should verify that v_k represents an accurate value level set
+        # (or just start with it really low, maybe just lqr solution too.)
 
-        def v_meanstd(x, vmap_params):
-            # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function. 
-            # this serves as a *probable* overapproximation of the true value sublevel set.
-            vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
+        # be generous!
+        value_interval = [0., v_k*2]
 
-            v_mean = vs_ensemble.mean()
-            v_std = vs_ensemble.std()
+        # instead calculate a more educated guess like this: 
+        fastestpole_tau = .49  # from LQR solution. 
+        T = 5 * fastestpole_tau
+        min_l = find_min_l(sols_orig, v_k/2, v_k, problem_params)
 
-            return v_mean, v_std
+        # min l = min dv/dt
+        v_step = T * min_l
+        v_next = v_k + v_step
 
-        v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
+        value_interval = [v_k, v_next]
 
 
-        # propose many random points from the entire state space. 
-        # fancyer: replace this with mcmc so we don't depend on defining a region a priori
 
+
+
+
+        # next, find lots of points from that value band, to "approximate" all kinds
+        # of global optimisation & sampling operations over that set. 
         all_valueband_pts = np.zeros((0, 6))
 
         N_pts_desired = 1000  # we want 1000 points that are inside the value band. 
@@ -962,9 +1136,6 @@ def testbed(problem_params, algo_params):
 
             optimistic_vs = v_means - 2 * v_stds
 
-            # be generous!
-            value_interval = [-np.inf, v_k*2]
-
             is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
             interesting_x0s = x_pts[is_in_range]
 
@@ -990,7 +1161,7 @@ def testbed(problem_params, algo_params):
         # forget this for now maybe its even a good thing.
 
         v_means, v_stds = v_meanstds(all_valueband_pts, params_sobolev_ens)
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
 
 
@@ -1032,8 +1203,8 @@ def testbed(problem_params, algo_params):
         # replaces the v_means where we are certain enough by inf
         # that way once we multiply by -1 we have -inf and negative values
         # the largest negative values = the smallest positive values
-        v_means_ = v_means + where_uncertain * np.inf
-        _, proposal_idxs = jax.lax.top_k(-v_means * where_uncertain)
+        v_means_uncertain = v_means + ~where_uncertain * np.inf
+        _, proposal_idxs = jax.lax.top_k(-v_means_uncertain, N_proposals)
 
 
         # visualise the selection of points. 
@@ -1041,14 +1212,93 @@ def testbed(problem_params, algo_params):
         pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='selected points')
 
 
+        proposed_states = all_valueband_pts[proposal_idxs]
+
+
+        # ~~~~ ORACLE ~~~~ 
+        # now that we've proposed a batch of points, we call the oracle.
+        # it consists of these steps:
+        # - forward simulation, with approximate optimal input from NN, 
+        #   until we reach known value level
+        # - backward PMP shooting as usual.
+
+
+        # forward simulation. this stops if BOTH of these conditions hold.
+        # - v_mean + 2 * v_sigma <= v_k
+        # - v_sigma <= 0.5
+        # so we can be quite sure the information at that point is usable.
+        # (also stops if time horizon ends. )
+        forward_sols = jax.vmap(forward_sim_nn_until_value, in_axes=(0, None, None, None))(
+            proposed_states,
+            params_sobolev_ens,
+            v_k, 
+            True
+        )
+
+
+        xfs = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(forward_sols)
+
+        # the solutions that stopped due to DiscreteTerminatingEvent
+        stopped_bc_terminatingevent = forward_sols.result == 1
+
+        # sanity check: this should be the same. literally just checking the terminatingevent
+        # conditions as well.
+        mus, sigs = v_meanstds(xfs, params_sobolev_ens)
+        is_usable = np.logical_and(mus + 2 * sigs <= value_interval[0], sigs <= 0.5)
+
+        assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
+
+        print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
+
+        # if we have a different amount every time, we cannot jit the simulation.
+        # therefore we just mark it as nan and try to tune the algo such that not too many 
+        # of them are nan. 
+        usable_xfs = xfs.at[~is_usable].set(np.nan)
+
+        # as we kind of would expect, is_usable correlates clearly (negatively) with the amount of 
+        # solver steps. so the most effort is spent calculating solutions which we're never going to use. 
+        # could we somehow avoid this? maybe stop after 3/4 of solutions have terminated? probably but 
+        # then the implementation becomes messier, because plain vmap doesn't allow cross communication.
+        # more simply: just set a rather low step limit and be fine with a couple more solutions being 
+        # thrown out. 
+
+        # or just don't care, forward sim is cheaper than backward anyway. (is
+        # it? with vmapped nn ensemble maybe not..., certainly not if backward sim
+        # is without vxx.)
+
+        # here put some new limit on how far we solve backward? 
+        # stop at like 5*value_interval[1]? 
+        # or use a fixed multiple of the forward sim time? 
+        # both? 
+        # decrease pontryagin_solver_T overall??
+        sol0 = solve_backward_nn_ens(usable_xfs[0], params_sobolev_ens, algo_params)
+
+        # TODO jit this. 
+        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None))(usable_xfs, params_sobolev_ens, algo_params)
+
+        # plot 0th forward and backward sol in same plot.
+        pl.figure()
+        pl.subplot(221)
+        sol0_fwd = jtm(itemgetter(0), forward_sols)
+        fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
+        
+
+        pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
+        pl.gca().set_prop_cycle(None)
+        plotting_utils.plot_sol(sol0, problem_params)
 
 
 
-        # find out which v_k we actually reached. 
-        # TODO
 
 
 
+
+
+        # maybe easier to write one function for the whole oracle step, and then vmap it?
+        # instead of vmapping the forward solve and backward solve separately...
+
+
+        ipdb.set_trace()
 
         
         x_proposals = propse_points(v_nn, vk)

@@ -375,7 +375,7 @@ if __name__ == '__main__':
         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x 
         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
         # state space regions. 
-        'pontryagin_solver_T': 5,  
+        'pontryagin_solver_T': 3.,  
 
         # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time. 
         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)

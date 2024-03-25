@@ -405,7 +405,7 @@ class nn_wrapper():
 
 
 
-    # @filter_jit
+    @filter_jit
     def train_sobolev(self, key, ys, nn_params, algo_params, ys_test=None):
 
         '''
@@ -422,10 +422,12 @@ class nn_wrapper():
            this should make it easy to train with or without hessians with the same code.
            maybe we can also initially train with v and vx and only "fine-tune" with the hessian?
 
-         - loss includes (optionally) the hessian error. probably the stochastic approx
-           from the main sobolev training paper is best.
+         - loss includes (optionally) the hessian error. specifically a stochastic approximation
+           of it: a hessian-vector product with a randomly chosen direction vector. idea from 
+           Czarnecki et al.: https://arxiv.org/abs/1706.04859
 
-         - testset generation not in here. pass ys_test to evaluate test loss during training.
+         - testset generation not in here. do it using train_test_split in this file. pass
+           ys_test to evaluate test loss during training (full test dataset every step!)
 
         TODO as of now the test set is just a random subset of all points.
         should we instead take a couple entire trajectories as test set? because
@@ -540,6 +542,7 @@ class nn_wrapper():
         return nn_params, outputs
 
 
+    @filter_jit
     def train_sobolev_ensemble(self, key, ys, nn_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with different prng key. 

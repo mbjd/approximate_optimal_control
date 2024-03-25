@@ -482,6 +482,9 @@ def define_backward_solver(problem_params, algo_params):
         return state_dot
 
     # could just as well take the algo_params already here w/ lexical closure...
+    # actually *should* do that probably since they are already baked into f_extended.
+    # therefore it would be very confusing if we tried to change them outside, this 
+    # function respects the change but f_extended does not. 
     def solve_backward(y_f, algo_params):
 
         state_f = y_f
@@ -505,7 +508,7 @@ def define_backward_solver(problem_params, algo_params):
         if 'vxx_max_norm' in algo_params and algo_params['pontryagin_solver_vxx']:
 
             terminating_event = diffrax.DiscreteTerminatingEvent(
-                cond_fn = lambda state: np.linalg.norm(state.y['vxx']) > algo_params['vxx_max_norm']
+                cond_fn = lambda state, **kwargs: np.linalg.norm(state.y['vxx']) > algo_params['vxx_max_norm']
             )
 
             backward_sol = diffrax.diffeqsolve(

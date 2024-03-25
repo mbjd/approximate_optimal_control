@@ -404,7 +404,7 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
         y = jtm(itemgetter(idx), bad_sol.ys)
 
         # recreate the solution in 64 bit precision.
-        newsol = solve_backward(y, algo_params)
+        newsol = solve_backward(y)
 
         plotting_utils.plot_sol(newsol, problem_params)
 
@@ -432,7 +432,7 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
                 'vxx': y['vxx']  # no info here.
             }
 
-            newsol = solve_backward(y_perturbed, algo_params)
+            newsol = solve_backward(y_perturbed)
 
             return newsol
 
@@ -484,8 +484,8 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     # algo_params_tight['pontryagin_solver_atol'] = 1e-7
     # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
 
-    # # first arg irrelevant if last given
-    # sol_tight = solve_backward(restart_y['x'], algo_params_tight, y_f=restart_y)
+    # # not sure if this still works, changed function signature twice since running it
+    # sol_tight = solve_backward(restart_y)  
 
     # # evaluate the right hand side again to see where it produces shit.
     # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
@@ -596,7 +596,7 @@ def testbed(problem_params, algo_params):
             vxx_f = P_lqr
             state_f['vxx'] = vxx_f
 
-        return solve_backward(state_f, algo_params)
+        return solve_backward(state_f)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
@@ -1034,7 +1034,7 @@ def testbed(problem_params, algo_params):
             vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
             state_f['vxx'] = vxx_f
 
-        return solve_backward(state_f, algo_params)
+        return solve_backward(state_f)
 
 
     # cover a couple different magnitudes
@@ -1301,9 +1301,9 @@ def testbed(problem_params, algo_params):
         ipdb.set_trace()
 
         
-        x_proposals = propse_points(v_nn, vk)
-
-        sols = jax.vmap(solve_backward, in_axes=(0, None))(x_proposals, algo_params)
+        # this just a very short pseudocode-like draft from the beginning.
+        # x_proposals = propse_points(v_nn, vk)
+        # sols = jax.vmap(solve_backward, in_axes=(0, None))(x_proposals, algo_params)
 
         # somehow store the solutions in our big dataset
         data = np.concatenate([data, sols.ys])

@@ -485,7 +485,7 @@ def define_backward_solver(problem_params, algo_params):
     # actually *should* do that probably since they are already baked into f_extended.
     # therefore it would be very confusing if we tried to change them outside, this 
     # function respects the change but f_extended does not. 
-    def solve_backward(y_f, algo_params):
+    def solve_backward(y_f):
 
         state_f = y_f
 

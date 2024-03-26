@@ -2233,3 +2233,30 @@ when we put the pieces together.
 goals tomorrow.
  - whip out a working first implementation of the whole loop, no matter how shitty
  - think in a bit more detail about the train_and_prune function
+
+
+
+2023-03-26
+
+made a draft of the train_and_prune function. adjusted nn ensemble code so
+PRNG key would also randomise initialisaiton (previously the whole ensemble
+used the same init...). 
+
+feeling kind of unmotivated in general. maybe i need to take lenart's advice
+in the beginning that i should definitely take that week or two of vacations
+more seriously. listening to pillowy piano music from lambert due to a
+particular suggestion ages ago. maybe i also need to go for a bike ride first
+
+turned off vxx because everything just runs much much faster and still kinda
+works. starting to think vxx is not worth calculating. (didn't i reach that
+conclusion already way in january or something, only to change my mind again?)
+
+
+other idea i had during lunch: maybe the main loop needs to be changed from: 
+  propose pts -> call oracle -> fit nn/prune -> find out boundary of known set
+to 
+  find out boundary of known set -> propose pts -> call oracle -> fit nn/prune
+
+then we can have an simpler initial step (uniform or lqr guided backward
+shooting, nn fit, enter main loop). 
+

@@ -543,23 +543,33 @@ class nn_wrapper():
 
 
     @filter_jit
-    def train_sobolev_ensemble(self, key, ys, nn_params, algo_params, ys_test=None):
+    def train_sobolev_ensemble(self, key, ys, problem_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with different prng key. 
-        # BUT with the same initialisation! maybe not that smart.
+        # now the key affects both initialisation and batch selection for each nn. 
 
-        keys = jax.random.split(key, algo_params['nn_ensemble_size'])
+        init_key, train_key = jax.random.split(key)
+        init_keys = jax.random.split(init_key, algo_params['nn_ensemble_size'])
+        train_keys = jax.random.split(train_key, algo_params['nn_ensemble_size'])
 
-        train_with_key = lambda k: self.train_sobolev(k, ys, nn_params, algo_params, ys_test=ys_test)
+        vmap_params_init = jax.vmap(self.nn.init, in_axes=(0, None))(init_keys, np.zeros(problem_params['nx']))
 
-        # vmap only the random key. even keep same initialisation!
-        return jax.vmap(train_with_key)(keys)
+        # to trick around the optional argument. there is probably a neater way...
+        train_with_key_and_params = lambda k, params_init: self.train_sobolev(k, ys, params_init, algo_params, ys_test=ys_test)
+        
+        return jax.vmap(train_with_key_and_params, in_axes=(0, 0))(train_keys, vmap_params_init)
 
 
     @filter_jit
     def train_sobolev_ensemble_from_params(self, key, ys, init_params_vmap, algo_params, ys_test=None):
 
-        # train ensemble by vmapping the whole training procedure with different prng key. 
+        # train ensemble by vmapping the whole training procedure with
+        # different prng key AND from vmapped params. 
+
+        # is this implemented in some very wrong way? does this add another
+        # axis of vmapping? suspiciously slow atm but only when passing test
+        # data... is that the reason? if the test dataset is much larger than
+        # the batches we would kind of expect that tbh
 
         keys = jax.random.split(key, algo_params['nn_ensemble_size'])
 

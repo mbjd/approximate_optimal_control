@@ -366,7 +366,7 @@ if __name__ == '__main__':
 
 
     algo_params = {
-        'pontryagin_solver_vxx': True,
+        'pontryagin_solver_vxx': False,
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
         'pontryagin_solver_maxsteps': 512, # nice if it is not waaay too much
@@ -412,8 +412,8 @@ if __name__ == '__main__':
         # mostly we care about representing vx with great accuracy, 
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function. 
-        'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        # 'nn_sobolev_weights': np.array([0.1, 10.]),
+        # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
+        'nn_sobolev_weights': np.array([0.1, 1.]),
 
         # inversely proportional to approx training loss magnitudes. 
         # intuition: then we make sure the three "loss signals" are similar in magnitude

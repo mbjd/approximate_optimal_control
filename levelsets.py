@@ -693,10 +693,14 @@ def testbed(problem_params, algo_params):
 
         # sols.ys['vxx'].shape == (N_trajectories, N_ts, nx, nx)
         # get the frobenius norms of the hessian & throw out large ones. 
-        vxx_norms = np.linalg.norm(sols.ys['vxx'], axis=(2, 3))
-        vxx_acceptable = vxx_norms < algo_params['vxx_max_norm']  # some random upper bound based on looking at a plot of v vs ||vxx||
+        if 'vxx' in sols.ys:
+            vxx_norms = np.linalg.norm(sols.ys['vxx'], axis=(2, 3))
+            vxx_acceptable = vxx_norms < algo_params['vxx_max_norm']  # some random upper bound based on looking at a plot of v vs ||vxx||
 
-        bool_train_idx = np.logical_and(v_in_interval, vxx_acceptable)
+            bool_train_idx = np.logical_and(v_in_interval, vxx_acceptable)
+        else:
+            bool_train_idx = v_in_interval
+            
         all_ys = jtm(lambda node: node[bool_train_idx], sols.ys)
 
         perc = 100 * bool_train_idx.sum() / v_finite.sum()
@@ -769,7 +773,7 @@ def testbed(problem_params, algo_params):
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
 
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-        train_key, ys_n, params_init, algo_params
+        train_key, ys_n, problem_params, algo_params
     )
 
     v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
@@ -1308,9 +1312,13 @@ def testbed(problem_params, algo_params):
         # n_data = count_floats(train_ys)
         # print(f'params/data ratio = {n_params/n_data:.4f}')
 
-        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_from_params(
-            train_key, ys_n, params_sobolev_ens, algo_params
+        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
+            train_key, ys_n, problem_params, algo_params
         )
+
+        # params_sobolev_ens_alt, oups_sobolev_ens_alt = v_nn.train_sobolev_ensemble_from_params(
+            # train_key, ys_n, params_sobolev_ens, algo_params
+        # )
 
         ipdb.set_trace()
 
@@ -1424,11 +1432,7 @@ def testbed(problem_params, algo_params):
         # maybe easier to write one function for the whole oracle step, and then vmap it?
         # instead of vmapping the forward solve and backward solve separately...
 
-        all_sols = jtm(lambda a, b: np.concatenate([a, b], axis=0), sols_orig, backward_sols_new)
-
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), sols_orig.ys, backward_sols_new.ys)
-
-
 
 
         train_key = k  # yolo

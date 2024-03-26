@@ -2302,6 +2302,11 @@ implementation "details":
 - find a way to use constant sized datasets by thinning out the data for
   "past" low values. 
 
+- how to sample points for rejection sampling? cod hits here. making the set
+  2x bigger means we have to sample 2^6 times more points to have the same
+  density. do the same move with scaling uniformly sampled pts with logspace? 
+  then we cannot say anything about distribution anymore. fancy mcmc???
+
 - use the data we already have in the value level band before generating new
   data. optimally somehow "fuse" it into the active learning process too so we
   don't blindly extend ALL trajectories leading to ever growing dataset

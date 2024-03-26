@@ -782,50 +782,9 @@ def testbed(problem_params, algo_params):
 
     pl.figure()
     plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-    pl.show()
+    # pl.show()
 
 
-    '''
-    # sweep over epoch size.
-    # conclusion: longer is better in this case up to about 2048. (512 almost as good though). after that
-    # test loss goes up again. 
-    for ep in 2**np.arange(12):
-        print(ep)
-        algo_params['nn_N_epochs'] = ep
-        params, oups = v_nn.train_sobolev(train_key, ys_n, params_init, algo_params, ys_test=test_ys_n)
-        plotting_utils.plot_nn_train_outputs(oups, legend=ep==1)
-    pl.show()
-
-    # or batch size
-
-    train_key, key = jax.random.split(key)
-    for bs in 2 ** np.arange(10):
-        print(bs)
-        algo_params['nn_batchsize'] = bs
-        params, oups = v_nn.train_sobolev(train_key, ys_n, params_init, algo_params, ys_test=test_ys_n)
-        plotting_utils.plot_nn_train_outputs(oups, legend=ep==1, alpha=0.1)
-    '''
-
-
-
-    # pl.savefig(f'tmp/vk_sweep_{i}_{v_k}.png')
-    # pl.close('all')
-    # pl.figure('sobolev without vxx')
-    # plotting_utils.plot_nn_train_outputs(oups)
-    '''
-
-    # instead go straight to training a whole ensemble. 
-    # surprisingly the progress bar just works now!
-    train_key, key = jax.random.split(key)
-    params_vmap, oups_vmap = v_nn.train_sobolev_ensemble(
-        train_key, ys_n, params_init, algo_params, ys_test=test_ys_n,
-    )
-
-    # plot results
-    for j in range(algo_params['nn_ensemble_size']):
-        oups = jax.tree_util.tree_map(itemgetter(j), oups_vmap)
-        plotting_utils.plot_nn_train_outputs(oups, alpha=.1, legend=j==0)
-    '''
 
 
     if 'params' in oups_sobolev:
@@ -1088,8 +1047,10 @@ def testbed(problem_params, algo_params):
 
 
         # ~~~ b) find uniformly sampled points from value band w/ rejection sampling ~~~
+
         # to "approximate" all kinds of global optimisation & sampling
-        # operations over that set. 
+        # operations over that set. this is a bit ugly and certainly not
+        # jit-able... can this be done in a better way?
 
         all_valueband_pts = np.zeros((0, problem_params['nx']))
 
@@ -1283,6 +1244,157 @@ def testbed(problem_params, algo_params):
 
         return backward_sols_new
 
+    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval):
+
+        # what if we first do a simpler version of this prune_and_train thing? 
+        # consisting of just one step instead of a loop with sub-valuesteps. 
+        #  a) prune the (parts of) solutions that are clearly suboptimal  
+        #     (optimally just enough to avoid conflicts...)
+        #  a) add to training data, train. 
+
+        # mark clearly suboptimal data. 
+
+        v_lower, v_upper = v_interval
+
+        v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+
+        trajectory_outside_levelset = v_lower < all_ys['v']
+
+        # be conservative: only prune trajectories that definitely (with high prob)
+        # are outside of value level set
+        nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+
+        # alternatively: argue that within the value level set, mean should be 
+        # accurate enough. 
+        # nn_v_likely_in_levelset = v_nn_means < v_lower
+
+        is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+
+        # alternatively, rely only on bnn posterior sigma, not level set. 
+        # is_suboptimal = v_nn_means + 3 * v_nn_stds < all_ys['v']
+
+        # plot trajectory vs nn where is_suboptimal just to take a glance? 
+
+
+        # next step: build training data out of this pruned mess. 
+        in_band = (0 <= all_ys['v']) & (all_ys['v'] <= v_upper)
+
+        '''
+        # in future: don't use any or only use few of the lower-value points
+        # -> thin band level set method :) 
+        v_min = v / 2  # or something... or set fixed number of pts and find with argpartition? 
+        in_band = (v_min <= all_ys['v']) & (all_ys['v'] <= v)
+
+        # top k only works with one axis... reshape? 
+        _, in_band = jax.lax.top_k(all_ys['v'] * (all_ys['v'] <= v))
+        '''
+
+        bool_train_idx = in_band & ~is_suboptimal
+
+        # b) train the NN again, while ignoring data marked as suboptimal. 
+        # easiest thing to do here: extract training data like in mockup, make new array. 
+        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
+
+        # split into train/test set.
+        train_ys, test_ys = nn_utils.train_test_split(usable_ys)
+
+        ys_n = normaliser.normalise_all_dict(train_ys)
+        test_ys_n = normaliser.normalise_all_dict(test_ys)
+
+        init_key, key = jax.random.split(key)
+        params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+        # n_params = count_floats(params_init)
+        # n_data = count_floats(train_ys)
+        # print(f'params/data ratio = {n_params/n_data:.4f}')
+
+        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_from_params(
+            train_key, ys_n, params_sobolev_ens, algo_params
+        )
+
+        ipdb.set_trace()
+
+
+
+
+        return is_optimal, params_sobolev_ens, v_next_actual
+
+
+
+    def prune_and_train_substeps(params_sobolev_ens, all_ys, v_interval):
+
+        # pseudocode:
+        # for v in linspace(v_k, v_k+1):
+        #     prune clearly suboptimal solutions (and maybe a small segment before too)
+        #     re-train NN with pruned dataset
+
+        v_substeps = np.linspace(*v_interval, 10)
+
+
+
+        for v in v_substeps:
+
+            # an easy way to guarantee that this works would be the following: 
+            # prune not only the "clearly suboptimal" points, but also a small value
+            # band below them. then set the value substep <= that valueband height. 
+            # does it follow from this that all collisons are handled properly? not
+            # very sure...
+
+
+            # a) mark data that is clearly suboptimal wrt the NN posterior as invalid. 
+            # prune only solutions where both of these hold: 
+            # v <= v(x) with high probability. 
+            # v_nn(x) <= v with high probability
+
+            # v_meanstds is already vmapped. here we vmap it a second time for the 
+            # trajectories axis. 
+            v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+
+            trajectory_outside_levelset = v < all_ys['v']
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v
+
+               # these two together mean that with high probability (3 sigma for N(0, 1)) 
+               # the given point is suboptimal. 
+               # instead of mu_v + 3 sigma_v < v < v_trajectory, we could also just ask 
+               # for mu_v + 3 sigma_v < v_trajectory. then we also classify these two additional situations as suboptimal: 
+               #  1. mu_v + 3 simga_v < v_trajectory < v.
+               #  the trajectory is inside the level set and so has alredy been used for the NN fit. not interesting. 
+               #  2. v < mu_v + 3 simga_v < v_trajectory
+               #  the nn solution is also outside the level set. despite the 3 sigma we choose to not prune 
+               #  based on that info, bc it is still an extrapolation. 
+               # not 100% sure if it smart to exclude these cases, so maybe it is smarter to ditch the v in the middle? 
+
+               # additional rule which we can use here: if a trajectory segment is globally suboptimal, everything 
+               # before it (wrt physical, forward time) is also suboptimal and we can ditch it. TODO.
+
+            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+
+            is_suboptimal = v_nn_means + 3 * v_nn_stds < all_ys['v']
+
+            ipdb.set_trace()
+
+            v_min = v / 2  # or something... or set fixed number of pts and find with argpartition? 
+            bool_train_idx = (v_min <= all_ys['v']) & (all_ys['v'] <= v) & ~is_suboptimal
+
+            # b) train the NN again, while ignoring data marked as suboptimal. 
+            # easiest thing to do here: extract training data like in mockup, make new array. 
+            all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
+
+            # split into train/test set.
+            train_ys, test_ys = nn_utils.train_test_split(all_ys)
+
+            # call sobolev training fct...
+
+            # but i'd rather keep everything constant sized... this will require changing 
+            # the traininng function quite heavily though... for this we need: 
+            # - a modified training function that takes in the (large) ys tree
+            #   and also bool_train_idx.
+
+
+
+
+        return is_optimal, params_sobolev_ens, v_next_actual
+
     # initial step: 
     # - generate data from uniform backward shooting
     # - do train_and_prune step to find value nn and known value level.
@@ -1292,6 +1404,11 @@ def testbed(problem_params, algo_params):
 
         # active learning with level-set ideas embedded. 
         # first pseudocode algo in idea dump
+
+        # additional 0-th step: continue all solutions that currently end at some 
+        # value between v_k and v_next, so that they go above v_next? 
+        # for this we have to calculate v_next outside of the proposal function 
+        # but that should be easy.
 
         k = jax.random.PRNGKey(k)
         proposed_pts, v_next_target = propose_pts(k, v_k, params_sobolev_ens)
@@ -1304,37 +1421,25 @@ def testbed(problem_params, algo_params):
         # - backward PMP shooting as usual.
         backward_sols_new = batched_oracle(proposed_pts, v_k, params_sobolev_ens)
 
-  
-
-
-
-
-
-
-
-
         # maybe easier to write one function for the whole oracle step, and then vmap it?
         # instead of vmapping the forward solve and backward solve separately...
 
+        all_sols = jtm(lambda a, b: np.concatenate([a, b], axis=0), sols_orig, backward_sols_new)
+
+        all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), sols_orig.ys, backward_sols_new.ys)
+
+
+
+
+        train_key = k  # yolo
+        is_optimal, params_sobolev_ens, v_next_actual = prune_and_train_simple(
+            train_key, params_sobolev_ens, all_ys, [v_k, v_next_target]
+        )
 
         ipdb.set_trace()
 
         
-        # this just a very short pseudocode-like draft from the beginning.
-        # x_proposals = propse_points(v_nn, vk)
-        # sols = jax.vmap(solve_backward, in_axes=(0, None))(x_proposals, algo_params)
 
-        # somehow store the solutions in our big dataset
-        data = np.concatenate([data, sols.ys])
-
-        params, v_known = train_and_prune(v_nn, params, v_known, data)
-
-    '''
-    '''
-
-
-
-    # plot_taylor_sanitycheck(jax.tree_util.tree_map(itemgetter(0), sols_orig))
     pl.show()
     ipdb.set_trace()
 

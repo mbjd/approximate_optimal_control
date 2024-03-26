@@ -546,6 +546,7 @@ class nn_wrapper():
     def train_sobolev_ensemble(self, key, ys, nn_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with different prng key. 
+        # BUT with the same initialisation! maybe not that smart.
 
         keys = jax.random.split(key, algo_params['nn_ensemble_size'])
 
@@ -553,3 +554,16 @@ class nn_wrapper():
 
         # vmap only the random key. even keep same initialisation!
         return jax.vmap(train_with_key)(keys)
+
+
+    @filter_jit
+    def train_sobolev_ensemble_from_params(self, key, ys, init_params_vmap, algo_params, ys_test=None):
+
+        # train ensemble by vmapping the whole training procedure with different prng key. 
+
+        keys = jax.random.split(key, algo_params['nn_ensemble_size'])
+
+        train_with_key_and_params = lambda k, params: self.train_sobolev(k, ys, params, algo_params, ys_test=ys_test)
+
+        # vmap only the random key. even keep same initialisation!
+        return jax.vmap(train_with_key_and_params, in_axes=(0, 0))(keys, init_params_vmap)

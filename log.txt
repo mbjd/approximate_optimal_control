@@ -2260,3 +2260,13 @@ to
 then we can have an simpler initial step (uniform or lqr guided backward
 shooting, nn fit, enter main loop). 
 
+also, how do we actually find the boundary of that known set? trivial approach
+would be to sample loads of points, and say we know the set for the highest v
+such that all points with v(x) <= v have sigma(x) <= sigma_max. but i am
+pretty sure there are some tricks to improve the estimate given that we have a
+finite sample. 
+
+
+TODO 
+ - target std dev as algo parameter
+ - uncertainty in terms of vx??? 

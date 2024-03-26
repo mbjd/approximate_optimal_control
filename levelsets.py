@@ -832,14 +832,26 @@ def testbed(problem_params, algo_params):
         ipdb.set_trace()
 
     def v_meanstd(x, vmap_params):
-        # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function. 
-        # this serves as a *probable* overapproximation of the true value sublevel set.
+
+    	# find (empirical) mean and std. dev of value function. 
         vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
 
         v_mean = vs_ensemble.mean()
         v_std = vs_ensemble.std()
 
         return v_mean, v_std
+
+    def vx_meanstd(x, vmap_params):
+
+        # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function. 
+        # this serves as a *probable* overapproximation of the true value sublevel set.
+        vxs_ensemble = jax.vmap(jax.jacobian(v_nn_unnormalised, argnums=1), in_axes=(0, None))(vmap_params, x)
+
+        v_mean = vs_ensemble.mean()
+        v_std = vs_ensemble.std()
+
+        return v_mean, v_std
+
 
     v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
 
@@ -944,7 +956,7 @@ def testbed(problem_params, algo_params):
             # thus we take an upper confidence band = overestimated value function = inner approx of level set
             # return (v_mean + 2 * v_std <= v_k).item()   # if meanstd returns arrays of shape (), not floats
             is_very_likely_in_Vk = v_mean + 2 * v_std <= v_k
-            has_low_sigma = v_std <= 0.5
+            has_low_sigma = v_std <= 0.5  # TODO make this threshold an algo_param
 
             # return is_very_likely_in_Vk
 
@@ -1312,24 +1324,25 @@ def testbed(problem_params, algo_params):
         # n_data = count_floats(train_ys)
         # print(f'params/data ratio = {n_params/n_data:.4f}')
 
+        # look ma no test data
         params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
             train_key, ys_n, problem_params, algo_params
         )
 
+        # warm started version
         # params_sobolev_ens_alt, oups_sobolev_ens_alt = v_nn.train_sobolev_ensemble_from_params(
-            # train_key, ys_n, params_sobolev_ens, algo_params
+        #     train_key, ys_n, params_sobolev_ens, algo_params
         # )
 
         ipdb.set_trace()
 
-
-
-
-        return is_optimal, params_sobolev_ens, v_next_actual
+        return params_sobolev_ens
 
 
 
     def prune_and_train_substeps(params_sobolev_ens, all_ys, v_interval):
+
+    	raise NotImplementedError('for now use prune_and_train_simple plz')
 
         # pseudocode:
         # for v in linspace(v_k, v_k+1):
@@ -1408,15 +1421,79 @@ def testbed(problem_params, algo_params):
     # - do train_and_prune step to find value nn and known value level.
     # - start loop
 
+
+
+    # test points, with increased density towards origin. 
+    N_testpts = 10000
+
+    test_pts_unscaled = jax.random.uniform(
+        key=jax.random.PRNGKey(213),
+        shape=(N_testpts, problem_params['nx']),
+        minval=np.array([-20, -20, -10*np.pi, -20, -20, -20*np.pi]),
+        maxval=np.array([ 20,  20,  10*np.pi,  20,  20,  20*np.pi]),
+    )
+
+    test_pts_scale = np.logspace(-2, 0, N_testpts)
+
+    test_pts = test_pts_unscaled * test_pts_scale[:, None]
+
+    @jax.jit
+    def estimate_value_level(test_pts, params_sobolev_ens):
+
+    	sigma_max = .5
+
+        # estimate "known" value level based on finite test points set.
+        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
+
+        # easiest way: just literally the finite sample. 
+        # there should be a nicer way to estimate the actual
+        #    v_k := max v_k s.t. forall x with v_mean(x) <= v_k: s_std(x) <= sigma_max
+
+        # v_k = max v_k s.t. all test points with v <= v_k have sigma <= sigma_max
+        #     = smallest v_k with sigma > sigma_max.
+        simga_max = .5
+        sigma_small_enough = v_stds <= sigma_max
+
+        # replace everything where sigma is small enough by infinity. 
+        # then we can take the minimum to find the lowest-v point with 
+        # sigma too high. This becomes our v_k. 
+
+        v_means_infmasked = v_means + np.inf * sigma_small_enough
+        v_k = v_means_infmasked.min()
+
+        # this is not optimal. if the real known value sublevel set only 
+        # corresponds to a tiny region, then we may not hit it with any 
+        # test points. what's more, the test points could not even hit 
+        # "close" to that set. in that case we estimate a much too high
+        # value level set. 
+        # maybe we can remedy this by making the test_pts somehow 
+        # logarithmically distributed? 
+
+        return v_k
+
+
+
+
     for k in range(5):
 
+    	print(f'active learning iter {k}')
         # active learning with level-set ideas embedded. 
         # first pseudocode algo in idea dump
+
+        v_k = estimate_value_level(test_pts, params_sobolev_ens)
+
+        print(f'largest non-disproven known value level: {v_k}')
 
         # additional 0-th step: continue all solutions that currently end at some 
         # value between v_k and v_next, so that they go above v_next? 
         # for this we have to calculate v_next outside of the proposal function 
         # but that should be easy.
+        # we will also have to ensure (or just believe) that these extended solutions do not 
+        # become suboptimal. less sure how to do that. treat it the same as active learning data? 
+        # i.e. generate all the trajectories, then propose both 
+        #  a) the points at which we have data
+        #  b) the "new" points according to the acquisition stuff
+        # then they look exactly the same to active learning side of things. 
 
         k = jax.random.PRNGKey(k)
         proposed_pts, v_next_target = propose_pts(k, v_k, params_sobolev_ens)

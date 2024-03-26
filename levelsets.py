@@ -754,9 +754,9 @@ def testbed(problem_params, algo_params):
     n_data = count_floats(train_ys)
     print(f'params/data ratio = {n_params/n_data:.4f}')
 
+    train_key, key = jax.random.split(key)
     '''
     # train once with new sobolev loss...
-    train_key, key = jax.random.split(key)
     params_sobolev, oups_sobolev = v_nn.train_sobolev(
         train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
     )
@@ -783,55 +783,13 @@ def testbed(problem_params, algo_params):
     idx = 20
     sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
 
-    pl.figure()
-    plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
+    # pl.figure()
+    # plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
 
     pl.figure()
     plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
     # pl.show()
 
-
-
-
-    if 'params' in oups_sobolev:
-
-        # experimentally we output ALL parameters encountered during the whole training. 
-        # this gives us effectively a huge NN ensemble, with (maybe) some sort of useful
-        # model diversity. update: no, not really any useful model diversity, the extrapolation
-        # tends to stay almost precis
-
-        sliced_params = jtm(lambda node: node[-1024::128], oups_sobolev['params'])
-        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, sliced_params, v_nn_unnormalised)
-        pl.show()
-
-
-
-
-
-
-
-        ax = pl.subplot(211)
-
-        # define smoothing kernel for nicer plots
-        N = vxx_weights.shape[0] // 20
-        smooth = lambda x: np.convolve(x, np.ones(N)/N, mode='valid')
-        smooth_vmap = lambda x: jax.vmap(smooth)(x.T).T  # .T mess because pyplot plots columns not rows
-
-        pl.loglog(vxx_weights, final_training_errs, linestyle='', marker='.', label=('v train loss', 'vx train loss', 'vxx train loss'), alpha=.5)
-        pl.gca().set_prop_cycle(None)
-        pl.loglog(smooth(vxx_weights), smooth_vmap(final_training_errs))
-        pl.legend()
-
-        pl.subplot(212, sharex=ax, sharey=ax)
-        pl.loglog(vxx_weights, test_errs, linestyle='', marker='.', label=('v test loss', 'vx test loss', 'vxx test loss'), alpha=.5)
-        pl.loglog(vxx_weights, hessian_rnds, linestyle='', marker='.', label='hessian rel norm diff at x=0', alpha=.5)
-        pl.gca().set_prop_cycle(None)
-        pl.loglog(smooth(vxx_weights), smooth_vmap(test_errs))
-        pl.loglog(smooth(vxx_weights), smooth(hessian_rnds))
-        pl.legend()
-        pl.show()
-
-        ipdb.set_trace()
 
     def v_meanstd(x, vmap_params):
 
@@ -1440,7 +1398,7 @@ def testbed(problem_params, algo_params):
 
     test_pts = test_pts_unscaled * test_pts_scale[:, None]
 
-    @jax.jit
+    # @jax.jit
     def estimate_value_level(test_pts, params_sobolev_ens):
 
         sigma_max = .5
@@ -1464,6 +1422,15 @@ def testbed(problem_params, algo_params):
         v_means_infmasked = v_means + np.inf * sigma_small_enough
         v_k = v_means_infmasked.min()
 
+        pl.figure()
+
+        pl.xlabel('v mean')
+        pl.ylabel('v std')
+        pl.loglog(v_means, v_stds, '. ')
+        pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
+        pl.loglog([v_means.min(), v_means.max()], [0.5, 0.5], linestyle='--', color='green', alpha=.2, label='sigma max')
+        pl.legend()
+
         # this is not optimal. if the real known value sublevel set only 
         # corresponds to a tiny region, then we may not hit it with any 
         # test points. what's more, the test points could not even hit 
@@ -1478,13 +1445,15 @@ def testbed(problem_params, algo_params):
 
     all_ys = sols_orig.ys
 
-    for k in range(5):
+    for k in range(100):
 
         print(f'active learning iter {k}')
         # active learning with level-set ideas embedded. 
         # first pseudocode algo in idea dump
 
         v_k = estimate_value_level(test_pts, params_sobolev_ens)
+        pl.savefig(f'tmp/valuelevel_{k:06d}.png', dpi=400)
+        pl.close('all')
 
         print(f'known value level (technically: smallest known upper bound): {v_k}')
 

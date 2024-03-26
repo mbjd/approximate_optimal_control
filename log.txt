@@ -2267,6 +2267,68 @@ pretty sure there are some tricks to improve the estimate given that we have a
 finite sample. 
 
 
-TODO 
- - target std dev as algo parameter
- - uncertainty in terms of vx??? 
+
+
+
+first time the active learning loop runs!!!
+
+run = finish without any errors. not sure if the results are any good. but we
+got ourselves a starting point :)))). also it looks like v_k, the smallest
+known upper bound of the actual known value level, keeps increasing
+monotonously*, up to like 60 in 10 steps! 
+
+* edit, no, one time it sank as well. is this a but or does this happen "by
+  design" due to nn training and other randomness? for that it went a bit low...
+
+issues still to tackle:
+
+
+immediate, most important:
+
+- reconcile our proposal distribution sampling thing with existing research
+  about batched active learning
+
+- make sure the prune&train function does what it should do
+
+- test it and try to find nicer acquisition functions etc.
+
+- finish the state space manifold mapping stuff. proably simpler if only
+  1-order sobolev (no vxx)
+
+- start writing...? 
+
+implementation "details":
+
+- find a way to use constant sized datasets by thinning out the data for
+  "past" low values. 
+
+- use the data we already have in the value level band before generating new
+  data. optimally somehow "fuse" it into the active learning process too so we
+  don't blindly extend ALL trajectories leading to ever growing dataset
+
+- make sure everything that can be jitted is jitted
+
+- move some of the hardcoded constants in to algo_params
+
+- find sensibe algo tuning. esp. with regards to: 
+  - length of trajectories to balance memory & recalculation load
+  - proposed vs achieved step size. 
+
+- data normalisation? atm we keep it constant to the initial scaling. is it 
+  a better idea to change it (periodically? every iteration?) 
+
+very long term stuff:
+
+- everything else like general explicit acitve set cvx opti / optimisation
+  constrained ODE -> switched DAE reformulation
+
+- 
+
+
+questions from last time. 
+
+- euler. managed login & launch of experiment once (hit memory.)
+  how to manage launching lots of them? -> launch script. 
+
+- administrative: when is handin date? when are those 2 weeks of vacation? 
+- any guidelines on the shape of the final report? then i can start writing down basics

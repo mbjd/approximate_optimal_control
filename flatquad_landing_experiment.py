@@ -369,7 +369,10 @@ if __name__ == '__main__':
         'pontryagin_solver_vxx': False,
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
-        'pontryagin_solver_maxsteps': 512, # nice if it is not waaay too much
+
+        # with throw=True we can set this pretty tight - it will just stop early. 
+        # will have to make sure ourselves that this is not a problem 
+        'pontryagin_solver_maxsteps': 128, 
 
         # not very relevant if we can just "resume" the trajectory in a later solve
         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x 

@@ -52,9 +52,15 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
     # unpack correctly if solution state is a dict.
     # we only want system state in any case.
-    if type(sols.ys) == dict:
+    if type(sols) == dict:
+        # same as below but we only have sols.ys not the whole sols object.
+        sols_ts = sols['t']
+        sols_ys = sols['x']
+
+    elif type(sols.ys) == dict:
         sols_ys = sols.ys['x']
         sols_ts = sols.ys['t']
+
     else:
         sols_ys = sols.ys
         sols_ts = sols.ts
@@ -90,10 +96,10 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
     if (sols_ts < 0).any():
         # negative time also seems to not work. Therefore, we first change -inf to +inf
-        sols_ts = sols_ts.at[np.isneginf(sols.ts)].set(np.inf)
+        sols_ts = sols_ts.at[np.isneginf(sols_ts)].set(np.inf)
 
         min_t = sols_ts.min()      # which is < 0 at this point unless -inf were the only
-        sols_ts = sols.ts - min_t  # subtracting negative = adding positive. big brain
+        sols_ts = sols_ts - min_t  # subtracting negative = adding positive. big brain
 
 
     # scale force cylinder length like this:

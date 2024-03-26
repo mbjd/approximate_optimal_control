@@ -754,6 +754,7 @@ def testbed(problem_params, algo_params):
     n_data = count_floats(train_ys)
     print(f'params/data ratio = {n_params/n_data:.4f}')
 
+    '''
     # train once with new sobolev loss...
     train_key, key = jax.random.split(key)
     params_sobolev, oups_sobolev = v_nn.train_sobolev(
@@ -771,6 +772,7 @@ def testbed(problem_params, algo_params):
 
     pl.figure('sobolev with vxx')
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
+	'''
 
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
         train_key, ys_n, problem_params, algo_params
@@ -833,7 +835,7 @@ def testbed(problem_params, algo_params):
 
     def v_meanstd(x, vmap_params):
 
-    	# find (empirical) mean and std. dev of value function. 
+        # find (empirical) mean and std. dev of value function. 
         vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
 
         v_mean = vs_ensemble.mean()
@@ -1057,6 +1059,8 @@ def testbed(problem_params, algo_params):
         v_step = T * min_l
         v_next = v_k + v_step
 
+        print(f'v_k+1 target = {v_next}')
+
         value_interval = [v_k, v_next]
 
 
@@ -1111,7 +1115,6 @@ def testbed(problem_params, algo_params):
             interesting_x0s = x_pts[is_in_range]
 
             all_valueband_pts = np.concatenate([all_valueband_pts, interesting_x0s], axis=0)
-            print(all_valueband_pts.shape[0])
 
         if all_valueband_pts.shape[0] < N_pts_desired:
             print('did not find enough points!')
@@ -1334,7 +1337,7 @@ def testbed(problem_params, algo_params):
         #     train_key, ys_n, params_sobolev_ens, algo_params
         # )
 
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
         return params_sobolev_ens
 
@@ -1342,7 +1345,7 @@ def testbed(problem_params, algo_params):
 
     def prune_and_train_substeps(params_sobolev_ens, all_ys, v_interval):
 
-    	raise NotImplementedError('for now use prune_and_train_simple plz')
+        raise NotImplementedError('for now use prune_and_train_simple plz')
 
         # pseudocode:
         # for v in linspace(v_k, v_k+1):
@@ -1440,7 +1443,7 @@ def testbed(problem_params, algo_params):
     @jax.jit
     def estimate_value_level(test_pts, params_sobolev_ens):
 
-    	sigma_max = .5
+        sigma_max = .5
 
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
@@ -1473,16 +1476,17 @@ def testbed(problem_params, algo_params):
 
 
 
+    all_ys = sols_orig.ys
 
     for k in range(5):
 
-    	print(f'active learning iter {k}')
+        print(f'active learning iter {k}')
         # active learning with level-set ideas embedded. 
         # first pseudocode algo in idea dump
 
         v_k = estimate_value_level(test_pts, params_sobolev_ens)
 
-        print(f'largest non-disproven known value level: {v_k}')
+        print(f'known value level (technically: smallest known upper bound): {v_k}')
 
         # additional 0-th step: continue all solutions that currently end at some 
         # value between v_k and v_next, so that they go above v_next? 
@@ -1509,15 +1513,15 @@ def testbed(problem_params, algo_params):
         # maybe easier to write one function for the whole oracle step, and then vmap it?
         # instead of vmapping the forward solve and backward solve separately...
 
-        all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), sols_orig.ys, backward_sols_new.ys)
+        all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)
 
 
         train_key = k  # yolo
-        is_optimal, params_sobolev_ens, v_next_actual = prune_and_train_simple(
+        params_sobolev_ens = prune_and_train_simple(
             train_key, params_sobolev_ens, all_ys, [v_k, v_next_target]
         )
 
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
         
 

@@ -1058,30 +1058,20 @@ def testbed(problem_params, algo_params):
     # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
 
 
-    # initial step: 
-    # - generate data from uniform backward shooting
-    # - do train_and_prune step to find value nn and known value level.
-    # - start loop
 
-    for k in range(5):
+    def propose_pts(key, v_k, vmap_nn_params):
 
-        # active learning with level-set ideas embedded. 
-        # first pseudocode algo in idea dump
+        # ~~~ a) estimate the "sensible" next value step ~~~
 
-        # e.g. here: continue all solutions that terminate below current v_k target or similar
-
-        # proposals
-        # atm this is kind of a hybrid of optimising an acquisition funcition and sampling from 
-        # an "acquisition pdf". this whole blob of code here basically defines that pdf.
-
-        # set the next value target. 
         # in the end we should verify if we actually reached that (= achieved low uncertainty within it)
         # if not, adjust it down so v_k always reflects the value level which we know to given tol.
+        # this is probably best handled by the TrainAndPrune function. 
+
         # also, in an initial step we should verify that v_k represents an accurate value level set
         # (or just start with it really low, maybe just lqr solution too.)
 
         # be generous!
-        value_interval = [0., v_k*2]
+        # value_interval = [0., v_k*2]
 
         # instead calculate a more educated guess like this: 
         fastestpole_tau = .49  # from LQR solution. 
@@ -1097,15 +1087,15 @@ def testbed(problem_params, algo_params):
 
 
 
+        # ~~~ b) find uniformly sampled points from value band w/ rejection sampling ~~~
+        # to "approximate" all kinds of global optimisation & sampling
+        # operations over that set. 
 
-
-        # next, find lots of points from that value band, to "approximate" all kinds
-        # of global optimisation & sampling operations over that set. 
-        all_valueband_pts = np.zeros((0, 6))
+        all_valueband_pts = np.zeros((0, problem_params['nx']))
 
         N_pts_desired = 1000  # we want 1000 points that are inside the value band. 
         i=0
-        key = jax.random.PRNGKey(k)
+        # key = jax.random.PRNGKey(k)
         while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
 
             i = i + 1   # a counter so we return if it never happens. 
@@ -1132,11 +1122,15 @@ def testbed(problem_params, algo_params):
             # - x is withing the value band V_{k+1} \ V_k
             # - from those, we want the ones with largest uncertainty.
 
-            v_means, v_stds = v_meanstds(x_pts, params_sobolev_ens)
+            v_means, v_stds = v_meanstds(x_pts, vmap_nn_params)
 
             optimistic_vs = v_means - 2 * v_stds
 
-            is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
+            # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
+
+            # only be optimistic for the outer boundary instead. 
+            is_in_range = np.logical_and(value_interval[0] <= v_means, optimistic_vs <= value_interval[1])
+
             interesting_x0s = x_pts[is_in_range]
 
             all_valueband_pts = np.concatenate([all_valueband_pts, interesting_x0s], axis=0)
@@ -1149,18 +1143,18 @@ def testbed(problem_params, algo_params):
         all_valueband_pts = all_valueband_pts[0:N_pts_desired, :]
         assert all_valueband_pts.shape == (N_pts_desired, problem_params['nx'])
 
+        # ~~~ c) find a sensible subset of that points to use as proposals ~~~
         # now we have 1000 points that satisfy the first requirement (be inside of the value band).
         # as a first attempt we just sample without replacement according to acquisition function style weights.
 
         # things to consider afterwards:
         # - ensure the samples are not very close (some literature about this "batched active learning", max kernel distance etc.)
-        # - 
 
         # though: the highest-uncertainty ones also tend to be high value (= far from the current data set)
         # is this a problem? if V_k+1 is higher than it should be it might take a long time to learn
         # forget this for now maybe its even a good thing.
 
-        v_means, v_stds = v_meanstds(all_valueband_pts, params_sobolev_ens)
+        v_means, v_stds = v_meanstds(all_valueband_pts, vmap_nn_params)
         # ipdb.set_trace()
 
 
@@ -1168,7 +1162,7 @@ def testbed(problem_params, algo_params):
         N_proposals = 200
         '''
         # scale -> 0 results in just the N_proposals points with highest std being chosen.
-        # scale -> infinity results in the proposals being sampled at random. 
+        # scale -> infinity results in the proposals being sampled uniformly at random. 
         std_scale = 3
         std_scale = .5
 
@@ -1214,14 +1208,11 @@ def testbed(problem_params, algo_params):
 
         proposed_states = all_valueband_pts[proposal_idxs]
 
+        return proposed_states, v_next
 
-        # ~~~~ ORACLE ~~~~ 
-        # now that we've proposed a batch of points, we call the oracle.
-        # it consists of these steps:
-        # - forward simulation, with approximate optimal input from NN, 
-        #   until we reach known value level
-        # - backward PMP shooting as usual.
 
+
+    def batched_oracle(proposals, v_k, vmap_nn_params):
 
         # forward simulation. this stops if BOTH of these conditions hold.
         # - v_mean + 2 * v_sigma <= v_k
@@ -1229,12 +1220,11 @@ def testbed(problem_params, algo_params):
         # so we can be quite sure the information at that point is usable.
         # (also stops if time horizon ends. )
         forward_sols = jax.vmap(forward_sim_nn_until_value, in_axes=(0, None, None, None))(
-            proposed_states,
-            params_sobolev_ens,
+            proposals,
+            vmap_nn_params,
             v_k, 
             True
         )
-
 
         xfs = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(forward_sols)
 
@@ -1242,9 +1232,10 @@ def testbed(problem_params, algo_params):
         stopped_bc_terminatingevent = forward_sols.result == 1
 
         # sanity check: this should be the same. literally just checking the terminatingevent
-        # conditions as well.
-        mus, sigs = v_meanstds(xfs, params_sobolev_ens)
-        is_usable = np.logical_and(mus + 2 * sigs <= value_interval[0], sigs <= 0.5)
+        # conditions as well. *maybe* there is some edge case where the condition is True at the 
+        # last step and the solver quits anyway, so it doesn't report quitting "due to" the event? 
+        mus, sigs = v_meanstds(xfs, vmap_nn_params)
+        is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= 0.5)
 
         assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
 
@@ -1271,10 +1262,11 @@ def testbed(problem_params, algo_params):
         # or use a fixed multiple of the forward sim time? 
         # both? 
         # decrease pontryagin_solver_T overall??
-        sol0 = solve_backward_nn_ens(usable_xfs[0], params_sobolev_ens, algo_params)
+        sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, algo_params)
 
         # TODO jit this. 
-        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None))(usable_xfs, params_sobolev_ens, algo_params)
+        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None))(usable_xfs, vmap_nn_params, algo_params)
+
 
         # plot 0th forward and backward sol in same plot.
         pl.figure()
@@ -1286,6 +1278,33 @@ def testbed(problem_params, algo_params):
         pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
         pl.gca().set_prop_cycle(None)
         plotting_utils.plot_sol(sol0, problem_params)
+
+
+
+        return backward_sols_new
+
+    # initial step: 
+    # - generate data from uniform backward shooting
+    # - do train_and_prune step to find value nn and known value level.
+    # - start loop
+
+    for k in range(5):
+
+        # active learning with level-set ideas embedded. 
+        # first pseudocode algo in idea dump
+
+        k = jax.random.PRNGKey(k)
+        proposed_pts, v_next_target = propose_pts(k, v_k, params_sobolev_ens)
+
+        # ~~~~ ORACLE ~~~~ 
+        # now that we've proposed a batch of points, we call the oracle.
+        # it consists of these steps:
+        # - forward simulation, with approximate optimal input from NN, 
+        #   until we reach known value level
+        # - backward PMP shooting as usual.
+        backward_sols_new = batched_oracle(proposed_pts, v_k, params_sobolev_ens)
+
+  
 
 
 

@@ -418,20 +418,16 @@ if __name__ == '__main__':
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': np.array([0.1, 1.]),
 
-        # inversely proportional to approx training loss magnitudes.
-        # intuition: then we make sure the three "loss signals" are similar in magnitude
-        # is this smart? this probably doesn't mean the gradients are similar (different "sharpness...")
-        # 'nn_sobolev_weights': 1/np.array([1e-5, 1e-4, 1e-2]),
-        # = 1/np.array([1e-3, 1e-2, 1.])
-        # = [1000, 100, 1]. does this make sense? ---> results in worse vx test loss.
-
         'nn_progressbar': True,
 
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
-        'thin_data': False,
-        'N_band': 1024,
-        'N_lower': 1024,
+        'thin_data': True,
+        'N_band': 4096,
+        'N_lower': 4096,
+
+        # number of proposals per active learning iteration.
+        'active_learning_batchsize': 100,
     }
 
 

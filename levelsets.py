@@ -663,17 +663,6 @@ def testbed(problem_params, algo_params):
     # ipdb.set_trace()
 
 
-    # choose initial value level.
-    # v_k = 1000 * problem_params['V_f']
-    # v_k = np.inf  # fullest gas
-    v_k = 20
-
-    # thin band
-    # value_interval = [v_k/3, v_k]
-    # thick band :)
-    value_interval = [v_k/5000, v_k]
-    print(f'value interval: {value_interval}')
-
 
     def select_train_pts(value_interval, sols):
 
@@ -719,7 +708,15 @@ def testbed(problem_params, algo_params):
 
         return all_ys
 
-    all_ys = select_train_pts(value_interval, sols_orig)
+
+
+    # choose initial value level.
+    # v_k = 1000 * problem_params['V_f']
+    # v_k = np.inf  # fullest gas
+    v_k = 3
+
+
+    all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
 
     # split into train/test set.
 
@@ -1004,8 +1001,9 @@ def testbed(problem_params, algo_params):
         # value_interval = [0., v_k*2]
 
         # instead calculate a more educated guess like this:
+        # TODO make this configurable via algo_params
         fastestpole_tau = .49  # from LQR solution.
-        T = 3 * fastestpole_tau
+        T = 10 * fastestpole_tau
 
         # use actual previous value level instead?
         min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
@@ -1035,7 +1033,7 @@ def testbed(problem_params, algo_params):
 
         all_valueband_pts = np.zeros((0, problem_params['nx']))
 
-        N_pts_desired = 1000  # we want 1000 points that are inside the value band.
+        N_pts_desired = 8 * algo_params['active_learning_batchsize']  # we want 1000 points that are inside the value band.
         i=0
         # key = jax.random.PRNGKey(k)
         while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
@@ -1068,7 +1066,8 @@ def testbed(problem_params, algo_params):
 
             v_means, v_stds = v_meanstds(x_pts, vmap_nn_params)
 
-            optimistic_vs = v_means - 2 * v_stds
+            # optimistic_vs = v_means - 2 * v_stds
+            optimistic_vs = v_means - 0 * v_stds
 
             # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
 
@@ -1102,54 +1101,89 @@ def testbed(problem_params, algo_params):
 
 
 
-        N_proposals = 200
-        '''
-        # scale -> 0 results in just the N_proposals points with highest std being chosen.
-        # scale -> infinity results in the proposals being sampled uniformly at random.
-        std_scale = 3
-        std_scale = .5
+        N_proposals = algo_params['active_learning_batchsize']
 
-        # weights = np.exp(v_stds / std_scale)
-        # ps = weights / np.sum(weights)
-        # is this not just a softmax function?
-        # -> yes, it is :)
 
-        ps = jax.nn.softmax(v_stds / std_scale)
+        # every one of these just needs to set proposal_idxs.
+        proposal_strategy = 'lowest_v_among_uncertain'
 
-        proposals = jax.random.choice(key, all_valueband_pts, shape=(N_proposals,), replace=False, p=ps)
+        if proposal_strategy == 'softmax':
+            # scale -> 0 results in just the N_proposals points with highest std being chosen.
+            # scale -> infinity results in the proposals being sampled uniformly at random.
+            std_scale = 3
+            std_scale = .5
 
-        all_idxs = np.arange(N_proposals)
-        proposal_idxs = jax.random.choice(key, all_idxs, shape=(N_proposals,), replace=False, p=ps)
+            # weights = np.exp(v_stds / std_scale)
+            # ps = weights / np.sum(weights)
+            # is this not just a softmax function?
+            # -> yes, it is :)
 
-        proposed_pts = all_valueband_pts[proposal_idxs]
+            ps = jax.nn.softmax(v_stds / std_scale)
+
+            proposals = jax.random.choice(key, all_valueband_pts, shape=(N_proposals,), replace=False, p=ps)
+
+            all_idxs = np.arange(N_proposals)
+            proposal_idxs = jax.random.choice(key, all_idxs, shape=(N_proposals,), replace=False, p=ps)
+
 
         # but that's kind of dumb, we give a small probability of also selecting points with exactly
-        '''
+        elif proposal_strategy == 'max_sigma':
 
-        # much simpler.
-        # possible problem: we select only "far" points with very large sigma, while neglecting
-        # the ones that are closer which maybe we should do first to even reach the far points
-        _, proposal_idxs = jax.lax.top_k(v_stds, N_proposals)
-
-
-        '''
-        # next idea: set some maximum acceptable sigma, and take the lowest-v k points that exceed it.
-        # or a uniform subsample of all the ones that exceed it.
-        v_std_min = 0.5
-        where_uncertain = v_stds > v_std_min
-
-        # replaces the v_means where we are certain enough by inf
-        # that way once we multiply by -1 we have -inf and negative values
-        # the largest negative values = the smallest positive values
-        v_means_uncertain = v_means + ~where_uncertain * np.inf
-        _, proposal_idxs = jax.lax.top_k(-v_means_uncertain, N_proposals)
+            # much simpler.
+            # possible problem: we select only "far" points with very large sigma, while neglecting
+            # the ones that are closer which maybe we should do first to even reach the far points
+            _, proposal_idxs = jax.lax.top_k(v_stds, N_proposals)
 
 
-        # visualise the selection of points.
-        pl.plot(v_means, v_stds, '. ', label='all points in value band')
-        pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='selected points')
-        '''
+        elif proposal_strategy == 'lowest_v_among_uncertain':
 
+            v_std_min = 0.5  # TODO put in algoparams
+
+            # next idea: set some maximum acceptable sigma, and take the lowest-v k points that exceed it.
+            # or a uniform subsample of all the ones that exceed it.
+            v_std_min = 0.5
+            where_uncertain = v_stds > v_std_min
+
+            # replaces the v_means where we are certain enough by inf
+            # that way once we multiply by -1 we have -inf and negative values
+            # the largest negative values = the smallest positive values
+            v_means_uncertain = v_means + ~where_uncertain * np.inf
+            _, proposal_idxs = jax.lax.top_k(-v_means_uncertain, N_proposals)
+
+            # what if that way we make too few proposals???
+            # include ones with lower uncertainty? raise some sort of signal that the value
+            # step can be increased???
+
+
+        elif proposal_strategy == 'uniform_among_uncertain':
+            # other, simpler idea: among the points with excessive uncertainty just choose
+            # a uniform subsample
+            # probably this will also biased towards the upper level set but maybe not overly so.
+            # this seems to make slower progress than just maximum uncertainty...
+            is_uncertain = v_stds > v_std_min
+            N_uncertain = np.sum(is_uncertain)
+            ps = is_uncertain / N_uncertain
+
+            # if we want more samples than points sampling without replacement is undefined.
+            # but generally we prefer no replacement (otw the same point is repeated!)
+            do_replace = N_proposals > N_uncertain
+
+            proposal_idxs = jax.random.choice(key, N_pts_desired, shape=(N_proposals,), replace=do_replace, p=ps)
+
+        else:
+            raise ValueError(f'unknown proposal strategy "{proposal_strategy}"')
+
+
+
+        # make some global --loglevel style algoparam to decide what to plot?
+        # and/or switching between savefig and show? especially useful for euler...
+        plot=False
+        if plot:
+            pl.figure()
+            pl.plot(v_means, v_stds, '. ', label='candidates')
+            pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='proposals')
+            pl.legend()
+            pl.show()
 
         proposed_states = all_valueband_pts[proposal_idxs]
 
@@ -1299,7 +1333,7 @@ def testbed(problem_params, algo_params):
                 print('thinning out data')
                 print(f'densely sampled value interval = [{arr.min()}, {arr.max()}]')
 
-                if arr.min() >= value_interval[0]:
+                if arr.min() >= v_interval[0]:
                     print('warning: densely sampled interval smaller than value interval')
 
                 # nicer to work with boolean indices.
@@ -1504,12 +1538,20 @@ def testbed(problem_params, algo_params):
     for k in range(10):
 
         print(f'active learning iter {k}')
+
         # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump
 
+        if k==0:
+            v_k = estimate_value_level(test_pts, params_sobolev_ens)
+        else:
+            # don't allow it to go back down again hehehe
+            v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
 
-        v_k = estimate_value_level(test_pts, params_sobolev_ens)
         vks.append(v_k)
+
+        pl.xlim([1e-1, 1e4])
+        pl.ylim([1e-2, 1e3])
 
         pl.savefig(f'tmp/valuelevel_{k:06d}.png', dpi=400)
         pl.close('all')
@@ -1530,8 +1572,10 @@ def testbed(problem_params, algo_params):
         #   away if small sigma, maybe just lower half? basically replicate the whole loop, first
         #   do an AL step selecting existing solutions, then an AL step with forward/backward
         #   shooting? that's already more of an implementation concern...
+        # - continue & include them all until the train step, then throw away the ones with
+        #   lowest posterior uncertainty? although maybe we then lose that uncertainty..
 
-        # basically I see these optinos where to implement that:
+        # basically I see these options where to implement that:
         # - at the start of the loop, do another train/prune step with the data we already have.
         #   still unsure if this messes up the pruning of suboptimal sols or not.
         # - at the end of the loop, include it in the previous train/prune step already.

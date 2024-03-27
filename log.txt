@@ -2289,6 +2289,11 @@ immediate, most important:
   about batched active learning
 
 - make sure the prune&train function does what it should do
+  (really gravitating towards "aggressive" pruning. having no data in
+  small regions is better than having contradictory data in small regions)
+
+- find a half-decent working vesion of sampling from value level sets for
+  proposal selection (atm maybe it won't work because the box is too small)
 
 - test it and try to find nicer acquisition functions etc.
 
@@ -2353,3 +2358,9 @@ equilibrium is not "exact", there seems to be a whole set of states towards
 stabilisation happens, spread over a small range in x position. this makes
 me think that maybe calculating vxx was after all the right thing to do?
 maybe we just need to generate even less data to keep it manageable.
+
+this is probably not really a problem though.
+
+what's worse is that in the current implementation the "known" value level
+jumps *down* again quite often! intuitively this shouldn't happen. is this
+due to bad implementation or some sort of theory oversight?

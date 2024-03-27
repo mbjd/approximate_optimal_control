@@ -1271,11 +1271,57 @@ def testbed(problem_params, algo_params):
         _, in_band = jax.lax.top_k(all_ys['v'] * (all_ys['v'] <= v))
         '''
 
+
+
         bool_train_idx = in_band & ~is_suboptimal
 
         # b) train the NN again, while ignoring data marked as suboptimal.
         # easiest thing to do here: extract training data like in mockup, make new array.
+        # surely we can optimise this and keep fixed shapes for jit.
         usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
+
+
+        if algo_params['thin_data']:
+            # test strategy: take fixed number of highest value points (leading to
+            # upper, densely sampled value band) & fixed number subsample of lower
+            # points.
+
+            N_band = algo_params['N_band']
+            N_lower = algo_params['N_lower']
+
+            if usable_ys['v'].shape[0] >= N_band + N_lower:
+
+                # thin out the data, if we have more data than N_band + N_lower
+
+                arr, top_idx = jax.lax.top_k(usable_ys['v'], N_band)
+                print('thinning out data')
+                print(f'densely sampled value interval = [{arr.min()}, {arr.max()}]')
+
+                if arr.min() >= value_interval[0]:
+                    print('warning: densely sampled interval smaller than value interval')
+
+                # nicer to work with boolean indices.
+                bot_bool_idx = np.ones_like(usable_ys['v'], dtype=bool).at[top_idx].set(False)
+                top_bool_idx = ~bot_bool_idx
+
+                # this should hold based on the if above. if not, documentation says that choice
+                # without replacements is undefined.
+                assert bot_bool_idx.sum() >= N_lower, 'not enough datapoints'
+
+                # we take a random subsample. bool indices serve as probabilities -> choose only from bottom subset.
+                # we return the indices, so we can choose those elements from each dict member, thus the int (-> arange).
+                key, sample_key = jax.random.split(key)
+                bot_subsample_idx = jax.random.choice(
+                        sample_key, usable_ys['v'].shape[0], shape=(N_lower,), replace=False, p=bot_bool_idx.astype(float)
+                )
+
+                all_idx = np.concatenate([top_idx, bot_subsample_idx])
+
+                usable_ys = jtm(lambda node: node[all_idx], usable_ys)
+
+        print(f'total data points: {usable_ys["v"].shape[0]}')
+
+
 
         # split into train/test set.
         train_ys, test_ys = nn_utils.train_test_split(usable_ys)
@@ -1469,15 +1515,24 @@ def testbed(problem_params, algo_params):
         print(f'known value level (technically: smallest known upper bound): {v_k}')
 
         # additional 0-th step: continue all solutions that currently end at some
-        # value between v_k and v_next, so that they go above v_next?
-        # for this we have to calculate v_next outside of the proposal function
-        # but that should be easy.
-        # we will also have to ensure (or just believe) that these extended solutions do not
-        # become suboptimal. less sure how to do that. treat it the same as active learning data?
-        # i.e. generate all the trajectories, then propose both
-        #  a) the points at which we have data
-        #  b) the "new" points according to the acquisition stuff
-        # then they look exactly the same to active learning side of things.
+        # value between v_k and v_next, so that they go above v_next? and more interestingly,
+        # decide which ones to keep? as for that "higher level" question I see a couple paths:
+
+        # - try to treat them the same as the rest of the active learning. maybe *do* extend all
+        #   of them, then add their coordinates as "test points" and from there on give it to
+        #   the AL logic which is blind to this (or maybe give it a slight bias to prefer
+        #   existing sols?)
+        # - extend&add them all. easy bruteforce solution, but will probably run into growing
+        #   number of trajectories.
+        # - some heuristic logic in between. extend if large-ish sigma? extend and then throw
+        #   away if small sigma, maybe just lower half? basically replicate the whole loop, first
+        #   do an AL step selecting existing solutions, then an AL step with forward/backward
+        #   shooting? that's already more of an implementation concern...
+
+        # basically I see these optinos where to implement that:
+        # - at the start of the loop, do another train/prune step with the data we already have.
+        #   still unsure if this messes up the pruning of suboptimal sols or not.
+        # - at the end of the loop, include it in the previous train/prune step already.
 
         # set next value target :)
         v_next_target = set_value_target(all_ys, v_k)

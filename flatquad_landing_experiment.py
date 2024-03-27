@@ -300,7 +300,7 @@ if __name__ == '__main__':
         # Q = np.diag(1/state_length_scales**2)
         # state_cost = x.T @ Q @ x
 
-        # instead just penalise the corresponding deviation from cos(Phi)=1, sin(Phi)=0? 
+        # instead just penalise the corresponding deviation from cos(Phi)=1, sin(Phi)=0?
         # derivatives should be the same still (bc sin'(0) = 1)
         x_transformed =    np.array([posx, posy, np.cos(Phi), np.sin(Phi), vx, vy, omega])
         zero_transformed = np.array([0,    0,    np.cos(0),   np.sin(0),   0,  0,  0    ])
@@ -309,8 +309,8 @@ if __name__ == '__main__':
         Q = np.diag(1/state_length_scales**2)
         state_cost = (x_transformed - zero_transformed).T @ Q @ (x_transformed - zero_transformed)
 
-        # TODO write something that is kind of similar but only depends on sin and cos of theta, not theta. 
-        # bc as it is now the cost is not a well defined function of the (transformed) state. 
+        # TODO write something that is kind of similar but only depends on sin and cos of theta, not theta.
+        # bc as it is now the cost is not a well defined function of the (transformed) state.
 
         # can we just set an input penalty that is zero at hover?
         # penalise x acc, y acc, angular acc here.
@@ -370,19 +370,19 @@ if __name__ == '__main__':
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
 
-        # with throw=True we can set this pretty tight - it will just stop early. 
-        # will have to make sure ourselves that this is not a problem 
-        'pontryagin_solver_maxsteps': 128, 
+        # with throw=True we can set this pretty tight - it will just stop early.
+        # will have to make sure ourselves that this is not a problem
+        'pontryagin_solver_maxsteps': 128,
 
         # not very relevant if we can just "resume" the trajectory in a later solve
-        # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x 
+        # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x
         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
-        # state space regions. 
-        'pontryagin_solver_T': 3.,  
+        # state space regions.
+        'pontryagin_solver_T': 3.,
 
-        # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time. 
+        # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
-        # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound. 
+        # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
         # hopefully the state space will still be sufficiently covered. In regions where ||vxx|| would
         # have been very high we will just have to accept the interpolation instead.
         'vxx_max_norm': 1e4,
@@ -399,7 +399,7 @@ if __name__ == '__main__':
             x[3:]
         ]),
 
-        # big question: should we aim for over- or underparameterisation? 
+        # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
         'nn_N_epochs': 64,
@@ -412,20 +412,26 @@ if __name__ == '__main__':
         'nn_ensemble_size': 8,
 
         # relative importance of the losses for v, vx, vxx.
-        # mostly we care about representing vx with great accuracy, 
+        # mostly we care about representing vx with great accuracy,
         # the other two can be thought of as "hints"/priors/inductive biases
-        # to fit the correct vx function. 
+        # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': np.array([0.1, 1.]),
 
-        # inversely proportional to approx training loss magnitudes. 
+        # inversely proportional to approx training loss magnitudes.
         # intuition: then we make sure the three "loss signals" are similar in magnitude
         # is this smart? this probably doesn't mean the gradients are similar (different "sharpness...")
         # 'nn_sobolev_weights': 1/np.array([1e-5, 1e-4, 1e-2]),
         # = 1/np.array([1e-3, 1e-2, 1.])
-        # = [1000, 100, 1]. does this make sense? ---> results in worse vx test loss. 
+        # = [1000, 100, 1]. does this make sense? ---> results in worse vx test loss.
 
         'nn_progressbar': True,
+
+        # only take a subsample of data for active learning. dense sample
+        # close to current level set, less dense sample further down.
+        'thin_data': False,
+        'N_band': 1024,
+        'N_lower': 1024,
     }
 
 

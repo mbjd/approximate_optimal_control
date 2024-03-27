@@ -1019,7 +1019,7 @@ def testbed(problem_params, algo_params):
 
         return v_next
 
-    def propose_pts(key, v_k, v_next, vmap_nn_params):
+    def propose_pts(key, v_k, v_next, vmap_nn_params, x_extent):
 
 
         value_interval = [v_k, v_next]
@@ -1054,8 +1054,10 @@ def testbed(problem_params, algo_params):
             x_pts = jax.random.uniform(
                 key=newkey,
                 shape=(10000, problem_params['nx']),
-                minval=np.array([-20, -20, -10*np.pi, -20, -20, -20*np.pi])/8,
-                maxval=np.array([ 20,  20,  10*np.pi,  20,  20,  20*np.pi])/8,
+                # minval=np.array([-20, -20, -10*np.pi, -20, -20, -20*np.pi])/8,
+                # maxval=np.array([ 20,  20,  10*np.pi,  20,  20,  20*np.pi])/8,
+                minval=-x_extent,
+                maxval=x_extent,
             )
 
             # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
@@ -1538,19 +1540,37 @@ def testbed(problem_params, algo_params):
         v_next_target = set_value_target(all_ys, v_k)
 
         k = jax.random.PRNGKey(k)
-        proposed_pts = propose_pts(k, v_k, v_next_target, params_sobolev_ens)
+
+        # the state space region considered for uniform -> rejection sampling.
+        if not np.isnan(all_ys['x']).any():
+            print('nans appeared haaaalp')
+            # ipdb.set_trace()
+
+        where_inf = (all_ys['x'] == np.inf).any(axis=2)
+        where_v_toohigh = all_ys['v'] > v_next_target
+        where_nan = np.isnan(all_ys['x']).any(axis=2)
+        where_exclude = np.logical_or(np.logical_or(where_inf, where_v_toohigh), where_nan)
+        all_x_masked = all_ys['x'].at[where_exclude].set(0)
+
+        # maybe better to put equilibrium instead of 0?
+        # also a safety factor if data doesn't "catch" everything.
+        # all_x shape = (N_trajs, N_ts, nx)
+        x_extent = 2 * np.abs(all_x_masked).max(axis=(0,1))
+        with np.printoptions(precision=2, suppress=True, linewidth=np.inf):
+            print(f'x extent = {x_extent}')
+
+        # nicer version would be some sort of HMC sampler to find many points
+        # from Vk+1 \ Vk (or from Vk+1, followed by rejection sampling, probably easier)
+
+        proposed_pts = propose_pts(k, v_k, v_next_target, params_sobolev_ens, x_extent)
 
         # ~~~~ ORACLE ~~~~
         # now that we've proposed a batch of points, we call the oracle.
-        # it consists of these steps:
-        # - forward simulation, with approximate optimal input from NN,
-        #   until we reach known value level
-        # - backward PMP shooting as usual.
-        backward_sols_new = batched_oracle(proposed_pts, v_k, params_sobolev_ens)
-
         # maybe easier to write one function for the whole oracle step, and then vmap it?
         # instead of vmapping the forward solve and backward solve separately...
+        backward_sols_new = batched_oracle(proposed_pts, v_k, params_sobolev_ens)
 
+        # append new data to big data set.
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)
 
 

@@ -203,8 +203,15 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
             hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
             make_quad(vis, quad_name, color=hexcolor, opacity=a)
         elif color is not None:
-            # color 
-            r, g, b = color
+            # color
+
+            # single color for all quads
+            if type(color) == tuple and len(color) == 3:
+                r, g, b = color
+            elif type(color) == np.array and color.shape == (N_sols, 3):
+                r, g, b = color[sol_i, :]
+            else:
+                raise ValueError(f'invalid color specification of type {type(color)}')
             hexcolor = (int(r*255) << 16) + (int(g*255) << 8) + int(b*255)
             make_quad(vis, quad_name, color=hexcolor)
         else:  # it is None

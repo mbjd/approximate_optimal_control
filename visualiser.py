@@ -38,7 +38,7 @@ class TextTexture(geom.Texture):
 def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, color=None, line=False):
 
     '''
-    visualise flatquad trajectories nicely. 
+    visualise flatquad trajectories nicely.
 
     input is one of:
      - diffrax solution object from single solve with system state = sol.ys[:, 0:6]
@@ -46,7 +46,7 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
      - diffrax solution object with pyTree solution, where sol.ys['x'] is the system state
 
     time axis is always taken literally, i.e. artificial time squeezing or v/t reparameterisation
-    will mess things up. 
+    will mess things up.
     '''
 
 
@@ -73,9 +73,9 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
         sols_ts = sols_ts[None, :]
 
     # filter out the trajectories containing NaN.
-    # inf is fine since the pre-allocated solution arrays are padded with inf. 
+    # inf is fine since the pre-allocated solution arrays are padded with inf.
     # sols.ys.shape == (N_sols, N_timesteps, nx)
-    # if for one solution, any state at any timestep contains NaN, don't show it. 
+    # if for one solution, any state at any timestep contains NaN, don't show it.
     is_usable = np.logical_not(np.isnan(sols_ys).any(axis=(1, 2)))
     sols_ys = sols_ys[is_usable]
     sols_ts = sols_ts[is_usable]
@@ -91,7 +91,7 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
         print('meshcat visualiser: trajectory database large ({sols_ys.shape[0]})')
         print('probably you will encounter memory issues when opening the visualiser')
 
-        # to save data, show random subsample, whatever. 
+        # to save data, show random subsample, whatever.
         ipdb.set_trace()
 
     if (sols_ts < 0).any():
@@ -155,11 +155,11 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
                 tf.rotation_matrix(np.pi/2, [1, 0, 0]),
             ))
 
-    # somehow though even when we put it into its own function it works perfectly when 
+    # somehow though even when we put it into its own function it works perfectly when
     # applied to the original visualiser but the force "arrows" are wrong when using frame
     def move_quad(vis, basepath, y):
         # vis = instance of meshcat visualiser, or frame in case of animation
-        # y = extended system state with state, costate, time. 
+        # y = extended system state with state, costate, time.
         # names hardcoded ugly i know
         t = y[-1]
         T = tf.translation_matrix([0,y[0], y[1]])
@@ -174,14 +174,14 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
             vis[basepath]['cyl_left_frame/cyl_left'].set_transform(tf.scale_matrix(ustar[0]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
             vis[basepath]['cyl_right_frame/cyl_right'].set_transform(tf.scale_matrix(ustar[1]/umax, direction=[0, 1, 0], origin=[0, -arrow_length/2, 0]))
 
-    
+
     N_sols = sols_ys.shape[0]
 
-    
+
 
     anim = meshcat.animation.Animation()
 
-    # visualise which trajectories are close and which far from our sampled point. 
+    # visualise which trajectories are close and which far from our sampled point.
     # opacity ~ -shortest_traj_dists
     # closest = 0, furthest = 1
     # inv_opacities = (shortest_traj_dists - shortest_traj_dists.min()) / (shortest_traj_dists.max() - shortest_traj_dists.min())
@@ -191,10 +191,10 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
     for sol_i in tqdm.tqdm(range(N_sols)):
 
-        # this is just a hacky way to get different names if we re-use the same vis 
+        # this is just a hacky way to get different names if we re-use the same vis
         # for plotting multiple vmapped sols. otherwise we choose the same names again
         # and overwrite the previous vis paths. essentially we make a "folder" for each
-        # different vmapped sols object. 
+        # different vmapped sols object.
         quad_name = f'{id(sols)}/quad_{sol_i}'
 
         if colormap is not None:
@@ -219,8 +219,8 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
 
         min_t = sols_ys[sol_i, :, -1].min()
         for t, y in zip(sols_ts[sol_i], sols_ys[sol_i]):
-            
-            # data is inf-padded by diffrax. 
+
+            # data is inf-padded by diffrax.
             if np.any(y == np.inf) or np.any(np.isnan(y)):
                 break
 
@@ -231,23 +231,23 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
                 move_quad(frame, quad_name, y)
 
         if line:
-            # also plot the corresponding trajectory as a line. 
-            # it wants a point array of shape nx3. 
+            # also plot the corresponding trajectory as a line.
+            # it wants a point array of shape nx3.
             # sols_ys.shape is (N trajectories, N timesteps, 2nx+1)
-            # only the points where we don't have inf. 
+            # only the points where we don't have inf.
             pt_array = sols_ys[sol_i, sols_ts[sol_i] != np.inf, 0:2]
-            # fill in the missing z values. 
+            # fill in the missing z values.
             pt_array = np.column_stack([np.zeros((pt_array.shape[0], 1)), pt_array])
 
-            # now i am really suffering from the lack of documentation. 
-            # copy pasting these examples makes nothing appear in the viz. 
+            # now i am really suffering from the lack of documentation.
+            # copy pasting these examples makes nothing appear in the viz.
             # https://github.com/meshcat-dev/meshcat-python/blob/master/examples/lines.ipynb
             raise NotImplementedError('lines not supported yet :(.')
 
 
     # this un-animates any previous ones sadly :(
     vis.set_animation(anim, repetitions=np.inf)
-    
+
     # schrödinger fancy/ugly color scheme...
     # vis['/Background'].set_property('top_color', [0xb5/256, 0x17/256, 0x9e/256])
     # vis['/Background'].set_property('bottom_color', [0x48/256, 0x0c/256, 0xa8/256])

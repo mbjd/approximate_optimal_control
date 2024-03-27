@@ -1771,30 +1771,30 @@ fixed. simple but apparently this works!
 2024-03-14
 
 big refactoring spree. cleaned up current testbed, put backward solver in
-place of the old one in pontryagin_utils, etc. 
+place of the old one in pontryagin_utils, etc.
 
 
 tried nn ensemble with jax.vmap, only altering training key (responsible for
 batch selection and stochastic sobolev approximation). looks alright actually!
 ofcourse takes nx more time. other, more sgld inspired approaches might be
-nicer, then we only repeat the "tail" of the training. 
+nicer, then we only repeat the "tail" of the training.
 
 for N=8, we have nice uncertainty bands that roughly correspond to the actual
 trajectories in the training set. as reported by many others we have
 overconfidence outside of the training region. if this is problematic we can
 switch to repulsive ensembles..? but probably it will work just fine without
-repulsiveness. 
+repulsiveness.
 
 still this only works for low value level sets and breaks down completely for
 v_k > 100 or so. still don't know why. list of possible reasons in log entry
-2024-03-12 towards the end. 
+2024-03-12 towards the end.
 
 
 
 2024-03-15
 
 taking a closer look at the output of data normalisation to see if maybe vx
-and vxx (which we can't just freely normalise) have very unsuitable magnitudes. 
+and vxx (which we can't just freely normalise) have very unsuitable magnitudes.
 
 but it looks pretty reasonable unfortunately. v has obviously zero mean and
 unit variance, and so does each x component. the vx entries have means mostly
@@ -1817,38 +1817,38 @@ have a decent fit, and then enable it again. or do some trick like clipping
 the influence of the vxx gradient? but this is probably a bit of a hassle and
 i would really rather specify a loss function and use a standard optimiser
 than tweak the optimiser when really we are kind of encoding a different loss
-function by doing so. 
+function by doing so.
 
 i also have the feeling that the vxx loss, and to a degree the vx loss, may be
-more "ill conditioned" as a function of nn parameters. not sure why though. 
+more "ill conditioned" as a function of nn parameters. not sure why though.
 
 anyway, with a lower vxx weight it is actually not that bad! we get 1e-2 ish
 vxx test loss on the full dataset (4 second uniform backward shooting, 200
 trajectories.). the trajectory vs nn plot looks alright, not very thrilling,
 certainly approximation could be made better still, but the overall shape of
-the vx functions is well captured. 
+the vx functions is well captured.
 
 closed loop testing of the resulting controller is also pretty nice! for
 initial states sampled from N(0, 5I) we see probably about half of them being
 stabilised. although, I feel like once the fast system (phi, omega) is
 stabilised they kind of move inwards "too slow"? should compare w/ lqr again
-to be sure, maybe not. 
+to be sure, maybe not.
 
 but nevertheless, I think it's impresseive that even though the trajectories
 generated are from a *very* specific weird distribution (fast system
 immediately excited in backward time, so no progress to speak of on slow
 system), the stabilisation works for a relatively wide range of initial
 states! this is promising, as it is exactly this type of extrapolation we are
-planning to rely heavily on. 
+planning to rely heavily on.
 
 
 
 
 did an experiment to find out how many epochs we actually need. learning rate
-from .01 to .0001 exponential decay. epochs 2 ** np.arange(14), largest 8192. 
+from .01 to .0001 exponential decay. epochs 2 ** np.arange(14), largest 8192.
 while longer training does usually help, it looks like the last two at least
 are a case of overfitting, where test loss is higher again. redoing it up to
-2**12 epochs to look at that more clearly. 
+2**12 epochs to look at that more clearly.
 
 
 still the fits are pretty shitty once we go above values of about 1000, or
@@ -1874,7 +1874,7 @@ angle which is mod 2pi, so several state vectors for the same physical states.
 
 
 a transformation Phi -> (sin Phi, cos Phi) solves this easily. but introduces
-new questions.  
+new questions.
 
 if we transform the whole system, before simulation, there are some more concerns.
 
@@ -1886,7 +1886,7 @@ if we transform the whole system, before simulation, there are some more concern
   to learn the basics of differential geometry but not about to do a math
   major! but this is probably nevertheless the "most correct" solution...
   maybe i should ask some of the control guys at ifa if they happen to know it
-  even a bit? 
+  even a bit?
 
 
 
@@ -1894,23 +1894,23 @@ if we transform this after simulation, just for nn training,
 then how do we transform the costate, and vxx?
 
   probably this is some not too crazy derivative trickery. just that the
-  derivative is not defined in all diretions anymore. i mean it is still the same 
+  derivative is not defined in all diretions anymore. i mean it is still the same
   basic change -- we now have a function defined on a manifold, and so are its gradients
-  so this still needs to be treated in the correct way if we do it like that. 
+  so this still needs to be treated in the correct way if we do it like that.
 
 
 2024-03-18
 
 took another look at the deteriorating training with higher value level. found
 suspicious vxx entries (like 1e17, surely this is an instance of the random
-instability rather than the actual solution). 
+instability rather than the actual solution).
 
 took vxx loss out completely. now if we specify only 2 sobolev weights all vxx
 stuff is skipped entirely. at first glance it looks like the fit is indeed
 (practically and qualitatively) just as good as the one with vxx -- still we
 have a much larger RoA in closed loop than the training dataset which is very
 nice. all while saving lots of computation. was calculating vxx misguided from
-the start?? but this still for v_k = 100. 
+the start?? but this still for v_k = 100.
 
 increaing it to 3000 where previously it failed. got nice training loss curves
 but unbearably high test loss. whyyy? visually the fit looks alright though,
@@ -1924,7 +1924,7 @@ parameter tuning. also not able to fix vxx issues. whaaat do
 plotting the offending trajectories it seems that they are all ones where
 angular rate is first in one direction, then changes, before finally
 stabilising at the equilibrium. does this somehow connect intuitively to the
-toy example above? 
+toy example above?
 
 
 
@@ -1932,7 +1932,7 @@ toy example above?
 writeup here, but ended up converting it to latex. is now in idea dump.
 conclusion: vxx terms can definitely go unbounded, and specifically when an
 eigenvalue goes to -infinity it corresponds to a starting self-intersection of
-level sets, or equivalently a focal point of characteristic curves. 
+level sets, or equivalently a focal point of characteristic curves.
 
 
 
@@ -1942,7 +1942,7 @@ over/underparameterisation etc. got pretty much nowhere, same things work as bef
 interestingly, when trying to fit a thin value band (example from 250 to 300),
 the train/test losses look really quite bad but the trajectory vs nn plot
 seems to indicate that the fit is pretty nice within the value band, and even
-extrapolates a bit. 
+extrapolates a bit.
 
 
 
@@ -1951,7 +1951,7 @@ extrapolates a bit.
 experimenting with NN ensemble. specifically, the sort where we take multiple
 parameter sets encountered during training, and basically repeat the "tail" of
 the training loop N times. Like SGLD but wihthout proper noise injection, only
-relying on SGD noise. 
+relying on SGD noise.
 
 This seems to be much worse than just vmapping the entire training loop
 though. We get very overconfident predictions outside the region of training
@@ -1966,12 +1966,12 @@ for sure, but I am fine with that (especially if we switch to Euler/TPU or
 whatever.). Also it is much more obvious how we might include "functional
 priors" there: just generate a set of random points and labels at the start of
 training -- vmapping with individual PRNG key will also randomise this prior,
-thus we should be able to get even better model diversity in this way. 
+thus we should be able to get even better model diversity in this way.
 
 
 
 ALSO recently several things were on my mind where we are not using the
-"proper" implementation and I always feel the itch to change it to a better one. 
+"proper" implementation and I always feel the itch to change it to a better one.
 
 - u* optimisation: this would surely be better addressed by detecting active
 set switching events, stepping exactly to those, then changing the RHS. kind
@@ -1986,7 +1986,7 @@ with the interpolation to be evenly sampled...
 2024-03-15
 
 tell this lenart&bhavya to get predictable but reassuring answer to not worry
-too much about those? 
+too much about those?
 
 
 
@@ -2003,17 +2003,17 @@ mainly:
  - realisations that Vxx can have infinitely neg eigenvalues
    -> need practical fix to avoid messing up nn training
  - NN ensemble experiments
- - stuff is quite slow. beg for like the third time for a little euler tutorial? 
+ - stuff is quite slow. beg for like the third time for a little euler tutorial?
 
 other questions:
- - administrative: when is handin date? when are those 2 weeks of vacation? 
+ - administrative: when is handin date? when are those 2 weeks of vacation?
  - any guidelines on the shape of the final report? then i can start writing down basics
  - how to stop myself from endless & mindless parameter tuning?!?
 
 
 meeting notes (after, cleaned up. some of this very roughly in idea dump):
 
-about main active learning formulation. 
+about main active learning formulation.
 
 looks good, hinges completely on acquisition function. should think about that
 next. is an instance of (or at least very similar to) the concept of safe
@@ -2038,7 +2038,7 @@ active learning, as briefly introduced in PAI. I think the difference is this:
 
     propose x with p(V(x) <= v_k) >= p_max  (p_max = 0.9 or something)
 
-  to an "optimistic" or "aggressive" one: 
+  to an "optimistic" or "aggressive" one:
 
     propose x with p(V(x) <= v_k) >= p_max  (p_max = 0.1 or something)
 
@@ -2047,12 +2047,12 @@ former version corresponds to using an upper confidence band, and the latter
 one  to a lower confidence band. if we specify a "confidence level" of Beta
 standard deviations (as in: propose x with mu_v(x) + Beta sigma_v(x) <= v_k)
 we have the simple correspondence p_max = Phi(Beta) (with Phi the cdf of N(0,
-1). is this true? smelling like a sign error or other sneaky confusion) 
+1). is this true? smelling like a sign error or other sneaky confusion)
 
 
-about *batched* active learning. 
+about *batched* active learning.
 
-in standard formulations, active learning goes like this: 
+in standard formulations, active learning goes like this:
 - propose point (= argmin acquisition function)
 - evaluate oracle, add result to dataset
 - fit model
@@ -2078,7 +2078,7 @@ surrogate of the full retraining procedure, making the whole active learning
 procedure a double loop:
 
 D = {}
-while approximation accuracy not satisfactory: 
+while approximation accuracy not satisfactory:
     # propose batch of samples
     batch = {}
     for j in range(batchsize):
@@ -2092,13 +2092,13 @@ while approximation accuracy not satisfactory:
 looks nice. holzmüller 2023 talks AT LENGTH about different ways in which the
 acquisition function can depend on the last layer distribution, or IIRC more
 generally on how it can depend on some kernel, and how kernels may be derived
-from NNs, NN ensembles, etc. that paper is a goldmine. 
+from NNs, NN ensembles, etc. that paper is a goldmine.
 
 practically, all this is about is just ensuring that the points in the batch
 are  far apart enough. a VERY crude baseline (that should still be better than
-random suggestion of points) could be this: 
+random suggestion of points) could be this:
 - sample many points uniformly from the value band V_{k+1} \ V_k
-- weight each one according to the BNN uncertainty 
+- weight each one according to the BNN uncertainty
 - sample $batchsize points without replacement from those many points
   according to the distribution given by weights.
 
@@ -2124,17 +2124,17 @@ we just test and see
 
 bhavya recommends to prototype mainly with simpler 2d or 3d examples on own
 machine. then we can get euler to do the heavy lifting for 6D and larger
-systems. 
+systems.
 
 
-about state space being a manifold. 
+about state space being a manifold.
 
 bhavya suggested, as I already planned, keeping the optimal control theory and
 simulation the same, working in R^n (if we aren't pedantic about angles modulo
 2pi). For training we should then transform to a more natural representation,
 which respects the modulo 2 pi topology. Obviously this means transforming
 angles theta to [cos theta, sin theta] and angular speed omega to something
-something [-sin theta, cos theta] * omega (orthogonal to "angle"). 
+something [-sin theta, cos theta] * omega (orthogonal to "angle").
 
 This involves transforming vx and vxx correctly, which is not entirely
 obvious. been working it out in idea dump for some time. The basic idea is
@@ -2142,7 +2142,7 @@ this: we impose a loss involving only derivatives in the direction of the
 tangent space, which can be calculated from the vx labels in original state
 space. maybe we also regularise the derivative in direction of the normal
 space. I am pretty sure this will work nicely, but will have to convince
-myself a bit more that the math is correct. 
+myself a bit more that the math is correct.
 
 
 
@@ -2158,16 +2158,16 @@ solver maxsteps?  that way we can always fill up the array and not waste too
 much space. (well not actually since maxsteps is apparently for accepted and
 rejected steps). but still, maybe we should aim at shorter trajectories -- we
 can always continue integrating them without incurring NN approximation error
-whenever v_k > v(t1). 
+whenever v_k > v(t1).
 
 maybe vxx is not worth it? certainly i'd like to do some (basic) experiments
 comparing with and without. conclusive statements are impossible without
 extensive hyperparam opti for both but maybe we can make some smart-ish
 qualitative statement...
 
-next concrete steps: 
+next concrete steps:
 - work out, implement, sanity check state space -> manifold mapping with vx and maybe vxx
-- hack together a first implementation of the active learning loop! 
+- hack together a first implementation of the active learning loop!
 
 goodnight
 
@@ -2177,16 +2177,16 @@ goodnight
 2024-03-22
 
 experimenting w euler. it seems like the "module load" command needs to be ran
-at every login. 
+at every login.
 
 generated sbatch command using this:
 https://scicomp.ethz.ch/public/lsla/index2.html also the virtualenv seemed to
-deactivate after starting that? is this how it should be? giving 
+deactivate after starting that? is this how it should be? giving
 
   /cluster/apps/nss/gcc-8.2.0/python/3.10.4/x86_64/bin/python
 
 as answer to "which python". after deactivating and activating the venv it is
-suddenly the correct one from venv. 
+suddenly the correct one from venv.
 
 
 on the other hand, running
@@ -2207,7 +2207,7 @@ lots of general tips also on https://www.gdc-docs.ethz.ch/EulerManual/
 with srun -pty bash we can also get a shell on an actual computation node!
 works just the same, task is also killed due to memory limit. but virtualenv
 and everything works just fine on that node too. so it seems that I did that
-correctly after all. 
+correctly after all.
 
 
 
@@ -2223,11 +2223,11 @@ same coin, but still w important differences.
 
 
 made draft of selecting v_k+1 based on dv/dt and a max time horizon, something
-I had in mind for some time but never concrete. 
+I had in mind for some time but never concrete.
 
 worked on implementation of proposals and oracle step. small implementation
 questions sorted out. baby steps. still need to see how this all turns out
-when we put the pieces together. 
+when we put the pieces together.
 
 
 goals tomorrow.
@@ -2240,7 +2240,7 @@ goals tomorrow.
 
 made a draft of the train_and_prune function. adjusted nn ensemble code so
 PRNG key would also randomise initialisaiton (previously the whole ensemble
-used the same init...). 
+used the same init...).
 
 feeling kind of unmotivated in general. maybe i need to take lenart's advice
 in the beginning that i should definitely take that week or two of vacations
@@ -2252,19 +2252,19 @@ works. starting to think vxx is not worth calculating. (didn't i reach that
 conclusion already way in january or something, only to change my mind again?)
 
 
-other idea i had during lunch: maybe the main loop needs to be changed from: 
+other idea i had during lunch: maybe the main loop needs to be changed from:
   propose pts -> call oracle -> fit nn/prune -> find out boundary of known set
-to 
+to
   find out boundary of known set -> propose pts -> call oracle -> fit nn/prune
 
 then we can have an simpler initial step (uniform or lqr guided backward
-shooting, nn fit, enter main loop). 
+shooting, nn fit, enter main loop).
 
 also, how do we actually find the boundary of that known set? trivial approach
 would be to sample loads of points, and say we know the set for the highest v
 such that all points with v(x) <= v have sigma(x) <= sigma_max. but i am
 pretty sure there are some tricks to improve the estimate given that we have a
-finite sample. 
+finite sample.
 
 
 
@@ -2275,7 +2275,7 @@ first time the active learning loop runs!!!
 run = finish without any errors. not sure if the results are any good. but we
 got ourselves a starting point :)))). also it looks like v_k, the smallest
 known upper bound of the actual known value level, keeps increasing
-monotonously*, up to like 60 in 10 steps! 
+monotonously*, up to like 60 in 10 steps!
 
 * edit, no, one time it sank as well. is this a but or does this happen "by
   design" due to nn training and other randomness? for that it went a bit low...
@@ -2295,16 +2295,16 @@ immediate, most important:
 - finish the state space manifold mapping stuff. proably simpler if only
   1-order sobolev (no vxx)
 
-- start writing...? 
+- start writing...?
 
 implementation "details":
 
 - find a way to use constant sized datasets by thinning out the data for
-  "past" low values. 
+  "past" low values.
 
 - how to sample points for rejection sampling? cod hits here. making the set
   2x bigger means we have to sample 2^6 times more points to have the same
-  density. do the same move with scaling uniformly sampled pts with logspace? 
+  density. do the same move with scaling uniformly sampled pts with logspace?
   then we cannot say anything about distribution anymore. fancy mcmc???
 
 - use the data we already have in the value level band before generating new
@@ -2315,25 +2315,41 @@ implementation "details":
 
 - move some of the hardcoded constants in to algo_params
 
-- find sensibe algo tuning. esp. with regards to: 
+- find sensibe algo tuning. esp. with regards to:
   - length of trajectories to balance memory & recalculation load
-  - proposed vs achieved step size. 
+  - proposed vs achieved step size.
 
-- data normalisation? atm we keep it constant to the initial scaling. is it 
-  a better idea to change it (periodically? every iteration?) 
+- data normalisation? atm we keep it constant to the initial scaling. is it
+  a better idea to change it (periodically? every iteration?)
 
 very long term stuff:
 
 - everything else like general explicit acitve set cvx opti / optimisation
   constrained ODE -> switched DAE reformulation
 
-- 
+-
 
 
-questions from last time. 
+questions from last time.
 
 - euler. managed login & launch of experiment once (hit memory.)
-  how to manage launching lots of them? -> launch script. 
+  how to manage launching lots of them? -> launch script.
 
-- administrative: when is handin date? when are those 2 weeks of vacation? 
+- administrative: when is handin date? when are those 2 weeks of vacation?
 - any guidelines on the shape of the final report? then i can start writing down basics
+
+
+
+2024-03-27
+
+running some small experiments with proposal strategy. until now i tried
+proposing the k lowest-v points with excessive sigma. alternative i am
+running now is just highest-sigma itself. this selects more points toward
+the upper value band -- also decreased the value band width, by assuming a
+shorter useful time horizon. we'll see how it goes.
+
+as a proof of concept it works which is really nice! however, the
+equilibrium is not "exact", there seems to be a whole set of states towards
+stabilisation happens, spread over a small range in x position. this makes
+me think that maybe calculating vxx was after all the right thing to do?
+maybe we just need to generate even less data to keep it manageable.

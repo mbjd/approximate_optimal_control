@@ -28,8 +28,8 @@ def plot_distributions(ys_n):
 
     pl.figure()
 
-    # try to display the distribution of the different (normalised) variables. 
-    # plot essentially the cdf of them. 
+    # try to display the distribution of the different (normalised) variables.
+    # plot essentially the cdf of them.
 
     norm_xs = np.linspace(-5, 5, 201)
     norm_ys = jax.scipy.stats.norm.cdf(norm_xs)
@@ -37,7 +37,7 @@ def plot_distributions(ys_n):
     def plot_data(arr, label):
 
         # plot cdf of all data points. can be of any shape -- first axis
-        # is assumed to 
+        # is assumed to
 
         # +1 for NaN we are adding
         N = arr.shape[0] + 1
@@ -276,7 +276,7 @@ def data_normalisation_experiment():
 def plot_taylor_sanitycheck(sol, problem_params):
 
     # possibly this stopped working when i moved it outside of the testbed function
-    # but hopefully we won't be needing this so much anyway. 
+    # but hopefully we won't be needing this so much anyway.
     # see if the lambda = vx and S = vxx are remotely plausible.
 
     pl.figure(f'taylor sanity check')
@@ -411,14 +411,14 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     for idx in (50, 100, 200, 400):
         pl.figure(idx)
         plot_badsol_from_idx(idx)
-    
+
     '''
 
     '''
     def estimate_vxx_lstsq(dx_size, t_eval=-4.7):
 
-        # perturb state at index 50 slightly and see what happens. 
-        # evaluate the resulting solutions at t_eval and estimate vxx there. 
+        # perturb state at index 50 slightly and see what happens.
+        # evaluate the resulting solutions at t_eval and estimate vxx there.
 
         dxs = jax.random.normal(jax.random.PRNGKey(0), shape=(200, 6)) * dx_size
 
@@ -449,13 +449,13 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
         x_mean = xs.mean(axis=0)
         vx_mean = vxs.mean(axis=0)
 
-        # try to estimate the hessian (= jacobian of map x -> vx) from data. 
+        # try to estimate the hessian (= jacobian of map x -> vx) from data.
         # taylor expansion: vx(x + dx) \approx vx(x) + vxx dx
         # transposing     : vx.T(x + dx) \approx vx.T(x) + dx.T vxx.T
         # subtracting mean: vx.T(x+dx) - vx.T(x) \approx dx.T vxx
         # for lstsq         b                            A    x
         # so, lstsq(dxs as stacked row vecs, vxs-mean stacked as row vecs)
-        # should do the trick. 
+        # should do the trick.
         vxx_est, _, _, _ = np.linalg.lstsq(dxs, vxs - vxs.mean(axis=0)[None, :])
 
         return vxx_est
@@ -465,11 +465,11 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     vxx_est = estimate_vxx_lstsq(.001, t_eval=t_eval)
     # wtf these don't seem to be similar in any way...
     # is it because the hessian also changes "quickly" and is thus not well
-    # represented by the "discrete difference" of vx? 
+    # represented by the "discrete difference" of vx?
     '''
 
 
-    
+
 
     ipdb.set_trace()
 
@@ -485,7 +485,7 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
     # algo_params_tight['pontryagin_solver_rtol'] = 1e-7
 
     # # not sure if this still works, changed function signature twice since running it
-    # sol_tight = solve_backward(restart_y)  
+    # sol_tight = solve_backward(restart_y)
 
     # # evaluate the right hand side again to see where it produces shit.
     # rhs_evals = jax.vmap(f_extended, in_axes=(0, 0, None))(sol_tight.ts, sol_tight.ys, None)
@@ -507,8 +507,8 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
 
 
 
-    # another plot. 
-    # plot v on the x axis against ||vxx|| on the y axis. 
+    # another plot.
+    # plot v on the x axis against ||vxx|| on the y axis.
     all_vs = sols_orig.ys['v'].reshape(-1)
     all_vxxs = sols_orig.ys['vxx'].reshape((-1, 6, 6))
     pl.figure()
@@ -525,7 +525,7 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
 
 
 
-    
+
 
 def main(problem_params, algo_params):
     pass
@@ -601,12 +601,12 @@ def testbed(problem_params, algo_params):
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
 
-    def find_min_l(sols, v_lower, v_upper, problem_params):
+    def find_min_l(ys, v_lower, v_upper, problem_params):
 
         # find the smallest value of l(x, u) in the given value band
         # in the dataset. brute force -- calculates every l(x, u).
 
-        # in principle we should be able to find this info based on 
+        # in principle we should be able to find this info based on
         # what we already calculated during the ODE solving, or even
         # keep some "running min" that is updated at basically no cost.
         # but this on the other hand is much simpler implementation wise.
@@ -618,20 +618,20 @@ def testbed(problem_params, algo_params):
             return problem_params['l'](x, u)
 
         # double vmap because we have N_trajectories x N_timesteps ys
-        all_ls = jax.vmap(jax.vmap(l_of_y))(sols.ys)
+        all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
 
-        # add NaN to every x with v(x) > v_k 
-        is_outside_valueband = ~np.logical_and(v_lower <= sols.ys['v'], sols.ys['v'] <= v_upper)
+        # add NaN to every x with v(x) > v_k
+        is_outside_valueband = ~np.logical_and(v_lower <= ys['v'], ys['v'] <= v_upper)
         all_ls_masked = all_ls + (is_outside_valueband * np.nan)
 
-        min_l = np.nanmin(all_ls_masked)    
+        min_l = np.nanmin(all_ls_masked)
         return min_l
 
 
 
     def find_min_l_alt(sols, v_lower, v_upper, problem_params):
 
-        # first extract the data, then calculate u* and l. 
+        # first extract the data, then calculate u* and l.
         # seems to actually be slower than the other one :(
 
         def l_of_y(y):
@@ -640,7 +640,7 @@ def testbed(problem_params, algo_params):
             u = pontryagin_utils.u_star_2d(x, vx, problem_params)
             return problem_params['l'](x, u)
 
-        # add NaN to every x with v(x) > v_k 
+        # add NaN to every x with v(x) > v_k
         is_outside_valueband = ~np.logical_and(v_lower <= sols.ys['v'], sols.ys['v'] <= v_upper)
 
         ys_relevant = jtm(lambda n: n[~is_outside_valueband], sols.ys)
@@ -648,21 +648,21 @@ def testbed(problem_params, algo_params):
         # double vmap because we have N_trajectories x N_timesteps ys
         all_ls = jax.vmap(l_of_y)(ys_relevant)
 
-        min_l = np.nanmin(all_ls)    
+        min_l = np.nanmin(all_ls)
         return min_l
-    
+
 
 
     # lmin = find_min_l(sols_orig, 10, 20, problem_params)
     # ipdb.set_trace()
-    
+
     # visualiser.plot_trajectories_meshcat(sols_orig)
     # ipdb.set_trace()
 
     # debug_nan_sol(sols_orig, problem_params, algo_params)
     # ipdb.set_trace()
 
-    
+
     # choose initial value level.
     # v_k = 1000 * problem_params['V_f']
     # v_k = np.inf  # fullest gas
@@ -670,29 +670,29 @@ def testbed(problem_params, algo_params):
 
     # thin band
     # value_interval = [v_k/3, v_k]
-    # thick band :) 
+    # thick band :)
     value_interval = [v_k/5000, v_k]
     print(f'value interval: {value_interval}')
 
 
     def select_train_pts(value_interval, sols):
 
-        # ideas for additional functionality: 
-        # - include not only strictly the value interval, but at least n_min pts from each trajectory. 
+        # ideas for additional functionality:
+        # - include not only strictly the value interval, but at least n_min pts from each trajectory.
         #   so that if no points happen to be within the value band we include a couple (lower) ones
-        #   to still hopefully improve the fit. 
+        #   to still hopefully improve the fit.
         # - return only a random subsample of the data (with a specified fraction)
         # - throw away points of the same trajectory that are closer than some threshold (in time or state space?)
-        #   this is also a form of subsampling but maybe better than random. 
+        #   this is also a form of subsampling but maybe better than random.
 
         v_lower, v_upper = value_interval
 
-        v_finite = np.logical_and(~np.isnan(sols.ys['v']), ~np.isinf(sols.ys['v'])) 
+        v_finite = np.logical_and(~np.isnan(sols.ys['v']), ~np.isinf(sols.ys['v']))
 
-        v_in_interval = np.logical_and(sols.ys['v'] >= v_lower, sols.ys['v'] <= v_upper) 
+        v_in_interval = np.logical_and(sols.ys['v'] >= v_lower, sols.ys['v'] <= v_upper)
 
         # sols.ys['vxx'].shape == (N_trajectories, N_ts, nx, nx)
-        # get the frobenius norms of the hessian & throw out large ones. 
+        # get the frobenius norms of the hessian & throw out large ones.
         if 'vxx' in sols.ys:
             vxx_norms = np.linalg.norm(sols.ys['vxx'], axis=(2, 3))
             vxx_acceptable = vxx_norms < algo_params['vxx_max_norm']  # some random upper bound based on looking at a plot of v vs ||vxx||
@@ -700,7 +700,7 @@ def testbed(problem_params, algo_params):
             bool_train_idx = np.logical_and(v_in_interval, vxx_acceptable)
         else:
             bool_train_idx = v_in_interval
-            
+
         all_ys = jtm(lambda node: node[bool_train_idx], sols.ys)
 
         perc = 100 * bool_train_idx.sum() / v_finite.sum()
@@ -709,7 +709,7 @@ def testbed(problem_params, algo_params):
         n_data = count_floats(all_ys)
         print(f'corresponding to {n_data} degrees of freedom')
 
-        # check if there are still NaNs left -- should not be the case. 
+        # check if there are still NaNs left -- should not be the case.
         contains_nan = jtm(lambda n: np.isnan(n).any(), all_ys)
         contains_nan_any = jax.tree_util.tree_reduce(operator.or_, contains_nan)
 
@@ -793,7 +793,7 @@ def testbed(problem_params, algo_params):
 
     def v_meanstd(x, vmap_params):
 
-        # find (empirical) mean and std. dev of value function. 
+        # find (empirical) mean and std. dev of value function.
         vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
 
         v_mean = vs_ensemble.mean()
@@ -803,7 +803,7 @@ def testbed(problem_params, algo_params):
 
     def vx_meanstd(x, vmap_params):
 
-        # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function. 
+        # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function.
         # this serves as a *probable* overapproximation of the true value sublevel set.
         vxs_ensemble = jax.vmap(jax.jacobian(v_nn_unnormalised, argnums=1), in_axes=(0, None))(vmap_params, x)
 
@@ -842,7 +842,7 @@ def testbed(problem_params, algo_params):
     def forward_sim_nn(x0, params, vmap=False):
 
         if vmap:
-            # we have a whole NN ensemble. use the mean here. 
+            # we have a whole NN ensemble. use the mean here.
             v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
             # mean across only axis resulting in a scalar. differentiate later.
             v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(params, x).mean()
@@ -881,7 +881,7 @@ def testbed(problem_params, algo_params):
         # only vmap=True is implemented.
 
         if vmap:
-            # we have a whole NN ensemble. use the mean here. 
+            # we have a whole NN ensemble. use the mean here.
             v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
             # mean across only axis resulting in a scalar. differentiate later.
             v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(params, x).mean()
@@ -907,12 +907,12 @@ def testbed(problem_params, algo_params):
             raise NotImplementedError('only vmapped (NN ensemble) case implemented here.')
 
         def event_fn(state, **kwargs):
-            # another stopping condition could be much more simply: v_std < some limit? 
-            # then we continue a bit if it happens to not be that way right at the edge 
+            # another stopping condition could be much more simply: v_std < some limit?
+            # then we continue a bit if it happens to not be that way right at the edge
             # of the value level set.
             v_mean, v_std = v_meanstd(state.y, params)
 
-            # we only quit once we're very sure that we're in the value level set. 
+            # we only quit once we're very sure that we're in the value level set.
             # thus we take an upper confidence band = overestimated value function = inner approx of level set
             # return (v_mean + 2 * v_std <= v_k).item()   # if meanstd returns arrays of shape (), not floats
             is_very_likely_in_Vk = v_mean + 2 * v_std <= v_k
@@ -938,9 +938,9 @@ def testbed(problem_params, algo_params):
 
     def solve_backward_nn_ens(x_f, vmap_params, algo_params):
 
-        # modified from solve_backward_lqr. 
+        # modified from solve_backward_lqr.
 
-        # change this (lexical closure of normaliser) if during main iteration we change 
+        # change this (lexical closure of normaliser) if during main iteration we change
         # the data normalisation!!!
 
         v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
@@ -949,8 +949,8 @@ def testbed(problem_params, algo_params):
 
         v_lqr = lambda x: 0.5 * x.T @ P_lqr @ x
 
-        # see if v_nn and v_lqr match up even here. 
-        # all good, same-ish jacobian and hessian at 0. 
+        # see if v_nn and v_lqr match up even here.
+        # all good, same-ish jacobian and hessian at 0.
         # ipdb.set_trace()
 
         # v_f = 0.5 * x_f.T @ P_lqr @ x_f
@@ -994,13 +994,8 @@ def testbed(problem_params, algo_params):
 
 
 
-    def propose_pts(key, v_k, vmap_nn_params):
 
-        # ~~~ a) estimate the "sensible" next value step ~~~
-
-        # in the end we should verify if we actually reached that (= achieved low uncertainty within it)
-        # if not, adjust it down so v_k always reflects the value level which we know to given tol.
-        # this is probably best handled by the TrainAndPrune function. 
+    def set_value_target(all_ys, v_k):
 
         # also, in an initial step we should verify that v_k represents an accurate value level set
         # (or just start with it really low, maybe just lqr solution too.)
@@ -1008,16 +1003,24 @@ def testbed(problem_params, algo_params):
         # be generous!
         # value_interval = [0., v_k*2]
 
-        # instead calculate a more educated guess like this: 
-        fastestpole_tau = .49  # from LQR solution. 
-        T = 5 * fastestpole_tau
-        min_l = find_min_l(sols_orig, v_k/2, v_k, problem_params)
+        # instead calculate a more educated guess like this:
+        fastestpole_tau = .49  # from LQR solution.
+        T = 3 * fastestpole_tau
 
+        # use actual previous value level instead?
+        min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
+
+        # so min value step to ensure horizon <= T is T * smallest dv/dt
         # min l = min dv/dt
         v_step = T * min_l
         v_next = v_k + v_step
 
         print(f'v_k+1 target = {v_next}')
+
+        return v_next
+
+    def propose_pts(key, v_k, v_next, vmap_nn_params):
+
 
         value_interval = [v_k, v_next]
 
@@ -1032,20 +1035,20 @@ def testbed(problem_params, algo_params):
 
         all_valueband_pts = np.zeros((0, problem_params['nx']))
 
-        N_pts_desired = 1000  # we want 1000 points that are inside the value band. 
+        N_pts_desired = 1000  # we want 1000 points that are inside the value band.
         i=0
         # key = jax.random.PRNGKey(k)
         while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
 
-            i = i + 1   # a counter so we return if it never happens. 
+            i = i + 1   # a counter so we return if it never happens.
 
             newkey, key = jax.random.split(key)
 
             # sample from "the whole state space".
             # this is kind of icky because we have to select a bounded region
             # also already in 6D if we specify a large region we have very few
-            # samples actually in the value band. hence the loop outside. 
-            # nicer solution would be some sort of mcmc thingy...? 
+            # samples actually in the value band. hence the loop outside.
+            # nicer solution would be some sort of mcmc thingy...?
             # slightly better hack: set this region to like 1.5 * min and max
             # of current data...
             x_pts = jax.random.uniform(
@@ -1057,7 +1060,7 @@ def testbed(problem_params, algo_params):
 
             # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
-            # what kind of points do we propose? we want points x such that: 
+            # what kind of points do we propose? we want points x such that:
             # - x is withing the value band V_{k+1} \ V_k
             # - from those, we want the ones with largest uncertainty.
 
@@ -1067,7 +1070,7 @@ def testbed(problem_params, algo_params):
 
             # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
 
-            # only be optimistic for the outer boundary instead. 
+            # only be optimistic for the outer boundary instead.
             is_in_range = np.logical_and(value_interval[0] <= v_means, optimistic_vs <= value_interval[1])
 
             interesting_x0s = x_pts[is_in_range]
@@ -1100,7 +1103,7 @@ def testbed(problem_params, algo_params):
         N_proposals = 200
         '''
         # scale -> 0 results in just the N_proposals points with highest std being chosen.
-        # scale -> infinity results in the proposals being sampled uniformly at random. 
+        # scale -> infinity results in the proposals being sampled uniformly at random.
         std_scale = 3
         std_scale = .5
 
@@ -1118,17 +1121,18 @@ def testbed(problem_params, algo_params):
 
         proposed_pts = all_valueband_pts[proposal_idxs]
 
-        # but that's kind of dumb, we give a small probability of also selecting points with exactly 
+        # but that's kind of dumb, we give a small probability of also selecting points with exactly
         '''
 
-        # much simpler. 
+        # much simpler.
         # possible problem: we select only "far" points with very large sigma, while neglecting
         # the ones that are closer which maybe we should do first to even reach the far points
         _, proposal_idxs = jax.lax.top_k(v_stds, N_proposals)
 
 
-        # next idea: set some maximum acceptable sigma, and take the lowest-v k points that exceed it. 
-        # or a uniform subsample of all the ones that exceed it. 
+        '''
+        # next idea: set some maximum acceptable sigma, and take the lowest-v k points that exceed it.
+        # or a uniform subsample of all the ones that exceed it.
         v_std_min = 0.5
         where_uncertain = v_stds > v_std_min
 
@@ -1139,14 +1143,15 @@ def testbed(problem_params, algo_params):
         _, proposal_idxs = jax.lax.top_k(-v_means_uncertain, N_proposals)
 
 
-        # visualise the selection of points. 
+        # visualise the selection of points.
         pl.plot(v_means, v_stds, '. ', label='all points in value band')
         pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='selected points')
+        '''
 
 
         proposed_states = all_valueband_pts[proposal_idxs]
 
-        return proposed_states, v_next
+        return proposed_states
 
 
 
@@ -1160,7 +1165,7 @@ def testbed(problem_params, algo_params):
         forward_sols = jax.vmap(forward_sim_nn_until_value, in_axes=(0, None, None, None))(
             proposals,
             vmap_nn_params,
-            v_k, 
+            v_k,
             True
         )
 
@@ -1170,8 +1175,8 @@ def testbed(problem_params, algo_params):
         stopped_bc_terminatingevent = forward_sols.result == 1
 
         # sanity check: this should be the same. literally just checking the terminatingevent
-        # conditions as well. *maybe* there is some edge case where the condition is True at the 
-        # last step and the solver quits anyway, so it doesn't report quitting "due to" the event? 
+        # conditions as well. *maybe* there is some edge case where the condition is True at the
+        # last step and the solver quits anyway, so it doesn't report quitting "due to" the event?
         mus, sigs = v_meanstds(xfs, vmap_nn_params)
         is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= 0.5)
 
@@ -1180,29 +1185,29 @@ def testbed(problem_params, algo_params):
         print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
 
         # if we have a different amount every time, we cannot jit the simulation.
-        # therefore we just mark it as nan and try to tune the algo such that not too many 
-        # of them are nan. 
+        # therefore we just mark it as nan and try to tune the algo such that not too many
+        # of them are nan.
         usable_xfs = xfs.at[~is_usable].set(np.nan)
 
-        # as we kind of would expect, is_usable correlates clearly (negatively) with the amount of 
-        # solver steps. so the most effort is spent calculating solutions which we're never going to use. 
-        # could we somehow avoid this? maybe stop after 3/4 of solutions have terminated? probably but 
+        # as we kind of would expect, is_usable correlates clearly (negatively) with the amount of
+        # solver steps. so the most effort is spent calculating solutions which we're never going to use.
+        # could we somehow avoid this? maybe stop after 3/4 of solutions have terminated? probably but
         # then the implementation becomes messier, because plain vmap doesn't allow cross communication.
-        # more simply: just set a rather low step limit and be fine with a couple more solutions being 
-        # thrown out. 
+        # more simply: just set a rather low step limit and be fine with a couple more solutions being
+        # thrown out.
 
         # or just don't care, forward sim is cheaper than backward anyway. (is
         # it? with vmapped nn ensemble maybe not..., certainly not if backward sim
         # is without vxx.)
 
-        # here put some new limit on how far we solve backward? 
-        # stop at like 5*value_interval[1]? 
-        # or use a fixed multiple of the forward sim time? 
-        # both? 
+        # here put some new limit on how far we solve backward?
+        # stop at like 5*value_interval[1]?
+        # or use a fixed multiple of the forward sim time?
+        # both?
         # decrease pontryagin_solver_T overall??
         sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, algo_params)
 
-        # TODO jit this. 
+        # TODO jit this.
         backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None))(usable_xfs, vmap_nn_params, algo_params)
 
 
@@ -1211,7 +1216,7 @@ def testbed(problem_params, algo_params):
         pl.subplot(221)
         sol0_fwd = jtm(itemgetter(0), forward_sols)
         fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
-        
+
 
         pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
         pl.gca().set_prop_cycle(None)
@@ -1223,13 +1228,13 @@ def testbed(problem_params, algo_params):
 
     def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval):
 
-        # what if we first do a simpler version of this prune_and_train thing? 
-        # consisting of just one step instead of a loop with sub-valuesteps. 
-        #  a) prune the (parts of) solutions that are clearly suboptimal  
+        # what if we first do a simpler version of this prune_and_train thing?
+        # consisting of just one step instead of a loop with sub-valuesteps.
+        #  a) prune the (parts of) solutions that are clearly suboptimal
         #     (optimally just enough to avoid conflicts...)
-        #  a) add to training data, train. 
+        #  a) add to training data, train.
 
-        # mark clearly suboptimal data. 
+        # mark clearly suboptimal data.
 
         v_lower, v_upper = v_interval
 
@@ -1241,35 +1246,35 @@ def testbed(problem_params, algo_params):
         # are outside of value level set
         nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
 
-        # alternatively: argue that within the value level set, mean should be 
-        # accurate enough. 
+        # alternatively: argue that within the value level set, mean should be
+        # accurate enough.
         # nn_v_likely_in_levelset = v_nn_means < v_lower
 
         is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
-        # alternatively, rely only on bnn posterior sigma, not level set. 
+        # alternatively, rely only on bnn posterior sigma, not level set.
         # is_suboptimal = v_nn_means + 3 * v_nn_stds < all_ys['v']
 
-        # plot trajectory vs nn where is_suboptimal just to take a glance? 
+        # plot trajectory vs nn where is_suboptimal just to take a glance?
 
 
-        # next step: build training data out of this pruned mess. 
+        # next step: build training data out of this pruned mess.
         in_band = (0 <= all_ys['v']) & (all_ys['v'] <= v_upper)
 
         '''
         # in future: don't use any or only use few of the lower-value points
-        # -> thin band level set method :) 
-        v_min = v / 2  # or something... or set fixed number of pts and find with argpartition? 
+        # -> thin band level set method :)
+        v_min = v / 2  # or something... or set fixed number of pts and find with argpartition?
         in_band = (v_min <= all_ys['v']) & (all_ys['v'] <= v)
 
-        # top k only works with one axis... reshape? 
+        # top k only works with one axis... reshape?
         _, in_band = jax.lax.top_k(all_ys['v'] * (all_ys['v'] <= v))
         '''
 
         bool_train_idx = in_band & ~is_suboptimal
 
-        # b) train the NN again, while ignoring data marked as suboptimal. 
-        # easiest thing to do here: extract training data like in mockup, make new array. 
+        # b) train the NN again, while ignoring data marked as suboptimal.
+        # easiest thing to do here: extract training data like in mockup, make new array.
         usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
 
         # split into train/test set.
@@ -1316,37 +1321,37 @@ def testbed(problem_params, algo_params):
 
         for v in v_substeps:
 
-            # an easy way to guarantee that this works would be the following: 
+            # an easy way to guarantee that this works would be the following:
             # prune not only the "clearly suboptimal" points, but also a small value
-            # band below them. then set the value substep <= that valueband height. 
+            # band below them. then set the value substep <= that valueband height.
             # does it follow from this that all collisons are handled properly? not
             # very sure...
 
 
-            # a) mark data that is clearly suboptimal wrt the NN posterior as invalid. 
-            # prune only solutions where both of these hold: 
-            # v <= v(x) with high probability. 
+            # a) mark data that is clearly suboptimal wrt the NN posterior as invalid.
+            # prune only solutions where both of these hold:
+            # v <= v(x) with high probability.
             # v_nn(x) <= v with high probability
 
-            # v_meanstds is already vmapped. here we vmap it a second time for the 
-            # trajectories axis. 
+            # v_meanstds is already vmapped. here we vmap it a second time for the
+            # trajectories axis.
             v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
 
             trajectory_outside_levelset = v < all_ys['v']
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v
 
-               # these two together mean that with high probability (3 sigma for N(0, 1)) 
-               # the given point is suboptimal. 
-               # instead of mu_v + 3 sigma_v < v < v_trajectory, we could also just ask 
-               # for mu_v + 3 sigma_v < v_trajectory. then we also classify these two additional situations as suboptimal: 
+               # these two together mean that with high probability (3 sigma for N(0, 1))
+               # the given point is suboptimal.
+               # instead of mu_v + 3 sigma_v < v < v_trajectory, we could also just ask
+               # for mu_v + 3 sigma_v < v_trajectory. then we also classify these two additional situations as suboptimal:
                #  1. mu_v + 3 simga_v < v_trajectory < v.
-               #  the trajectory is inside the level set and so has alredy been used for the NN fit. not interesting. 
+               #  the trajectory is inside the level set and so has alredy been used for the NN fit. not interesting.
                #  2. v < mu_v + 3 simga_v < v_trajectory
-               #  the nn solution is also outside the level set. despite the 3 sigma we choose to not prune 
-               #  based on that info, bc it is still an extrapolation. 
-               # not 100% sure if it smart to exclude these cases, so maybe it is smarter to ditch the v in the middle? 
+               #  the nn solution is also outside the level set. despite the 3 sigma we choose to not prune
+               #  based on that info, bc it is still an extrapolation.
+               # not 100% sure if it smart to exclude these cases, so maybe it is smarter to ditch the v in the middle?
 
-               # additional rule which we can use here: if a trajectory segment is globally suboptimal, everything 
+               # additional rule which we can use here: if a trajectory segment is globally suboptimal, everything
                # before it (wrt physical, forward time) is also suboptimal and we can ditch it. TODO.
 
             is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
@@ -1355,11 +1360,11 @@ def testbed(problem_params, algo_params):
 
             ipdb.set_trace()
 
-            v_min = v / 2  # or something... or set fixed number of pts and find with argpartition? 
+            v_min = v / 2  # or something... or set fixed number of pts and find with argpartition?
             bool_train_idx = (v_min <= all_ys['v']) & (all_ys['v'] <= v) & ~is_suboptimal
 
-            # b) train the NN again, while ignoring data marked as suboptimal. 
-            # easiest thing to do here: extract training data like in mockup, make new array. 
+            # b) train the NN again, while ignoring data marked as suboptimal.
+            # easiest thing to do here: extract training data like in mockup, make new array.
             all_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], sols_orig.ys)
 
             # split into train/test set.
@@ -1367,8 +1372,8 @@ def testbed(problem_params, algo_params):
 
             # call sobolev training fct...
 
-            # but i'd rather keep everything constant sized... this will require changing 
-            # the traininng function quite heavily though... for this we need: 
+            # but i'd rather keep everything constant sized... this will require changing
+            # the traininng function quite heavily though... for this we need:
             # - a modified training function that takes in the (large) ys tree
             #   and also bool_train_idx.
 
@@ -1377,14 +1382,14 @@ def testbed(problem_params, algo_params):
 
         return is_optimal, params_sobolev_ens, v_next_actual
 
-    # initial step: 
+    # initial step:
     # - generate data from uniform backward shooting
     # - do train_and_prune step to find value nn and known value level.
     # - start loop
 
 
 
-    # test points, with increased density towards origin. 
+    # test points, with increased density towards origin.
     N_testpts = 10000
 
     test_pts_unscaled = jax.random.uniform(
@@ -1406,7 +1411,7 @@ def testbed(problem_params, algo_params):
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
 
-        # easiest way: just literally the finite sample. 
+        # easiest way: just literally the finite sample.
         # there should be a nicer way to estimate the actual
         #    v_k := max v_k s.t. forall x with v_mean(x) <= v_k: s_std(x) <= sigma_max
 
@@ -1415,9 +1420,9 @@ def testbed(problem_params, algo_params):
         simga_max = .5
         sigma_small_enough = v_stds <= sigma_max
 
-        # replace everything where sigma is small enough by infinity. 
-        # then we can take the minimum to find the lowest-v point with 
-        # sigma too high. This becomes our v_k. 
+        # replace everything where sigma is small enough by infinity.
+        # then we can take the minimum to find the lowest-v point with
+        # sigma too high. This becomes our v_k.
 
         v_means_infmasked = v_means + np.inf * sigma_small_enough
         v_k = v_means_infmasked.min()
@@ -1431,13 +1436,13 @@ def testbed(problem_params, algo_params):
         pl.loglog([v_means.min(), v_means.max()], [0.5, 0.5], linestyle='--', color='green', alpha=.2, label='sigma max')
         pl.legend()
 
-        # this is not optimal. if the real known value sublevel set only 
-        # corresponds to a tiny region, then we may not hit it with any 
-        # test points. what's more, the test points could not even hit 
+        # this is not optimal. if the real known value sublevel set only
+        # corresponds to a tiny region, then we may not hit it with any
+        # test points. what's more, the test points could not even hit
         # "close" to that set. in that case we estimate a much too high
-        # value level set. 
-        # maybe we can remedy this by making the test_pts somehow 
-        # logarithmically distributed? 
+        # value level set.
+        # maybe we can remedy this by making the test_pts somehow
+        # logarithmically distributed?
 
         return v_k
 
@@ -1445,36 +1450,45 @@ def testbed(problem_params, algo_params):
 
     all_ys = sols_orig.ys
 
-    for k in range(100):
+
+    vks = []
+
+    for k in range(10):
 
         print(f'active learning iter {k}')
-        # active learning with level-set ideas embedded. 
+        # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump
 
+
         v_k = estimate_value_level(test_pts, params_sobolev_ens)
+        vks.append(v_k)
+
         pl.savefig(f'tmp/valuelevel_{k:06d}.png', dpi=400)
         pl.close('all')
 
         print(f'known value level (technically: smallest known upper bound): {v_k}')
 
-        # additional 0-th step: continue all solutions that currently end at some 
-        # value between v_k and v_next, so that they go above v_next? 
-        # for this we have to calculate v_next outside of the proposal function 
+        # additional 0-th step: continue all solutions that currently end at some
+        # value between v_k and v_next, so that they go above v_next?
+        # for this we have to calculate v_next outside of the proposal function
         # but that should be easy.
-        # we will also have to ensure (or just believe) that these extended solutions do not 
-        # become suboptimal. less sure how to do that. treat it the same as active learning data? 
-        # i.e. generate all the trajectories, then propose both 
+        # we will also have to ensure (or just believe) that these extended solutions do not
+        # become suboptimal. less sure how to do that. treat it the same as active learning data?
+        # i.e. generate all the trajectories, then propose both
         #  a) the points at which we have data
         #  b) the "new" points according to the acquisition stuff
-        # then they look exactly the same to active learning side of things. 
+        # then they look exactly the same to active learning side of things.
+
+        # set next value target :)
+        v_next_target = set_value_target(all_ys, v_k)
 
         k = jax.random.PRNGKey(k)
-        proposed_pts, v_next_target = propose_pts(k, v_k, params_sobolev_ens)
+        proposed_pts = propose_pts(k, v_k, v_next_target, params_sobolev_ens)
 
-        # ~~~~ ORACLE ~~~~ 
+        # ~~~~ ORACLE ~~~~
         # now that we've proposed a batch of points, we call the oracle.
         # it consists of these steps:
-        # - forward simulation, with approximate optimal input from NN, 
+        # - forward simulation, with approximate optimal input from NN,
         #   until we reach known value level
         # - backward PMP shooting as usual.
         backward_sols_new = batched_oracle(proposed_pts, v_k, params_sobolev_ens)
@@ -1492,7 +1506,11 @@ def testbed(problem_params, algo_params):
 
         # ipdb.set_trace()
 
-        
+
+    pl.figure()
+    pl.plot(vks, label='known value level')
+    pl.legend()
+
 
     pl.show()
     ipdb.set_trace()

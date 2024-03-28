@@ -2364,3 +2364,23 @@ this is probably not really a problem though.
 what's worse is that in the current implementation the "known" value level
 jumps *down* again quite often! intuitively this shouldn't happen. is this
 due to bad implementation or some sort of theory oversight?
+
+do we even have to set a v_next / v_target? what about this basic strategy:
+ - find many points with v(x) > v_k and std > std_min
+ - take the lowest-v ones and simulate forward.
+
+is this the same as what we do currently, with proposal strategy =
+'lowest_v_among_uncertain'? as long as the v_next limit is not active?
+
+easy heuristic for finding out if our box uniform sampling thing 'catches'
+the whole value sublevel set: plot it in random directions? if for any
+direction the plot doesn't go above the level set we need to expand in that
+direction. is that worth anything?
+
+nearly at firabig, started first longer run (100 iterations). but it gets
+stuck at like 36ish value. maybe instead we should ask instead of
+    sigma_v(x) <= sigma max
+that only
+    sigma_v(x) <= atol + rtol * mean_v(x)
+where atol = sigma max and rtol is some small constant? would make sense
+that as value increases so does uncertainty fundamentally.

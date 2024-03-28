@@ -713,7 +713,7 @@ def testbed(problem_params, algo_params):
     # choose initial value level.
     # v_k = 1000 * problem_params['V_f']
     # v_k = np.inf  # fullest gas
-    v_k = 3
+    v_k = 5
 
 
     all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
@@ -1137,12 +1137,10 @@ def testbed(problem_params, algo_params):
 
         elif proposal_strategy == 'lowest_v_among_uncertain':
 
-            v_std_min = 0.5  # TODO put in algoparams
+            atol = algo_params['sigma_target_abs']
+            rtol = algo_params['sigma_target_rel']
 
-            # next idea: set some maximum acceptable sigma, and take the lowest-v k points that exceed it.
-            # or a uniform subsample of all the ones that exceed it.
-            v_std_min = 0.5
-            where_uncertain = v_stds > v_std_min
+            where_uncertain = v_stds > atol + rtol * v_means
 
             # replaces the v_means where we are certain enough by inf
             # that way once we multiply by -1 we have -inf and negative values
@@ -1177,13 +1175,15 @@ def testbed(problem_params, algo_params):
 
         # make some global --loglevel style algoparam to decide what to plot?
         # and/or switching between savefig and show? especially useful for euler...
-        plot=False
+        plot=True
         if plot:
-            pl.figure()
-            pl.plot(v_means, v_stds, '. ', label='candidates')
+            # pl.plot(v_means, v_stds, '. ', label='candidates')
             pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='proposals')
             pl.legend()
-            pl.show()
+
+            pl.xlim([1e-1, 1e4])
+            pl.ylim([1e-2, 1e3])
+
 
         proposed_states = all_valueband_pts[proposal_idxs]
 
@@ -1488,8 +1488,6 @@ def testbed(problem_params, algo_params):
     # @jax.jit
     def estimate_value_level(test_pts, params_sobolev_ens):
 
-        sigma_max = .5
-
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
 
@@ -1499,8 +1497,10 @@ def testbed(problem_params, algo_params):
 
         # v_k = max v_k s.t. all test points with v <= v_k have sigma <= sigma_max
         #     = smallest v_k with sigma > sigma_max.
-        simga_max = .5
-        sigma_small_enough = v_stds <= sigma_max
+        # alternative:
+        atol = algo_params['sigma_target_abs']
+        rtol = algo_params['sigma_target_rel']
+        sigma_small_enough = v_stds <= atol + rtol * v_means
 
         # replace everything where sigma is small enough by infinity.
         # then we can take the minimum to find the lowest-v point with
@@ -1509,14 +1509,18 @@ def testbed(problem_params, algo_params):
         v_means_infmasked = v_means + np.inf * sigma_small_enough
         v_k = v_means_infmasked.min()
 
+        # ipdb.set_trace()
+
         pl.figure()
 
         pl.xlabel('v mean')
         pl.ylabel('v std')
         pl.loglog(v_means, v_stds, '. ')
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
-        pl.loglog([v_means.min(), v_means.max()], [0.5, 0.5], linestyle='--', color='green', alpha=.2, label='sigma max')
-        pl.legend()
+        vmin, vmax = v_means.min(), v_means.max()
+        plot_vs = np.linspace(vmin, vmax, 1000)
+        pl.loglog([vmin, vmax], [atol, atol], linestyle='--', alpha=.2, label='atol (constant sigma target)')
+        pl.loglog(plot_vs, atol + rtol * plot_vs, linestyle='--', alpha=.2, label='atol + v_mean * rtol (variable sigma target)')
 
         # this is not optimal. if the real known value sublevel set only
         # corresponds to a tiny region, then we may not hit it with any
@@ -1535,7 +1539,7 @@ def testbed(problem_params, algo_params):
 
     vks = []
 
-    for k in range(10):
+    for k in range(100):
 
         print(f'active learning iter {k}')
 
@@ -1546,15 +1550,12 @@ def testbed(problem_params, algo_params):
             v_k = estimate_value_level(test_pts, params_sobolev_ens)
         else:
             # don't allow it to go back down again hehehe
-            v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
+            # v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
+            v_k = estimate_value_level(test_pts, params_sobolev_ens)
 
         vks.append(v_k)
 
-        pl.xlim([1e-1, 1e4])
-        pl.ylim([1e-2, 1e3])
 
-        pl.savefig(f'tmp/valuelevel_{k:06d}.png', dpi=400)
-        pl.close('all')
 
         print(f'known value level (technically: smallest known upper bound): {v_k}')
 
@@ -1583,7 +1584,7 @@ def testbed(problem_params, algo_params):
         # set next value target :)
         v_next_target = set_value_target(all_ys, v_k)
 
-        k = jax.random.PRNGKey(k)
+        key = jax.random.PRNGKey(k)
 
         # the state space region considered for uniform -> rejection sampling.
         if not np.isnan(all_ys['x']).any():
@@ -1606,7 +1607,11 @@ def testbed(problem_params, algo_params):
         # nicer version would be some sort of HMC sampler to find many points
         # from Vk+1 \ Vk (or from Vk+1, followed by rejection sampling, probably easier)
 
-        proposed_pts = propose_pts(k, v_k, v_next_target, params_sobolev_ens, x_extent)
+        proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
+
+        # ipdb.set_trace()
+        pl.savefig(f'tmp/valuelevel_{k:06d}.png')
+        pl.close('all')
 
         # ~~~~ ORACLE ~~~~
         # now that we've proposed a batch of points, we call the oracle.
@@ -1618,7 +1623,7 @@ def testbed(problem_params, algo_params):
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)
 
 
-        train_key = k  # yolo
+        train_key = key  # yolo
         params_sobolev_ens = prune_and_train_simple(
             train_key, params_sobolev_ens, all_ys, [v_k, v_next_target]
         )

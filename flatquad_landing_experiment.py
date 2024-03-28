@@ -407,7 +407,7 @@ if __name__ == '__main__':
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0005,
+        'lr_final': 0.0001,
 
         'nn_ensemble_size': 8,
 
@@ -428,6 +428,10 @@ if __name__ == '__main__':
 
         # number of proposals per active learning iteration.
         'active_learning_batchsize': 100,
+
+        # sigma target = sigma_target_abs + sigma_target_rel * v_mean
+        'sigma_target_abs': 0.5,
+        'sigma_target_rel': 0.01,
     }
 
 

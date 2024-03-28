@@ -1067,7 +1067,7 @@ def testbed(problem_params, algo_params):
             v_means, v_stds = v_meanstds(x_pts, vmap_nn_params)
 
             # optimistic_vs = v_means - 2 * v_stds
-            optimistic_vs = v_means - 0 * v_stds
+            optimistic_vs = v_means - 1 * v_stds
 
             # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
 
@@ -1081,6 +1081,13 @@ def testbed(problem_params, algo_params):
         if all_valueband_pts.shape[0] < N_pts_desired:
             print('did not find enough points!')
             ipdb.set_trace()
+
+            # one possibility: "pad" the points with the ones that are not
+            # within the value interval necessarily, but above the lower bound.
+            N_missing = N_pts_desired - all_valueband_pts.shape[0]
+            arr, idx = jax.lax.top_k(-v_means - np.inf * (v_means < value_interval[0]), N_missing)
+            all_valueband_pts = np.concatenate([all_valueband_pts, x_pts[idx]], axis=0)
+
 
         all_valueband_pts = all_valueband_pts[0:N_pts_desired, :]
         assert all_valueband_pts.shape == (N_pts_desired, problem_params['nx'])

@@ -2384,3 +2384,68 @@ that only
     sigma_v(x) <= atol + rtol * mean_v(x)
 where atol = sigma max and rtol is some small constant? would make sense
 that as value increases so does uncertainty fundamentally.
+
+
+
+2024-03-28
+
+put the above atol/rtol type parameters and ran a couple relatively
+unsuccessful experiments.
+
+been reading some more geometric (= on manifolds) optimal control theory.
+what I 'know': when X is a manifold, that is also the domain of the value
+function. Any gradient of V (the costate) therefore must be taken in the
+direction of the manifold as well. (this does NOT mean that the numerical
+value of the costate is a member of the manifold, or its tangent space, or
+anything)
+
+What happens when we just take usual results and try to apply them if X is
+a manifold? let
+    x' = f(x, u)
+    H(x, u, p) = l(x, u) + p.T f(x, u)
+
+The PMP states:
+    x' =  H_p(x, u*, p).
+    p' = -H_x(x, u*, p)
+    u* = argmin_u H(x, u, p)
+
+We would hope that in this case the family of solutions to this system, in
+backward time starting from suitable terminal conditions, covers the
+controllable set.
+
+The first line reduces to x' = f(x, u*), so this system will stay in the
+manifold X just like the original system, no matter what weird stuff the
+costate will do.
+
+The second line is a bit weirder. What does H_x mean when X is a manifold?
+Literature calls it a member of the *dual space* of the tangent space. IIRC
+this means the set of linear functions defined on the tangent space. Which
+makes sense, classically the costate is something we'd like to use to form
+an inner product with f(x, u), <λ, f(x, u)>. So in the manifold setting
+this is just a way to say that.
+
+Lee's Smooth Manifolds (and many others) introduces the concept of tangent
+covectors like this (p272, start of ch11):
+
+ - a tangent covector p is a linear functional on the tangent space at a
+   point x \in X
+ - the space of all covectors p is the cotangent space = the dual of the
+   tangent space.
+
+This fits nicely with the fact that it is called the "costate" to begin
+with :) Pontryagin etc sure had something up their sleeves.
+
+I suspect that the structure of the "manifold" PMP is exactly the same as
+the basic one, but the added technicality will be due to this: the costate
+evolves as the derivative of the value function. Normally this is easy
+because we have the same global coordinate system for the whole value
+function, given by the standard basis of the vector state space. In the
+manifold setting this is complicated by the fact that the "direction" of
+the state space (i.e. the tangent space), in which we take the partial
+derivatives of V, also changes with time. Not sure how to address this, and
+the fact that all references about it seem relatively intransparent is
+probably enough of a reason to ditch it. OTOH doing everything in a
+topologically (more) accurate state space would be really cool...
+
+this is probably all riddled with elementary mistakes. found a section of
+CVOC that talks about this without being too crazy! reading right now.

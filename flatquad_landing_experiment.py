@@ -427,9 +427,11 @@ if __name__ == '__main__':
         'N_lower': 4096,
 
         # number of proposals per active learning iteration.
-        'active_learning_batchsize': 100,
+        # larger = nicer! but don't kill our poor RAM
+        'active_learning_batchsize': 512,
 
         # sigma target = sigma_target_abs + sigma_target_rel * v_mean
+        # still unsure if the uncertainty should rather be in terms of vx?
         'sigma_target_abs': 0.5,
         'sigma_target_rel': 0.01,
     }

@@ -601,6 +601,7 @@ def lqr(A, B, Q, R):
 
 
 def get_terminal_lqr(problem_params):
+
     '''
     a wrapper for the above lqr function that does some sanity checks 
     and extracts the local dynamics & cost from the full system 
@@ -611,6 +612,8 @@ def get_terminal_lqr(problem_params):
     f = problem_params['f']
     l = problem_params['l']
 
+    nx = problem_params['nx']
+
     assert np.allclose(f(x_eq, u_eq), 0), '(x_eq, u_eq) does not seem to be an equilibrium'
 
     A = jax.jacobian(f, argnums=0)(x_eq, u_eq)
@@ -618,12 +621,72 @@ def get_terminal_lqr(problem_params):
     Q = jax.hessian(l, argnums=0)(x_eq, u_eq)
     R = jax.hessian(l, argnums=1)(x_eq, u_eq)
 
-    # cheeky controllability test
-    ctrb =  np.hstack([np.linalg.matrix_power(A, j) @ B for j in range(problem_params['nx'])])
-    if np.linalg.matrix_rank(ctrb) < problem_params['nx']:
-        raise ValueError('linearisation not controllable aaaaah what did you do idiot')
+    if problem_params['m'] is not None:
 
-    K_lqr, P_lqr, _ = lqr(A, B, Q, R)
+        # we are dealing with a problem on a submanifold of R^n defined by {x: m(x) = 0}.
+        # LQR control can be done on the tangent space of the manifold at equilibrium, 
+        # but a couple technicalities are involved. 
+
+        m = problem_params['m']
+
+
+        # otherwise we have to pay special attention to get an orthonormal basis for the 
+        # normal space. a basis with one element (of unit length) is orthonormal :)) 
+        m_oup = m(x_eq)
+        assert m_oup.shape in ((), (1,)), 'only manifolds of co-dimension 1 are allowed'
+
+        m_jac = jax.jacobian(m)(x_eq)
+
+        # here, assume that m_jac has only one nonzero element. this means that the tangent
+        # space is aligned with coordinate axes. true for our circle and also for quaternion
+        # representation of SO(3).
+        # this also means we can just transform our state space by taking out the coordinate 
+        # where the jacobian is nonzero. 
+        m_jac_is_nonzero = m_jac != 0  # this only works when everything is precise! 
+        assert m_jac_is_nonzero.sum() == 1, 'tangent space not coordinate aligned :( plz give easier example'
+
+        # projection matrix that removes the redundant degree of freedom in normal direction. 
+        P = np.eye(nx)[~m_jac_is_nonzero]
+
+        # now we linearly transform the state to z = P x. what happens to the matrices A, B, Q, R? 
+        # the projection is obviously not invertible. is the pseudoinverse appropriate for inserting back into Q, R? 
+        # probably yes because we are on the tangent space anyway.
+        # we actually have pinv(P_state) = P_state.T :))
+
+        # so say x' = A x + B u, and z = P x. (and x = P.T z because we are on the tangent space.)
+        # we get: P.T z' = A (P.T z) + B u
+        #             z' = (P A P.T) z + P B u. 
+
+        # Q is like A, transform on both sides. R is only about u so do nothing.
+        # essentially we are only taking out the corresponding lines and columns...
+        A_z = P @ A @ P.T
+        B_z = P @ B
+        Q_z = P @ Q @ P.T
+        R_z = R
+
+        # cheeky controllability test
+        ctrb =  np.hstack([np.linalg.matrix_power(A_z, j) @ B_z for j in range(problem_params['nx'])])
+        if np.linalg.matrix_rank(ctrb) < nx - 1:
+            raise ValueError('linearisation not controllable aaaaah what did you do idiot')
+
+        K_z, P_z, _ = lqr(A_z, B_z, Q_z, R_z)
+
+        # apply the transformation in opposite direction to transform 
+        # the LQR solution back to the full state space. This just adds 
+        # rows/cols of zero...
+        K_lqr = K_z @ P
+        P_lqr = P.T @ P_z @ P
+
+
+    else:
+
+        # standard case with euclidean state space. 
+        # cheeky controllability test
+        ctrb =  np.hstack([np.linalg.matrix_power(A, j) @ B for j in range(problem_params['nx'])])
+        if np.linalg.matrix_rank(ctrb) < nx:
+            raise ValueError('linearisation not controllable aaaaah what did you do idiot')
+
+        K_lqr, P_lqr, _ = lqr(A, B, Q, R)
 
     return K_lqr, P_lqr
 

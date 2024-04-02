@@ -258,11 +258,225 @@ def current_weird_experiment(problem_params, algo_params):
 
 
 
+def manifold_testing(problem_params, algo_params):
+
+    # first, adapt this function to work at all. 
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+
+    # sanity checked (in pdb): u* stays the same if we change the costate along the 
+    # "irrelevant" direction [0, 0, 0, 1, 0, 0, 0] (in normal space)
+    # this is because when considered members of T*x M they are the same. 
+
+
+    # test whether (forward) baumgarte stabilisation works. 
+    # seems that it does :) 
+    def forward_sim_lqr(x0):
+
+        def forwardsim_rhs(t, x, args):
+
+            lam_x = P_lqr @ x  # <- for lqr instead
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            return problem_params['f'](x, u)
+
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+            throw=algo_params['throw'],
+        )
+
+        return forward_sol
+
+    # make random initial states (which are in the state manifold)
+    x0s = problem_params['x_eq'][None, :] + jax.random.normal(jax.random.PRNGKey(0), shape=(100, 7))*.1
+    x0s = jax.vmap(problem_params['project_M'])(x0s)
+
+    sols = jax.vmap(forward_sim_lqr)(x0s)
+
+    pl.plot(sols.ts.flatten(), jax.vmap(problem_params['m'])(sols.ys.reshape(-1, 7)), alpha=.2, label='no baumgarte stabilisation')
+
+    def forward_sim_lqr_baumgarte(x0):
+
+        def forwardsim_rhs(t, x, args):
+
+            lam_x = P_lqr @ x  # <- for lqr instead
+            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            xdot = problem_params['f'](x, u)
+
+            # make a stabilisation term orthogonal to the dynamics, meaning: in the direction of the normal space. 
+
+            m_eval = problem_params['m'](x)
+
+            # this is an "outward" normal -- it points to the outside of the unit circle. 
+            # might as well just choose (sinPhi, cosPhi)...
+            # maybe we can not worry about inward/outward if instead we define a potential 
+            # like ||m(x)||^2 and then travel down its gradient?
+            normal_dir = jax.jacobian(problem_params['m'])(x)
+
+            # if outside the circle, then m_eval > 0, but we want to be travelling inwards. 
+            # assuming that m(x) has unit norm jacobian on the manifold M, we can calculate the time constant! 
+            # or can we? while we know that the manifold is an invariant of the system, in principle the formula
+            # used to extend the RHS to the ambient space could already contain a baumgarte type DEstabilisation
+            # term! in general, that formula could be arbitrarily bad!
+            # do we just "assume" that the dynamics of the invariant m is marginally stable, i.e. 
+            #    d/dt m(x(t)) = 0
+            # even for points slightly off the manifold? 
+            # let's postpone this for later and just keep a close eye on the plots of m(x(t)).
+            baumgarte_stab_term = -1 * normal_dir * m_eval
+
+            return xdot + baumgarte_stab_term
+
+
+        term = diffrax.ODETerm(forwardsim_rhs)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+        # simulate for pretty damn long
+        forward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'],
+            throw=algo_params['throw'],
+        )
+
+        return forward_sol
+
+    sols = jax.vmap(forward_sim_lqr_baumgarte)(x0s)
+
+    pl.plot(sols.ts.flatten(), jax.vmap(problem_params['m'])(sols.ys.reshape(-1, 7)), alpha=.2, label='with baumgarte stabilisation')
+
+
+    pl.legend()
 
 
 
 
-if __name__ == '__main__':
+    # next step: backward shooting with PMP. 
+    # first, naively using the same function as before. should work for short times.
+
+    solve_backward, f_extended = pontryagin_utils.define_backward_solver(
+        problem_params, algo_params
+    )
+
+    def solve_backward_lqr(x_f, algo_params):
+
+        # P_lqr = hessian of value fct.
+        # everything else follows from usual differentiation rules.
+
+        v_f = 0.5 * x_f.T @ P_lqr @ x_f
+        vx_f = P_lqr @ x_f
+
+        state_f = {
+            'x': x_f,
+            't': 0,
+            'v': v_f,
+            'vx': vx_f,
+        }
+
+        # no vxx here. 
+
+        return solve_backward(state_f)
+
+
+    xfs = problem_params['x_eq'][None, :] + jax.random.normal(jax.random.PRNGKey(0), shape=(100, 7))*.0001
+    xfs = jax.vmap(problem_params['project_M'])(xfs)
+
+    sols_backward = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
+
+    ms = jax.vmap(jax.vmap(problem_params['m']))(sols_backward.ys['x'])
+
+    pl.figure()
+    pl.plot(sols_backward.ts.flatten(), ms.flatten(), alpha=.2, label='backward m(x(t)), no baumgarte.')
+ 
+
+
+    # do the same with the old version (local coordinates instead of R^n embedding.)
+    # hopefully sols will be the same...
+    old_problem_params, old_algo_params = old_params()
+
+    solve_backward_old, f_extended_old = pontryagin_utils.define_backward_solver(
+        old_problem_params, old_algo_params
+    )
+
+    K_lqr_old, P_lqr_old = pontryagin_utils.get_terminal_lqr(old_problem_params)
+
+    def solve_backward_lqr_old(x_f, algo_params):
+
+        # P_lqr = hessian of value fct.
+        # everything else follows from usual differentiation rules.
+
+        v_f = 0.5 * x_f.T @ P_lqr_old @ x_f
+        vx_f = P_lqr_old @ x_f
+
+        state_f = {
+            'x': x_f,
+            't': 0,
+            'v': v_f,
+            'vx': vx_f,
+        }
+
+        # no vxx here. 
+
+        return solve_backward_old(state_f)
+
+    # transform between "old" (= local coordinates) and "new" (= embedded in R^n) 
+    # representation. 
+    def old_to_new(x):
+        return np.concatenate([
+            x[0:2],  # posx, posy
+            np.array([np.sin(x[2]), np.cos(x[2])]), # angle embedding
+            x[3:]
+        ])
+
+    def new_to_old(x):
+        # verified experimentally: thetas = np.arctan2(np.sin(thetas), np.cos(thetas))
+        # because old_to_new is not globally invertible this inverts its restriction on 
+        # the domain -pi/2 < theata < pi/2 or something like that.
+        return np.concatenate([
+            x[0:2],  # posx, posy
+            np.array([np.arctan2(x[2], x[3])]),
+            x[4:]
+        ])
+
+    xfs_old = jax.vmap(new_to_old)(xfs)
+    xfs_oldnew = jax.vmap(old_to_new)(xfs_old)
+
+    print(f'if {rnd(xfs, xfs_oldnew)} is very low the two transformations invert each other')
+    # ipdb.set_trace()
+
+    sols_backward_old = jax.vmap(solve_backward_lqr_old, in_axes=(0, None))(xfs_old, old_algo_params)
+
+    interp_ts = np.linspace(sols_backward.t0[0], sols_backward.t1[0], 500)
+
+    for j in range(10):
+
+        sol_new = jtm(itemgetter(j), sols_backward)
+        sol_old = jtm(itemgetter(j), sols_backward_old)
+
+        pl.figure(f'old vs new backward sol #{j}')
+
+        pl.plot(sol_new.ts, sol_new.ys['x'], '. ', c='C0', alpha=1/2)
+        pl.plot(interp_ts, jax.vmap(sol_new.evaluate)(interp_ts)['x'], c='C0', alpha=1/2)
+
+        # old solution also transformed to embedded manifold repr. 
+        pl.plot(sol_old.ts, jax.vmap(old_to_new)(sol_old.ys['x']), '. ', c='C1', alpha=1/2)
+        pl.plot(interp_ts, jax.vmap(old_to_new)(jax.vmap(sol_old.evaluate)(interp_ts)['x']), c='C1', alpha=1/2)
+
+
+    pl.show()
+    ipdb.set_trace()
+
+
+
+def old_params():
+
+    # problem/algo params BEFORE switching to embedded manifold representation.
 
     # classic 2D quad type thing. 6D state.
 
@@ -346,15 +560,7 @@ if __name__ == '__main__':
         'nx': 6,
         'state_names': ("x", "y", "Phi", "vx", "vy", "omega"),
 
-        # this is how we define the more 'topologically accurate' state space
-        # only for the NN fitting part.
-        # 'transformed_state_names': ("x", "y", "cosPhi", "sinPhi", "vx", "vy", "omega"),
-        'T': lambda x: np.concatenate([
-            x[0:2],
-            np.array([np.cos(x[2]), np.sin(x[2])]),
-            x[3:]
-        ]),
-        # 'c': lambda z: 0.5 * (np.sum(z[2:4]**2) - 1),
+        'm': None,
 
         'nu': 2,
         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
@@ -378,7 +584,187 @@ if __name__ == '__main__':
         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x
         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
         # state space regions.
-        'pontryagin_solver_T': 3.,
+        'pontryagin_solver_T': 5.,
+
+        # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
+        # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
+        # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
+        # hopefully the state space will still be sufficiently covered. In regions where ||vxx|| would
+        # have been very high we will just have to accept the interpolation instead.
+        'vxx_max_norm': 1e4,
+
+        # causes it not to quit when hitting maxsteps. probably still all subsequent
+        # results will be unusable due to evaluating solutions outside their domain giving NaN
+        'throw': False,
+
+        # the state space transformation, now in algo_params.
+        'use_transform': False,
+        'T': lambda x: np.concatenate([
+            x[0:2],
+            np.array([np.cos(x[2]), np.sin(x[2])]),
+            x[3:]
+        ]),
+
+        # big question: should we aim for over- or underparameterisation?
+        'nn_layerdims': (64, 64, 64),
+        'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
+        'nn_N_epochs': 64,
+        'nn_train_fraction': .98,
+        'lr_staircase': False,
+        'lr_staircase_steps': 8,
+        'lr_init': 0.01,
+        'lr_final': 0.0001,
+
+        'nn_ensemble_size': 8,
+
+        # relative importance of the losses for v, vx, vxx.
+        # mostly we care about representing vx with great accuracy,
+        # the other two can be thought of as "hints"/priors/inductive biases
+        # to fit the correct vx function.
+        # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
+        'nn_sobolev_weights': np.array([0.1, 1.]),
+
+        'nn_progressbar': True,
+
+        # only take a subsample of data for active learning. dense sample
+        # close to current level set, less dense sample further down.
+        'thin_data': True,
+        'N_band': 4096,
+        'N_lower': 4096,
+
+        # number of proposals per active learning iteration.
+        # larger = nicer! but don't kill our poor RAM
+        'active_learning_batchsize': 512,
+
+        # sigma target = sigma_target_abs + sigma_target_rel * v_mean
+        # still unsure if the uncertainty should rather be in terms of vx?
+        'sigma_target_abs': 0.5,
+        'sigma_target_rel': 0.01,
+    }
+
+    return problem_params, algo_params
+
+
+if __name__ == '__main__':
+
+    # classic 2D quad type thing. 6D` state.
+    # update, 6D manifold embedded in R^7.
+
+    m = 20  # kg
+    g = 9.81 # m/s^2
+    r = 0.5 # m
+    I = m * (r/2)**2 # kg m^2 / radian (???)
+    umax = m * g * 1.2 / 2  # 20% above hover thrust
+
+    # remove time arguments sometime now that we're mostly treating
+    # infinite horizon, time-invariant problems?
+    def f(x, u):
+
+        # unpack for easier names
+        Fl, Fr = u
+        posx, posy, sinPhi, cosPhi, vx, vy, omega = x
+
+        # Phi' = omega
+        # d/dt sin(Phi) = cos(Phi) Phi' = cosPhi omega
+        # d/dt cos(Phi) = -sin(Phi) Phi' = -sinPhi omega
+
+        xdot = np.array([
+            vx,
+            vy,
+            cosPhi * omega,
+            -sinPhi * omega,
+            -sinPhi * (Fl + Fr) / m,
+            cosPhi * (Fl + Fr) / m - g,
+            (Fr-Fl) * r / I,
+        ])
+
+        return xdot
+
+    x_eq = np.array([0., 0, 0, 1, 0, 0, 0])
+
+    def l(x, u):
+        Fl, Fr = u
+        posx, posy, sin_Phi, cos_Phi, vx, vy, omega = x
+
+        # penalise deviation from cos(Phi)=1, sin(Phi)=0 just in cartesian ambient space
+        # derivatives should be the same still (bc sin'(0) = 1)
+
+        state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), np.deg2rad(30), .5, .5, np.deg2rad(120)])
+        Q = np.diag(1/state_length_scales**2)
+        state_cost = (x - x_eq).T @ Q @ (x - x_eq)
+
+        # can we just set an input penalty that is zero at hover?
+        # penalise x acc, y acc [m/s^2], angular acc [rad/s^2] here
+        # this here is basically a state-dependent linear map of the inputs, i.e. M(x) u with M(x) a 3x2 matrix.
+        # the overall input cost will be acc.T M(x).T Q M(x) acc, so for each state it is still a nice quadratic in u.
+        accelerations = np.array([
+            -sin_Phi * (Fl + Fr) / m,
+            cos_Phi * (Fl + Fr) / m - g,
+            (Fr - Fl) * r / I,
+        ])
+
+        accelerations_lengthscale = np.array([1, 1, 1])
+
+        input_cost = accelerations.T @ np.diag(1/accelerations_lengthscale**2) @ accelerations
+
+        return state_cost + input_cost
+
+
+    def h(x):
+        # irrelevant if terminal constraint or infinite horizon
+        # OR we could right in here put the terminal quadratic cost
+        # plus some exception or +infinity cost if outside terminal set...
+        raise NotImplementedError('not used for a long time')
+        Qf = 1 * np.eye(6)
+        return (x.T @ Qf @ x).reshape()
+
+
+    problem_params = {
+        'system_name': 'flatquad',
+
+        'f': f,
+        'l': l,
+        'h': h,
+
+        'nx': 7,
+        'state_names': ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega"),
+
+        # constraint equation defining the state space manifold as its 0-levelset.
+        # in this case only the unit circle for angle parameterisation. 
+        # if R^n, set this to None
+        # the dimension of the manifold is nx - dim(m(x))
+        # / 2 so its jacobian is normalised.
+        'm': lambda x: (x[2]**2 + x[3]**2 - 1) / 2,
+        # projection operation onto the manifold -- not sure if ever needed
+        # also not possible for all but the simplest manifolds...
+        'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
+
+        'nu': 2,
+        # if ever treating slightly bigger systems it would pay to frame this 
+        # as a general convex polytope described by Ax <= b.
+        'U_interval': [np.zeros(2), umax*np.ones(2)],
+
+        'V_f': 0.001,
+        'V_max': 1000.,
+        'u_eq': np.ones(2) * m * g / 2,
+        'x_eq': x_eq.astype(float),
+    }
+
+
+    algo_params = {
+        'pontryagin_solver_vxx': False,
+        'pontryagin_solver_atol': 1e-5,
+        'pontryagin_solver_rtol': 1e-5,
+
+        # with throw=True we can set this pretty tight - it will just stop early.
+        # will have to make sure ourselves that this is not a problem
+        'pontryagin_solver_maxsteps': 128,
+
+        # not very relevant if we can just "resume" the trajectory in a later solve
+        # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x
+        # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
+        # state space regions.
+        'pontryagin_solver_T': 5.,
 
         # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
@@ -440,6 +826,8 @@ if __name__ == '__main__':
     # lqr_sanitycheck(problem_params, algo_params)
     # current_weird_experiment(problem_params, algo_params)
     # u_star_debugging(problem_params, algo_params)
+
+    manifold_testing(problem_params, algo_params)
 
     levelsets.testbed(problem_params, algo_params)
 

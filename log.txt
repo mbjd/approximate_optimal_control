@@ -2487,9 +2487,45 @@ TODO for a first implementation try:
  - restate the flatquad problem accordingly with sin/cos of theta
  - and manifold definition with constraint function
  - sanity check if two trajectories that should be equal are equal
+   and if they depend at all on the "unnecessary" costate boundary condition in normal direction
  - figure out technicalities with terminal lqr only in tangent space (like twingtec
    quaternion-lqr attitude controller) actually 
  - write loss function with tangent/normal projection
  - sanity check if the tangent/normal projections do what they should
  - new tuning params: 
    - normal direction regularisation loss strength
+ - once all of this works for short-ish trajectories, see if we need baumgarte 
+
+
+
+started this stuff after lunch. coded basic example of baumgarte stabilisation
+with forward sim. it works, but not for a huge range of "feedback gains" (it
+is a P controller basically...). error in m(x) (which defines the manifold as
+M = {x: m(x) = 0} and is scaled so ||\nabla_m(x)|| = 1 for x in M) stays on the
+order of about 1e-6, which is good enough.
+
+atm trying to do PMP backward shooting just with the ODE as it stands. we DO
+get an optimal-looking trajectory. to make this a meaningful sanity check,
+definitely need to compare w/ "local coordinates" (theta) solution. doing that
+just before calling it a day.
+
+the two LQR solutions seem to agree with each other! no massive mistake there.
+IT WORKS!!! the backward solutions also seem to agree w/ each other. more
+verification to come.
+
+even better, plotted 10 trajectories old and new version with rather long
+horizon, with the old one transformed into the new (embedded manifold) repr as
+well to compare. the match is LITERALLY FUCKING PERFECT. on the first try.
+even in clearly nonlinear regions. how did I deserve this? i basically slacked
+off half the day! but some good things do happen. perfect time to call it a
+day. m(x) does grow to about 1e-5 in magnitude for a time horizon of 5 sec.
+maybe if we only ever use this short horizon we get away with not doing any
+baumgarte stabilisation, but projecting back on the manifold every time we
+"continue" the solution? would be neat. 
+
+next tiny goal for tomorrow: look at the unnecessary costate (inner product of
+costate on R^n with normal space direction) to see if it does some weird
+stuff. we've already established that it doesn't influence u* at all so only
+a concern if it becomes like NaN or really huge and messes up the entire ode
+solver.
+

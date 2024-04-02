@@ -2392,6 +2392,9 @@ that as value increases so does uncertainty fundamentally.
 put the above atol/rtol type parameters and ran a couple relatively
 unsuccessful experiments.
 
+(update: the implicit assumption here is that the manifold is embedded in 
+an ambient euclidean space)
+
 been reading some more geometric (= on manifolds) optimal control theory.
 what I 'know': when X is a manifold, that is also the domain of the value
 function. Any gradient of V (the costate) therefore must be taken in the
@@ -2449,3 +2452,44 @@ topologically (more) accurate state space would be really cool...
 
 this is probably all riddled with elementary mistakes. found a section of
 CVOC that talks about this without being too crazy! reading right now.
+
+
+2024-04-02
+
+idea for a slightly different paradigm i had over the easter weekend. we
+define at the start a large set of "test points" which cover the state space,
+and keep them for the whole time. then, instead of finding points from a
+specific value band at every iteration, we just choose among those test points
+the lowest-v ones outside of the known set (and with sigma too high probably).
+this is a bit of a different way to control "propagation speed",  with the
+density of test points (we can also put more near the origin like currently
+done). Because atm we frequently observe 100% of the forward simulations
+reaching the lower level set I have the hunch that we might be a bit more
+aggressive. 
+
+this might solve the issue that we don't find points within the value band,
+which might also  just be too narrow. 
+
+this also makes the propose_pts function jittable probably :)
+
+and second idea: the problem of uncertainties rising again could be practically addressed
+by storing for each test point the smallest sigma ever recorded there, and using that in
+the value level estimation rather than the current one. the idea being, even if the currently
+fitted NN is unsure there, we have demonstrated that it is possible to get a good v/vx estimate
+there. maybe also only record small sigmas if they are inside the value level set? 
+
+
+and finally third idea: do everything in ambient space in which manifold is
+embedded. See Chang 2011 "simple proof". More comments in dump. 
+
+TODO for a first implementation try: 
+ - make branch 
+ - restate the flatquad problem accordingly with sin/cos of theta
+ - and manifold definition with constraint function
+ - sanity check if two trajectories that should be equal are equal
+ - figure out technicalities with terminal lqr only in tangent space (like twingtec
+   quaternion-lqr attitude controller) actually 
+ - write loss function with tangent/normal projection
+ - sanity check if the tangent/normal projections do what they should
+ - new tuning params: 
+   - normal direction regularisation loss strength

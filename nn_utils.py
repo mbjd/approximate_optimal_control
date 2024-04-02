@@ -320,8 +320,40 @@ class nn_wrapper():
         v_pred = self.nn.apply(params, y['x'])
         vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
 
+
         v_loss  = (v_pred - y['v' ]) ** 2
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
+
+        if False: # if state space is submanifold of R^n
+            raise NotImplementedError()
+
+            # v loss same as otherwise
+            # vx loss as follows: 
+
+            # orthonormal basis for normal space. based on constraint function m.
+
+            # TODO: one of:
+            #  - define m such that B is always an orthonormal basis (and sanity check)
+            #  - (ortho?)normalise it here after calculating the jacobian
+            #  - use the pseudoinverse in the projection instead of transpose.
+            # if going for 3 and maybe also 2, it could be worth doing it in advance? 
+
+            B = jax.jacobian(m)(x)  
+            # if B is indeed a orthonormal basis of the normal space, then we should have:
+            # B.T @ B = I
+            # the matrix is semi-orthogonal thus B @ B.T is not I, but the projection below. 
+
+            # orthogonal projection to normal space at current x
+            P_normal = B @ B.T
+            # orthogonal projection to tangent space at current x
+            P_tangent = np.eye(ambient_space_dim) - P_normal
+
+            vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
+
+            # or give it its own convex combination weight? 
+            vx_reg_loss = .01 * np.sum( (vx_pred @ P_normal)**2 )
+
+            vx_loss = vx_label_loss + vx_reg_loss
 
         # if there are three weights they are for (v, vx, vxx). if only two, (v, vx).
         if algo_params['nn_sobolev_weights'].shape == (3,):

@@ -325,9 +325,16 @@ def manifold_testing(problem_params, algo_params):
             # or can we? while we know that the manifold is an invariant of the system, in principle the formula
             # used to extend the RHS to the ambient space could already contain a baumgarte type DEstabilisation
             # term! in general, that formula could be arbitrarily bad!
+
             # do we just "assume" that the dynamics of the invariant m is marginally stable, i.e. 
             #    d/dt m(x(t)) = 0
             # even for points slightly off the manifold? 
+
+            # or would the proper way of doing this consist not in ADDING a stabilisation term in 
+            # normal direction, but by REPLACING the whole rhs in that direction with something stable? 
+            # probably equivalent to first projecting xdot on the tangent space. this is probably the 
+            # nice and practical way to do it. then the "normal" dynamics are neutrally stable in all cases.
+
             # let's postpone this for later and just keep a close eye on the plots of m(x(t)).
             baumgarte_stab_term = -1 * normal_dir * m_eval
 
@@ -393,6 +400,7 @@ def manifold_testing(problem_params, algo_params):
  
 
 
+    '''
     # do the same with the old version (local coordinates instead of R^n embedding.)
     # hopefully sols will be the same...
     old_problem_params, old_algo_params = old_params()
@@ -497,33 +505,9 @@ def manifold_testing(problem_params, algo_params):
     tfs_new = np.zeros(512)
     vfs_new = np.ones(512) * (0.5 * xfs_new[0].T @ P_lqr @ xfs_new[0])
 
-    # here in "normal direction" precisely at equilibrium:
+    # in actual normal direction
     vx_orig = P_lqr @ xfs[0]
-    delta = np.eye(7)[3]
-    vxs_new = np.linspace(vx_orig - delta, vx_orig + delta, 512)
-
-    states_f = {
-        'x': xfs_new,
-        't': tfs_new,
-        'v': vfs_new,
-        'vx': vxs_new,
-    }
-
-    sols_test = jax.vmap(solve_backward)(states_f)
-
-    pl.figure('normal direction costate perturbation in equilibrium normal direction')
-    shit_costates = jax.vmap(shit_costate)(sols_test.ys['vx'].reshape(-1, 7), sols_test.ys['x'].reshape(-1, 7))
-    pl.subplot(211)
-    pl.plot(sols_test.ts.reshape(-1), sols_test.ys['x'].reshape(-1, 7), label='state trajectories')
-    pl.legend()
-
-    pl.subplot(212)
-    pl.plot(sols_test.ts.reshape(-1), shit_costates, alpha=1/3, label='normal direction costate for different inits')
-    pl.legend()
-
-    # and a second time in actual normal direction
-    vx_orig = P_lqr @ xfs[0]
-    delta = jax.jacobian(problem_params['m'])(xfs[0])
+    delta = jax.jacobian(problem_params['m'])(xfs[0]) * 100
     vxs_new = np.linspace(vx_orig - delta, vx_orig + delta, 512)
 
     states_f = {
@@ -545,6 +529,24 @@ def manifold_testing(problem_params, algo_params):
     pl.plot(sols_test.ts.reshape(-1), shit_costates, alpha=1/3, label='normal direction costate for different inits')
     pl.legend()
  
+    '''
+
+    import nn_utils
+
+    v_nn = nn_utils.nn_wrapper(
+        input_dim=problem_params['nx'],
+        layer_dims=algo_params['nn_layerdims'],
+        output_dim=1
+    )
+
+    key = jax.random.PRNGKey(0)
+    params = v_nn.nn.init(key, np.zeros(problem_params['nx']))
+
+    sol = jtm(itemgetter(12), sols_backward)
+    y = jtm(itemgetter(12), sol.ys)
+
+    # def sobolev_loss(self, key, y, params, problem_params, algo_params):
+    loss = v_nn.sobolev_loss(key, y, params, problem_params, algo_params)
 
     pl.show()
     ipdb.set_trace()
@@ -803,7 +805,7 @@ if __name__ == '__main__':
         'l': l,
         'h': h,
 
-        'nx': 7,
+        'nx': 7, # if manifold, the dimension of the ambient space, not the manifold!
         'state_names': ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega"),
 
         # constraint equation defining the state space manifold as its 0-levelset.
@@ -854,13 +856,9 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,
 
-        # the state space transformation, now in algo_params.
-        'use_transform': False,
-        'T': lambda x: np.concatenate([
-            x[0:2],
-            np.array([np.cos(x[2]), np.sin(x[2])]),
-            x[3:]
-        ]),
+        # penalisation of the extra value derivative which is defined in the ambient space
+        # but normal to the state manifold. 
+        'vx_normal_regularisation': 0.01,
 
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),

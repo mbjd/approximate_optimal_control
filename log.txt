@@ -2492,10 +2492,18 @@ TODO for a first implementation try:
    quaternion-lqr attitude controller) actually (done)
  - write loss function with tangent/normal projection (done)
  - sanity check if the tangent/normal projections do what they should (done for 1 pt)
- - also adapt accordingly every time we sample points from state space
+ - also adapt accordingly every time we sample points from state space (done)
  - new tuning params: 
-   - normal direction regularisation loss strength
+   - normal direction regularisation loss strength (done)
  - once all of this works for short-ish trajectories, see if we need baumgarte 
+   -> probably not! for 5 second horizon the extent to which we stray off the manifold
+      stays at a couple times 1e-5. because we are planning to integrate in short segments,
+      this is not much of an issue. probably it will be just fine if we:
+       a) terminate the integration once it is at a much higher value level which 
+          is definitely not (yet) interesting
+       b) when that level does become interesting and we want to resume the trajectory,
+          then project the state back to the manifold and the costate back to the 
+          cotangent space (i.e. set unnecessary "normal costate" to 0)
 
 
 

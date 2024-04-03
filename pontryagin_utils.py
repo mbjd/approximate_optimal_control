@@ -600,7 +600,7 @@ def lqr(A, B, Q, R):
 
 
 
-def get_terminal_lqr(problem_params):
+def get_terminal_lqr(problem_params, return_tangent_projection=False):
 
     '''
     a wrapper for the above lqr function that does some sanity checks 
@@ -646,6 +646,7 @@ def get_terminal_lqr(problem_params):
         assert m_jac_is_nonzero.sum() == 1, 'tangent space not coordinate aligned :( plz give easier example'
 
         # projection matrix that removes the redundant degree of freedom in normal direction. 
+        # = projection to tangent space (with both sides in ambient R^n standard basis)
         P = np.eye(nx)[~m_jac_is_nonzero]
 
         # now we linearly transform the state to z = P x. what happens to the matrices A, B, Q, R? 
@@ -676,6 +677,9 @@ def get_terminal_lqr(problem_params):
         # rows/cols of zero...
         K_lqr = K_z @ P
         P_lqr = P.T @ P_z @ P
+
+        if return_tangent_projection:
+            return K_lqr, P_lqr, P
 
 
     else:

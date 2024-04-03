@@ -377,6 +377,16 @@ def manifold_testing(problem_params, algo_params):
         # P_lqr = hessian of value fct.
         # everything else follows from usual differentiation rules.
 
+        # this too becomes kind of hairy in the manifold case. the LQR value function 
+        # is naturally defined ONLY on the tangent space at x_eq. if we naively use 
+        # the formula here to extend it to the manifold and whole ambient space, 
+        # we are just defining the value function everywhere to be: 
+        #  projection \Delta x (x = x_eq + \Delta x) to tangent space
+        #  evaluation of tangent space value function at that point
+        # which seems reasonable for small, "linearisable" regions around x_eq and seems 
+        # to produce quite precisely the same trajectories as the old local coordinates approach.
+        # so we are happy and can keep this code verbatim in the main version :) 
+
         v_f = 0.5 * x_f.T @ P_lqr @ x_f
         vx_f = P_lqr @ x_f
 
@@ -902,7 +912,7 @@ if __name__ == '__main__':
     # current_weird_experiment(problem_params, algo_params)
     # u_star_debugging(problem_params, algo_params)
 
-    manifold_testing(problem_params, algo_params)
+    # manifold_testing(problem_params, algo_params)
 
     levelsets.testbed(problem_params, algo_params)
 

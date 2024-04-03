@@ -331,7 +331,7 @@ class nn_wrapper():
             # orthogonal projection to tangent space at current x
             P_tangent = np.eye(problem_params['nx']) - P_normal
 
-            ipdb.set_trace()
+            # ipdb.set_trace()
             # we multiply these projections from the RIHGT. because the inner product we want to 
             # describe is <vx, P vec> = vx.T P vec. Then we just penalise the whole linear operator
             # vx.T P instead of the inner product with some random ass vec. 

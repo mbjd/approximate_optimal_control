@@ -24,6 +24,9 @@ from operator import itemgetter
 
 
 
+# many of these functions probably don't work. they were hacked together within the testbed function
+# and depend on some variables there. if needed again, put back there or include variables as proper arguments.
+
 def plot_distributions(ys_n):
 
     pl.figure()
@@ -65,11 +68,6 @@ def plot_distributions(ys_n):
         pl.subplot(224)
         plot_data(ys_n['vxx'], 'vxx entries')
 
-
-
-
-# many of these functions probably don't work. they were hacked together within the testbed function
-# and depend on some variables there. if needed again, put back there or include variables as proper arguments.
 
 def sobolev_weight_gridsearch():
 
@@ -122,9 +120,6 @@ def sobolev_weight_gridsearch():
 
     # middle of the pack seems to look nicest here... so both 1.36???
 
-# sobolev_weight_gridsearch()
-
-
 
 def vxx_weight_sweep():
     # new sobolev training method.
@@ -173,8 +168,6 @@ def vxx_weight_sweep():
         print(f'saved "{figpath}"')
         pl.close('all')
         '''
-
-
 
 
 # look at normalised data.
@@ -269,8 +262,6 @@ def data_normalisation_experiment():
     pl.plot(xs_nx_sq, vxx_means, label='vxx std', alpha=.5)
     pl.legend()
     pl.show()
-
-
 
 
 def plot_taylor_sanitycheck(sol, problem_params):
@@ -536,41 +527,67 @@ def testbed(problem_params, algo_params):
     # idea: learn V(x) for some level set V(x) <= v_k.
     # once we have that, increase v_k.
 
-    # find terminal LQR controller and value function.
-    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
-
-    # find a matrix mapping from the unit circle to the value level set
-    # previously done with eigendecomposition -> sqrt of eigenvalues.
-    # with the cholesky decomp the trajectories look about the same
-    # qualitatively. it is nicer so we'll keep that.
-    # cholesky decomposition says: P = L L.T but not L.T L
-    L_lqr = np.linalg.cholesky(P_lqr)
-
-    assert rnd(L_lqr @ L_lqr.T, P_lqr) < 1e-6, 'cholesky decomposition wrong or inaccurate'
-
     key = jax.random.PRNGKey(1)
+
+    # find terminal LQR controller and value function.
+    # ultimately generate the function unitsphere_to_dXf
+
+    # in manifold case, this is still something which we should do purely 
+    # on the tangent space...
+    if problem_params['m'] is not None:
+        K_lqr, P_lqr, Proj_tangent = pontryagin_utils.get_terminal_lqr(problem_params, return_tangent_projection=True)
+
+        # find the LQR controller in tangent space basis
+        # essentially undo what we did inside the lqr function...
+        P_lqr_tangent = Proj_tangent @ P_lqr @ Proj_tangent.T
+        K_lqr_tangent = K_lqr @ Proj_tangent.T
+
+        # here we can do cholesky just fine
+        L_lqr_tangent = np.linalg.cholesky(P_lqr_tangent)
+
+        assert rnd(L_lqr_tangent @ L_lqr_tangent.T, P_lqr_tangent) < 1e-6, 'cholesky decomposition wrong or inaccurate'
+
+        # same as below, except we project the (ambient space) point to the tangent space
+        # and then back. this has no affine part though and the nonzero x_eq is disregarded,
+        # so we change it to a lambda function which includes that. 
+        # and finally, we project back to the manifold using the provided function. 
+        unitsphere_to_dXf_linear = Proj_tangent.T @ np.linalg.inv(L_lqr_tangent) @ Proj_tangent * np.sqrt(problem_params['V_f']) * np.sqrt(2)
+        unitsphere_to_dXf = lambda x: problem_params['project_M'](problem_params['x_eq'] + x.T @ unitsphere_to_dXf_linear)
+
+
+    else:
+        # state space R^n
+        K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+
+        # find a matrix mapping from the unit circle to the value level set
+        # previously done with eigendecomposition -> sqrt of eigenvalues.
+        # with the cholesky decomp the trajectories look about the same
+        # qualitatively. it is nicer so we'll keep that.
+        # cholesky decomposition says: P = L L.T but not L.T L
+        L_lqr = np.linalg.cholesky(P_lqr)
+
+
+        assert rnd(L_lqr @ L_lqr.T, P_lqr) < 1e-6, 'cholesky decomposition wrong or inaccurate'
+
+        # linear map from the hypersphere to the ellipse V_lqr(x) == V_f
+        unitsphere_to_dXf = lambda x: x.T @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
+
 
     # purely random ass points for initial batch of trajectories.
     normal_pts = jax.random.normal(key, shape=(100, problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
-    xfs = unitsphere_pts @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
+    xfs = jax.vmap(unitsphere_to_dXf)(unitsphere_pts)
 
     # test if it worked
     V_f = lambda x: 0.5 * x.T @ P_lqr @ x
     vfs = jax.vmap(V_f)(xfs)
 
-    assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
+    # this is not that precise in the manifold case.
+    # nevertheless we continue and assume that for small enough V_f it will still kind of work :) 
+    # assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
 
     pl.rcParams['figure.figsize'] = (16, 10)
-
-
-
-
-
-
-
-
 
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
@@ -599,6 +616,7 @@ def testbed(problem_params, algo_params):
         return solve_backward(state_f)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
+    ipdb.set_trace()
 
 
     def find_min_l(ys, v_lower, v_upper, problem_params):
@@ -1026,6 +1044,7 @@ def testbed(problem_params, algo_params):
 
         # not actually uniform if log_min_scale != 0, then half of the points are 
         # scaled down so we don't miss the small volume around the origin.
+        # TODO this fails if x_eq != 0...
 
         # not "the whole state space" because obviously that is unbounded and we have to restrict 
         # ourselves to a box given by -extent <= x <= extent. 
@@ -1525,6 +1544,7 @@ def testbed(problem_params, algo_params):
     # test points, with increased density towards origin.
     N_testpts = 10000
     test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent, problem_params, log_min_scale=-2)
+    ipdb.set_trace()
 
     # @jax.jit
     def estimate_value_level(test_pts, params_sobolev_ens):

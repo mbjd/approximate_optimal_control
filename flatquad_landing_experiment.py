@@ -262,11 +262,12 @@ def manifold_testing(problem_params, algo_params):
 
     # first, adapt this function to work at all. 
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+    # okay, it works :) returns K and P defined for full state space but only
+    # calculates them in tangent space. 
 
     # sanity checked (in pdb): u* stays the same if we change the costate along the 
     # "irrelevant" direction [0, 0, 0, 1, 0, 0, 0] (in normal space)
     # this is because when considered members of T*x M they are the same. 
-
 
     # test whether (forward) baumgarte stabilisation works. 
     # seems that it does :) 
@@ -384,15 +385,11 @@ def manifold_testing(problem_params, algo_params):
         return solve_backward(state_f)
 
 
-    xfs = problem_params['x_eq'][None, :] + jax.random.normal(jax.random.PRNGKey(0), shape=(100, 7))*.0001
+    xfs = problem_params['x_eq'][None, :] + jax.random.normal(jax.random.PRNGKey(0), shape=(3000, 7))*.0001
     xfs = jax.vmap(problem_params['project_M'])(xfs)
 
     sols_backward = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
-    ms = jax.vmap(jax.vmap(problem_params['m']))(sols_backward.ys['x'])
-
-    pl.figure()
-    pl.plot(sols_backward.ts.flatten(), ms.flatten(), alpha=.2, label='backward m(x(t)), no baumgarte.')
  
 
 
@@ -452,8 +449,8 @@ def manifold_testing(problem_params, algo_params):
 
     sols_backward_old = jax.vmap(solve_backward_lqr_old, in_axes=(0, None))(xfs_old, old_algo_params)
 
+    # compare the two trajectories. they match :)))
     interp_ts = np.linspace(sols_backward.t0[0], sols_backward.t1[0], 500)
-
     for j in range(10):
 
         sol_new = jtm(itemgetter(j), sols_backward)
@@ -468,6 +465,86 @@ def manifold_testing(problem_params, algo_params):
         pl.plot(sol_old.ts, jax.vmap(old_to_new)(sol_old.ys['x']), '. ', c='C1', alpha=1/2)
         pl.plot(interp_ts, jax.vmap(old_to_new)(jax.vmap(sol_old.evaluate)(interp_ts)['x']), c='C1', alpha=1/2)
 
+    pl.figure()
+    pl.plot(sols_backward_old.stats['num_steps'], sols_backward.stats['num_steps'], '. ')
+    pl.xlabel('old steps')
+    pl.ylabel('new steps')
+
+    # for the new version, look at the "unnecessary" costate.
+
+
+    ms = jax.vmap(jax.vmap(problem_params['m']))(sols_backward.ys['x'])
+
+    # costate in normal space direction.
+    shit_costate = lambda vx, x: np.dot(vx, jax.jacobian(problem_params['m'])(x))
+    shit_costates = jax.vmap(shit_costate)(sols_backward.ys['vx'].reshape(-1, 7), sols_backward.ys['x'].reshape(-1, 7))
+
+    pl.figure()
+    pl.subplot(211)
+
+    # extra dof of state trajectory
+    pl.plot(sols_backward.ts.reshape(-1), ms.reshape(-1), c='C0', alpha=1/3, label='m(x(t))')
+    pl.legend()
+
+    pl.subplot(212)
+    pl.plot(sols_backward.ts.reshape(-1), shit_costates, alpha=1/3, label='costate in normal direction')
+    pl.legend()
+
+    # new experiment: change terminal unnecessary costate and see what happens.
+    xfs_new = xfs[0:512].at[:].set(xfs[0])
+    # bypass the solve_backward_lqr function and construct vmapped dict state ourselves.
+
+    tfs_new = np.zeros(512)
+    vfs_new = np.ones(512) * (0.5 * xfs_new[0].T @ P_lqr @ xfs_new[0])
+
+    # here in "normal direction" precisely at equilibrium:
+    vx_orig = P_lqr @ xfs[0]
+    delta = np.eye(7)[3]
+    vxs_new = np.linspace(vx_orig - delta, vx_orig + delta, 512)
+
+    states_f = {
+        'x': xfs_new,
+        't': tfs_new,
+        'v': vfs_new,
+        'vx': vxs_new,
+    }
+
+    sols_test = jax.vmap(solve_backward)(states_f)
+
+    pl.figure('normal direction costate perturbation in equilibrium normal direction')
+    shit_costates = jax.vmap(shit_costate)(sols_test.ys['vx'].reshape(-1, 7), sols_test.ys['x'].reshape(-1, 7))
+    pl.subplot(211)
+    pl.plot(sols_test.ts.reshape(-1), sols_test.ys['x'].reshape(-1, 7), label='state trajectories')
+    pl.legend()
+
+    pl.subplot(212)
+    pl.plot(sols_test.ts.reshape(-1), shit_costates, alpha=1/3, label='normal direction costate for different inits')
+    pl.legend()
+
+    # and a second time in actual normal direction
+    vx_orig = P_lqr @ xfs[0]
+    delta = jax.jacobian(problem_params['m'])(xfs[0])
+    vxs_new = np.linspace(vx_orig - delta, vx_orig + delta, 512)
+
+    states_f = {
+        'x': xfs_new,
+        't': tfs_new,
+        'v': vfs_new,
+        'vx': vxs_new,
+    }
+
+    sols_test = jax.vmap(solve_backward)(states_f)
+
+    pl.figure('normal direction costate perturbation in precise normal direction')
+    shit_costates = jax.vmap(shit_costate)(sols_test.ys['vx'].reshape(-1, 7), sols_test.ys['x'].reshape(-1, 7))
+    pl.subplot(211)
+    pl.plot(sols_test.ts.reshape(-1), sols_test.ys['x'].reshape(-1, 7), label='state trajectories')
+    pl.legend()
+
+    pl.subplot(212)
+    pl.plot(sols_test.ts.reshape(-1), shit_costates, alpha=1/3, label='normal direction costate for different inits')
+    pl.legend()
+ 
 
     pl.show()
     ipdb.set_trace()

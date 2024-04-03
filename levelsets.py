@@ -769,7 +769,7 @@ def testbed(problem_params, algo_params):
 
     pl.figure('sobolev with vxx')
     plotting_utils.plot_nn_train_outputs(oups_sobolev)
-	'''
+    '''
 
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
         train_key, ys_n, problem_params, algo_params
@@ -991,7 +991,6 @@ def testbed(problem_params, algo_params):
 
 
 
-
     def set_value_target(all_ys, v_k):
 
         # also, in an initial step we should verify that v_k represents an accurate value level set
@@ -1016,6 +1015,65 @@ def testbed(problem_params, algo_params):
         print(f'v_k+1 target = {v_next}')
 
         return v_next
+
+    def sample_from_statespace(key, N, extent, problem_params, log_min_scale=0):
+
+        if not (problem_params['system_name'] == 'flatquad' and problem_params['state_names'] == ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega")):
+            raise NotImplementedError('This sampling function is problem specific and will need to be recoded for a new problem :*(')
+
+
+        # sample points "uniformly" from "the whole state space".
+
+        # not actually uniform if log_min_scale != 0, then half of the points are 
+        # scaled down so we don't miss the small volume around the origin.
+
+        # not "the whole state space" because obviously that is unbounded and we have to restrict 
+        # ourselves to a box given by -extent <= x <= extent. 
+
+        # if manifold, see special logic -- for those particular coordinates we sample uniformly form 
+        # the manifold, without down scaling, and also completely ignoring the extent argument.
+
+        rnkey, manifoldkey = jax.random.split(key)
+
+        # generate uniform points from a box in R^n
+        x_pts = jax.random.uniform(
+            key=rnkey,
+            shape=(N, problem_params['nx']),
+            minval=-extent,
+            maxval= extent,
+        )
+
+        # if log_min_scale != 0, this will scale half the points down with a
+        # logarithmically scaled factor, while the other half will stay the same.
+        scales = np.clip(np.logspace(log_min_scale, -log_min_scale, N), -np.inf, 1.)[:, None]
+        x_pts = x_pts * scales
+
+        if problem_params['m'] is not None:
+
+            # we are dealing with a manifold state space :o 
+
+            # here we are just hard coding uniform sampling over the unit circle
+            # for unit quaternions for SO(3) this would work much the same
+            # but in general this will need a bespoke solution for each manifold :(
+
+            # this really irks me that we have to code problem specific stuff here. 
+            # can we specify the manifold in a way that makes this more general? 
+            # should this be part of problem_params? 
+
+            # generate 2D gaussian points & normalise    
+            xys = jax.random.normal(key=manifoldkey, shape=(N, 2))
+            xys = xys / np.linalg.norm(xys, axis=1)[:, None]
+
+            # indices of sinPhi and cosPhi states.
+            assert problem_params['state_names'][2] == 'sinPhi'
+            assert problem_params['state_names'][3] == 'cosPhi'
+            x_pts = x_pts.at[:, 2:4].set(xys)
+
+            # if we instead generate this by drawing Phi ~ U[-pi, pi]
+            # we can apply the same scaling logic to the angle and only 
+            # then convert to ambient space representation...
+
+        return x_pts
 
     def propose_pts(key, v_k, v_next, vmap_nn_params, x_extent):
 
@@ -1042,21 +1100,7 @@ def testbed(problem_params, algo_params):
 
             newkey, key = jax.random.split(key)
 
-            # sample from "the whole state space".
-            # this is kind of icky because we have to select a bounded region
-            # also already in 6D if we specify a large region we have very few
-            # samples actually in the value band. hence the loop outside.
-            # nicer solution would be some sort of mcmc thingy...?
-            # slightly better hack: set this region to like 1.5 * min and max
-            # of current data...
-            x_pts = jax.random.uniform(
-                key=newkey,
-                shape=(10000, problem_params['nx']),
-                # minval=np.array([-20, -20, -10*np.pi, -20, -20, -20*np.pi])/8,
-                # maxval=np.array([ 20,  20,  10*np.pi,  20,  20,  20*np.pi])/8,
-                minval=-x_extent,
-                maxval=x_extent,
-            )
+            x_pts = sample_from_statespace(newkey, 10000, x_extent, problem_params, log_min_scale=-2)
 
             # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
@@ -1480,17 +1524,7 @@ def testbed(problem_params, algo_params):
 
     # test points, with increased density towards origin.
     N_testpts = 10000
-
-    test_pts_unscaled = jax.random.uniform(
-        key=jax.random.PRNGKey(213),
-        shape=(N_testpts, problem_params['nx']),
-        minval=np.array([-20, -20, -10*np.pi, -20, -20, -20*np.pi]),
-        maxval=np.array([ 20,  20,  10*np.pi,  20,  20,  20*np.pi]),
-    )
-
-    test_pts_scale = np.logspace(-2, 0, N_testpts)
-
-    test_pts = test_pts_unscaled * test_pts_scale[:, None]
+    test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent, problem_params, log_min_scale=-2)
 
     # @jax.jit
     def estimate_value_level(test_pts, params_sobolev_ens):

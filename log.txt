@@ -2484,14 +2484,15 @@ embedded. See Chang 2011 "simple proof". More comments in dump.
 
 TODO for a first implementation try: 
  - make branch 
- - restate the flatquad problem accordingly with sin/cos of theta
- - and manifold definition with constraint function
- - sanity check if two trajectories that should be equal are equal
-   and if they depend at all on the "unnecessary" costate boundary condition in normal direction
+ - restate the flatquad problem accordingly with sin/cos of theta (done)
+ - and manifold definition with constraint function (done)
+ - sanity check if two trajectories that should be equal are equal (done, they are)
+   and if they depend at all on the "unnecessary" costate boundary condition in normal direction (done, they don't)
  - figure out technicalities with terminal lqr only in tangent space (like twingtec
-   quaternion-lqr attitude controller) actually 
- - write loss function with tangent/normal projection
- - sanity check if the tangent/normal projections do what they should
+   quaternion-lqr attitude controller) actually (done)
+ - write loss function with tangent/normal projection (done)
+ - sanity check if the tangent/normal projections do what they should (done for 1 pt)
+ - also adapt accordingly every time we sample points from state space
  - new tuning params: 
    - normal direction regularisation loss strength
  - once all of this works for short-ish trajectories, see if we need baumgarte 
@@ -2529,3 +2530,40 @@ stuff. we've already established that it doesn't influence u* at all so only
 a concern if it becomes like NaN or really huge and messes up the entire ode
 solver.
 
+
+
+
+2024-04-03
+
+
+as said, plotting those costates in normal direction. looks alright actually! 
+they do not stay very close to zero, instead growing at rates about comparable
+to the state itself. perturbing the costate in normal direction, even very
+heavily, does not change the state trajectory at all (except for tiny noise
+due to ode solver). even the "normal costate" trajectory stays the same shape
+precisely, it is just shifted upwards and downwards respectively. this is
+pretty nice. 
+
+I expect that if/when we add baumgarte stabilisation for the state manifold
+this becomes a bit messier. if we add a stabilisation term (for backward time)
+to the dynamics function and then calculate the PMP solution, we should expect
+that as we are making the state stable (in normal space direction) the costate
+becomes correspondingly unstable in that direction, due to the volume
+preserving nature of the hamiltonian system.
+
+Maybe this is solved by using a backward-baumgarte-stabilised RHS in the state
+ODE, but giving the costate ODE (lambda' = -Hx) a forward-baumgarte-stabilised
+RHS. that way the state stays on the correct manifold (approximately), but the
+costate thinks we are solving an equation with unstable state in normal
+direction, so the costate *should* be stable in that direction, avoiding
+problems where it becomes huge.
+
+but this just as a thought for the future. ATM I am thinking the practical
+solution is just the use of a general purpose ODE solver without any manifold
+considerations, augmented by resetting to the correct manifold before
+continuing the solution in a subsequent solver call. (involving both
+projection to state manifold and setting "shit costate" to 0). this should
+work alright as we are anyways only integrating the trajectories in short
+segments. (would be further aided if we have a terminating event based on
+value so we don't integrate "highly dynamic" maneuvers [which incur large
+value and also risk throwing us off the state manifold] over too long)

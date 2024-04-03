@@ -2579,4 +2579,27 @@ value and also risk throwing us off the state manifold] over too long)
 
 further todo which I haven't written in yesterday's list until manifolds work:
  - make sure data normalisation doesn't mess it up -- it probably does atm
- - 
+ - adapt the visualisation to the new state repr
+   - maybe we can directly make it a quaternion? or just blindly use atan2...
+
+working on data normalisation atm. first training plots do not look stellar.
+trying to figure out if mistake. i suspect that either normalisation, or
+tangent space projection etc is still incorrect. 
+
+after doing a couple of nn training runs, it looks like the vx fit is better
+the lower the vx sobolev weight. definitely something sus going on here. 
+
+
+
+other idea (probably similar things written a couple days ago...): maybe
+instead of the heursitic of achieving a given time horizon that tells us how
+big of a level set we can expect to find in one active learning round, we can approach
+the problem much more pragmatically. something like:
+ - take the lowest-value 200 points that are both above v_k (probably? maybe?) and uncertain
+ - as long as most of them reach the Vk sublevel set, keep trying it with the
+   next higher 200 points and so on
+
+this will only stop once the extrapolation fails to stabilise the system,
+which may happen rather late. maybe clip it with an upper bound, rather
+generously chosen, based on the dv/dt considerations? 
+

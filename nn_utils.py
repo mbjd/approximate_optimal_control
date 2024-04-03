@@ -62,11 +62,13 @@ class data_normaliser(object):
         x_means = train_ode_states['x'].mean(axis=0)
         x_stds  = train_ode_states['x'].std(axis=0)
 
+        N_pts, nx = train_ode_states['x'].shape
+
         if 'normalise_states' in algo_params:
 
             normalise_mask = algo_params['normalise_states']
 
-            assert normalise_mask.shape == (problem_params['nx'],), 'statewise normalisation mask invalid (shape)'
+            assert normalise_mask.shape == (nx,), 'statewise normalisation mask invalid (shape)'
             assert normalise_mask.dtype == bool, 'statewise normalisation mask invalid (dtype)'
 
             # we do NOT normalise the states associated with the manifold. 
@@ -485,7 +487,7 @@ class nn_wrapper():
             if ys_test is not None:
                 k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
                 test_loss, test_loss_terms = self.sobolev_loss_batch_mean(
-                    k_test, nn_params_new, ys_test, algo_params
+                    k_test, nn_params_new, ys_test, problem_params, algo_params
                 )
                 aux_output['test_loss_terms'] = test_loss_terms
 

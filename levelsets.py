@@ -756,10 +756,7 @@ def testbed(problem_params, algo_params):
     ys_n = normaliser.normalise_all_dict(train_ys)
     test_ys_n = normaliser.normalise_all_dict(test_ys)
 
-    ipdb.set_trace()
-
     # plot_distributions(ys_n)
-    pl.show()
     # ipdb.set_trace()
 
 
@@ -795,7 +792,7 @@ def testbed(problem_params, algo_params):
     '''
 
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-        train_key, ys_n, problem_params, algo_params
+        train_key, ys_n, problem_params, algo_params, ys_test=test_ys_n
     )
 
     v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
@@ -808,7 +805,10 @@ def testbed(problem_params, algo_params):
 
     pl.figure()
     plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-    # pl.show()
+
+    pl.figure()
+    plotting_utils.plot_nn_train_outputs(jtm(itemgetter(0), oups_sobolev_ens))
+    pl.show()
 
 
     def v_meanstd(x, vmap_params):

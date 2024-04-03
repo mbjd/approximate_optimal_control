@@ -321,12 +321,8 @@ def plot_nn_train_outputs(outputs, alpha=.5, legend=True):
 
     # pl.figure('NN training visualisation', figsize=(15, 10))
 
-    # newer version for order 2 sobolev nn. outputs is a dict with keys:
-    # 'train_loss_terms', 'test_loss_terms':
-    # both containing a Nx3 array with loss terms for v, vx, vxx
-    # (just like returned by the training function)
-    # 'lr': (N,) array of learning rates
-
+    # make this great again? 
+    # (by handling nn ensemble case and absence of test data...)
 
     # training subplot
     ax = pl.subplot(211)
@@ -338,14 +334,14 @@ def plot_nn_train_outputs(outputs, alpha=.5, legend=True):
     if legend:
         pl.legend()
 
-    # training subplot
+    # test subplot
     ax = pl.subplot(212, sharex=ax, sharey=ax)
     ax.set_prop_cycle(None)
     pl.loglog(outputs['test_loss_terms'], label=('v', 'vx', 'vxx'), alpha=alpha)
     pl.ylabel('test losses (fixed PRNGKey)')
     pl.grid('on')
 
-    pl.loglog(outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.33)
+    pl.loglog(outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=alpha)
 
     if legend:
         pl.legend()

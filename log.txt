@@ -2575,3 +2575,8 @@ work alright as we are anyways only integrating the trajectories in short
 segments. (would be further aided if we have a terminating event based on
 value so we don't integrate "highly dynamic" maneuvers [which incur large
 value and also risk throwing us off the state manifold] over too long)
+
+
+further todo which I haven't written in yesterday's list until manifolds work:
+ - make sure data normalisation doesn't mess it up -- it probably does atm
+ - 

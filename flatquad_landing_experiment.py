@@ -818,6 +818,7 @@ if __name__ == '__main__':
         'nx': 7, # if manifold, the dimension of the ambient space, not the manifold!
         'state_names': ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega"),
 
+
         # constraint equation defining the state space manifold as its 0-levelset.
         # in this case only the unit circle for angle parameterisation. 
         # if R^n, set this to None
@@ -888,6 +889,11 @@ if __name__ == '__main__':
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': np.array([0.1, 1.]),
+
+
+        # tells the data normaliser to not normalise those states 
+        # (they are part of the unit circle anyway so we just leave them)
+        'normalise_states': np.array([True, True, False, False, True, True, True]),
 
         'nn_progressbar': True,
 

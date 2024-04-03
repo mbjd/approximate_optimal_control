@@ -616,7 +616,6 @@ def testbed(problem_params, algo_params):
         return solve_backward(state_f)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
-    ipdb.set_trace()
 
 
     def find_min_l(ys, v_lower, v_upper, problem_params):
@@ -728,7 +727,11 @@ def testbed(problem_params, algo_params):
 
 
 
-    # choose initial value level.
+    # choose initial value level. should we just blindly assume that below
+    # this value level we only have globally optimal solutions? then we could
+    # rapidly fill that sublevel set instead of being careful about
+    # collisions... but no way to verify the assumption besides praying
+
     # v_k = 1000 * problem_params['V_f']
     # v_k = np.inf  # fullest gas
     v_k = 5
@@ -748,10 +751,12 @@ def testbed(problem_params, algo_params):
     )
 
 
-    normaliser = nn_utils.data_normaliser(train_ys)
+    normaliser = nn_utils.data_normaliser(train_ys, problem_params, algo_params)
 
     ys_n = normaliser.normalise_all_dict(train_ys)
     test_ys_n = normaliser.normalise_all_dict(test_ys)
+
+    ipdb.set_trace()
 
     # plot_distributions(ys_n)
     pl.show()
@@ -1051,6 +1056,17 @@ def testbed(problem_params, algo_params):
 
         # if manifold, see special logic -- for those particular coordinates we sample uniformly form 
         # the manifold, without down scaling, and also completely ignoring the extent argument.
+
+        # also, maybe (especially for higher dims) ellipsids are better? a bit like this:
+        # - sample from unit normal
+        # - transform magnitude of samples such that they are uniform within unit ball 
+        #   (inverse transform normcdf chi squared something, i think I did this once)
+        # - squash with matrix A to transform to ellipse {z: || z.T inv(A).T inv(A) z || <= 1 }
+        # - sample from different scaled versions of this ellipse to avoid the soap bubble effect :) 
+
+        # but this is just an intuitive hunch, because for a uniform box most
+        # of the volume is at the  corners, where we might not want it. also
+        # these effects probably don't really kick in at like 6 to 12 dims.
 
         rnkey, manifoldkey = jax.random.split(key)
 
@@ -1542,8 +1558,16 @@ def testbed(problem_params, algo_params):
 
 
     # test points, with increased density towards origin.
+    # 10000 points doesn't even look like all that much on a plot, maybe we need more...
     N_testpts = 10000
-    test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent, problem_params, log_min_scale=-2)
+    extent = np.array([
+        20,  20,  # x and y, [m]
+        1., 1.,   # sinPhi and cosPhi [1] (but irrelevant -- see sampling fct)
+        20,  20,  # vx and vy, [m/s]
+        20*np.pi  # omega [rad/s]
+    ])
+
+    test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent, problem_params, log_min_scale=-4)
     ipdb.set_trace()
 
     # @jax.jit

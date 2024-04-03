@@ -627,6 +627,10 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
         # LQR control can be done on the tangent space of the manifold at equilibrium, 
         # but a couple technicalities are involved. 
 
+        # this also comes up almost verbatim in Tedrake's "Underactuated
+        # Robotics", section 8.3.3, "LQR on a manifold". But I swear I came up
+        # with it myself!
+
         m = problem_params['m']
 
 

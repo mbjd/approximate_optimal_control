@@ -41,84 +41,12 @@ def train_test_split(ys, train_frac=0.9):
 
 
 
-class coordinate_transformer(object):
-
-    '''
-
-    before fitting the NN, we like to transform the state to a different state
-    space, z = T(x). whereas the original state space is isomorphic to R^n and
-    thus easy for simulation and control theory, it often does not accurately
-    reflect state space topology. Thus we transform to a new state space which
-    is usually a nx-dimensional manifold embedded in R^nz (nz > nx).
-
-    For standard machine learning tasks this is trivial, but with gradient and
-    hessian observation we need to be careful to transform them correctly.
-    this class does that.
-
-    canonical example: if x is an angle theta, z can be [cos theta, sin theta].
-
-    we have a doppelt gemoppelt kind of situation here. The manifold Z is
-    defined in two ways:
-     - Z = T(X). whatevern the transformation sends the state space to
-     - Z = {z: c(z) = 0} with a constraint function c. 
-
-    The first gives an easy way to find a tangent space basis, the second 
-    a normal space basis. We could do with just one but then we'd have to do some
-    hacky SVD type stuff to find the other basis, subject to numerical errors. 
-    this also serves as a sanity check that the manifold is indeed what we defined 
-    it to be. 
-
-    -> update, maybe this is dumb. is it not simpler to just define the functions
-    V_nn(T(x)) in the loss, and differentiate the whole thing wrt x? 
-
-    '''
-
-    def __init__(self, problem_params):
-
-        assert 'T' in problem_params, 'coordinate transformation T must be given in problem_params'
-        assert 'c' in problem_params, 'constraint function c must be given in problem_params'
-
-        # if the functions have incorrect inputs/outputs i guess we will find out later
-
-        # T: X -> Z defines manifold as Z = T(X)
-        self.T = problem_params['T']
-        # c: R^nz -> R^(nz-nx) defines manifold as Z = {z: c(z) = 0}
-        self.c = problem_params['c']
-
-        # for these 'sanity check' evaluations it would be nice if the
-        # transformations don't have any sort of singularity at 0. 
-
-        # dimensionality of original state space
-        self.nx = problem_params['nx']
-        # dimensionality of euclidean space in which transformed state space is embedded
-        self.nz = self.T(np.zeros(self.nx)).shape[0]
-
-        ndiff = self.nz - self.nx
-        nc = self.c(np.zeros(self.nz)).shape[0]
-        if not ndiff == nc:
-            print('manifold dimensions somehow wrong.')
-            print(f'dim(original state space X) = {self.nx}')
-            print(f'dim(embedding space) = {self.nz}')
-            print(f'dim(constraint function) = {self.nc}')
-            raise ValueError('look at what I just printed dumbass')
-
-
-        dTdx = jax.jacobian(T)
-
-    def transform_y(y):
-
-        pass
-        # y a dict with entries 'x', 'v', 'vx' (, 'vxx' optionally)
-
-        # what do we want in the transformed version? 
-
-
 
 
 
 class data_normaliser(object):
 
-    def __init__(self, train_ode_states):
+    def __init__(self, train_ode_states, problem_params, algo_params):
 
         # train_ode_states: dict with entries 'x', 'v', 'vx'.
         # ['x'].shape == (N_pts, nx)
@@ -129,12 +57,34 @@ class data_normaliser(object):
         # then some standard differentiation rules tell us how vx and vxx
         # must be changed under the linear change of variables.
 
+        # could drop problem params again...
+
         x_means = train_ode_states['x'].mean(axis=0)
         x_stds  = train_ode_states['x'].std(axis=0)
+
+        if 'normalise_states' in algo_params:
+
+            normalise_mask = algo_params['normalise_states']
+
+            assert normalise_mask.shape == (problem_params['nx'],), 'statewise normalisation mask invalid (shape)'
+            assert normalise_mask.dtype == bool, 'statewise normalisation mask invalid (dtype)'
+
+            # we do NOT normalise the states associated with the manifold. 
+            # this keeps everything related to tangent/normal spaces nice and
+            # independent of the normalisation. I *think* this should work? 
+            # what we do though is squeeze the rest of the state space...
+            # so maybe it does affect which costate is penalised how much 
+            # in the sobolev loss function. maybe that is a good thing? as long
+            # as the vx values all stay in reasonable ranges...
+            dont_normalise = ~normalise_mask
+
+            x_means = x_means.at[dont_normalise].set(0)
+            x_stds  = x_stds.at[dont_normalise].set(1)
 
         self.normalise_x = lambda x: (x - x_means) / x_stds
         self.unnormalise_x = lambda xn: xn * x_stds + x_means
 
+        # maybe min/max would make more sense here? always put it in range [0, 1] or sth? 
         v_mean = train_ode_states['v'].mean()
         v_std  = train_ode_states['v'].std()
 

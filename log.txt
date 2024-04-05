@@ -2816,4 +2816,64 @@ finally, short meeting with bhavya. main points:
 
 
 
+2024-04-05
 
+at the moment I am preferring to nerd out about ODE solvers on manifolds
+rather than tackling the central task which are the active learning
+formulation and implementation... I think this is fine so long as it
+doesn't become an addiction. maybe it does \o/ put some additional thoughts
+on that on line 2500 in this file (todo list 2024-04-02 in case of change).
+
+current implementation issue: the Vnn function becomes negative or very
+small around the point (cosPhi, sinPhi) = (-1, 0), rest of state=0.
+yesterdday I decided a functional prior to "push up" the value function
+would be a good solution. but how exactly? priors in general just map to
+additional loss terms. the "prior loss term" probably should be evaluated
+at a separate set of points. should those be uniformly sampled from the
+state space? should they be also more dense around the origin? somehow I
+feel like uniform is better somehow. not exactly sure why.
+
+what loss term? we want the value function to be "pushed upwards" in some
+sense. this suggests that we want a loss whose gradient points upwards.
+maybe just abs(V - some large number)? technically we don't need the large
+number even, we can specify an unbounded loss of proportional to -V, which
+optimised on its own would be very problematic but used as a small
+regularisation like term maybe less so. would need to try to say for sure.
+
+at the same time we could also add a small penalty for vx to kind of
+"balance" the other term, so we still get overestimation of the value fct
+outside the region where we have data, but not at the expense of huge vx
+values.
+
+How do we handle this training? a) generate separate dataset w/ labels or
+b) generate test pts on the fly in training loop? b) seems more reasonable
+to me. first guess for implementation:
+ - do everything in the loss function
+ - in its definition, evaluate the data loss just like before.
+   additionally, evaluate the modified loss with some random datapoint
+   and add it with small factor.
+or would it be better to do this outside? that is:
+
+def prior_loss(y):
+    x = random x from suitable distr.
+    return abs(v_nn(x), large constant)
+
+def sobolev_loss_with_prior(y):
+    loss = sobolev_loss(y)
+    priorloss = prior_loss(y)
+    return loss + 0.01 * priorloss
+
+
+doing that atm. with literally the simplest prior loss -v, and loss
+strength of 1e-9. obviously the unbounded loss *could* cause issues.
+additional/alternative options:
+ - penalise ||vx|| slightly, AND push up v - they should work against each
+   other to a degree but make v large outside data while avoiding huge
+   gradients
+ - penalise ||vx - x|| or something? idea being that the optimiser of just
+   this loss is a quadratic function. or compare with lqr vx and penalise
+   that difference a tiny bit?
+
+in similar fashion we could also add a functional prior stein repulsion
+type term. but that would require pairwise interaction between nn ensemble
+members, complicating the implementation.

@@ -215,6 +215,43 @@ class nn_wrapper():
         return means, stds
 
 
+    def sobolev_loss_with_prior(self, key, y, params, problem_params, algo_params):
+
+        # calculates the usual sobolev loss BUT adds a functional prior
+        # loss to it. here we could also slightly regularise ||vx||^2 to make
+        # it low-ish outside of the data region.
+
+        # also for a single data point, vmap outside.
+
+        sobolev_key, prior_key = jax.random.split(key)
+
+        original_loss, loss_terms = self.sobolev_loss(sobolev_key, y, params, problem_params, algo_params)
+
+        # evaluate the prior loss at a random point.
+        extent = np.array([20, 20, 0., 0., 20, 20, 20])  # put in algo_params too?
+        prior_x = algo_params['sample_state'](prior_key, extent)
+        v_pred = self.nn.apply(params, prior_x)
+
+        # the forbidden thing!!! unbounded loss function.
+
+        # this trivially has a gradient that serves to "push up" the value
+        # function, but only weakly, so it only happens outside of the data
+        # region. we'll see if it works.
+
+        # this could make the total loss negative which would be weird
+        # though. probably good enough to plot it separately though...
+        # might as well make it bounded by changing to abs(v_pred - 100000)
+        # or just -v_pred+100000...
+        prior_loss = -v_pred
+
+        total_loss = original_loss + algo_params['pushup_prior_strength'] * prior_loss
+
+        # i am at a:
+        return total_loss, loss_terms
+
+        # maybe it would be neater to make loss_terms a dict, then we can
+        # just throw the original & prior loss in there separately?
+
 
     def sobolev_loss(self, key, y, params, problem_params, algo_params):
 
@@ -237,11 +274,11 @@ class nn_wrapper():
 
 
         v_pred = self.nn.apply(params, y['x'])
+
         # does the same if jacobian is replaced by grad, jacfwd, jacrev \o/
-        # apparently jacobian is an alias of jacrev.
+        # apparently jacobian = jacrev. grad is also reverse-mode.
         # jacfwd is definitely not smart here (n arguments, 1 output)
         vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
-
 
         v_loss  = (v_pred - y['v' ]) ** 2
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
@@ -386,6 +423,19 @@ class nn_wrapper():
         return np.mean(losses), np.mean(loss_terms, axis=0)
 
 
+    def sobolev_loss_with_prior_batch_mean(self, k, params, ys, problem_params, algo_params):
+
+        # the size of the actual batch, not what algo_params says.
+        # then we can use the same function e.g. for evaluating loss on test set.
+        ks = jax.random.split(k, ys['x'].shape[0])
+
+        losses, loss_terms = jax.vmap(self.sobolev_loss_with_prior, in_axes=(0, 0, None, None, None))(ks, ys, params, problem_params, algo_params)
+
+        # mean across batch dim.
+        # should be scalar and (3,) respectively.
+        return np.mean(losses), np.mean(loss_terms, axis=0)
+
+
 
     @filter_jit
     def train_sobolev(self, key, ys, nn_params, problem_params, algo_params, ys_test=None):
@@ -459,9 +509,14 @@ class nn_wrapper():
         def update_step(key, ys, opt_state, params):
 
             # differentiate the whole thing wrt argument 1 = nn params.
-            (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_batch_mean, argnums=1, has_aux=True)(
-                key, params, ys, problem_params, algo_params
-            )
+            if algo_params['pushup_prior_strength'] != 0:
+                (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_with_prior_batch_mean, argnums=1, has_aux=True)(
+                    key, params, ys, problem_params, algo_params
+                )
+            else:
+                (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_batch_mean, argnums=1, has_aux=True)(
+                    key, params, ys, problem_params, algo_params
+                )
 
             updates, opt_state = optim.update(grad, opt_state)
             params = optax.apply_updates(params, updates)

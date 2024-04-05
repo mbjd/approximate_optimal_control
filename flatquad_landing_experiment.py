@@ -875,6 +875,10 @@ if __name__ == '__main__':
         # but normal to the state manifold.
         'vx_normal_regularisation': 0.001,
 
+        # the amount by which the value function is pushed upwards as a
+        # "prior". needs to be very weak compared to data!
+        'pushup_prior_strength': 1e-7,
+
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla

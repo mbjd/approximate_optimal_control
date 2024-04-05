@@ -877,7 +877,7 @@ if __name__ == '__main__':
 
         # the amount by which the value function is pushed upwards as a
         # "prior". needs to be very weak compared to data!
-        'pushup_prior_strength': 1e-7,
+        'pushup_prior_strength': 1e-5,
 
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),

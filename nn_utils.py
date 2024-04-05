@@ -242,7 +242,10 @@ class nn_wrapper():
         # though. probably good enough to plot it separately though...
         # might as well make it bounded by changing to abs(v_pred - 100000)
         # or just -v_pred+100000...
-        prior_loss = -v_pred
+        # prior_loss = -v_pred
+        v_prior = 500
+        prior_loss = (v_pred/v_prior - 1)**2
+        # v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
 
         total_loss = original_loss + algo_params['pushup_prior_strength'] * prior_loss
 
@@ -280,7 +283,27 @@ class nn_wrapper():
         # jacfwd is definitely not smart here (n arguments, 1 output)
         vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
 
-        v_loss  = (v_pred - y['v' ]) ** 2
+        # basic version. worked just fine
+        v_loss  = (v_pred - y['v']) ** 2
+
+        # all of these should have effects similar to a log transform
+        # man why am I jiggling around the bottom cards of the card house?
+
+        # linear log approx = cheap scaling?
+        # v_loss =  (v_pred / y['v'] - 1)**2
+        # -> did not work
+
+        # adapted to not "stregthen" loss too much for tiny labels
+        # 1 + x = smoothed max(1, x)
+        # replace the 1 with the smallest order of magnitude we want to be
+        # accurate at.
+        v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
+        # v_loss =  (v_pred / y['v'] - 1)**2
+
+        # rmsle loss.
+        # ran into nan as expected \o/.
+        # v_loss = np.log((1 + y['v']) / (1 + v_pred))**2
+
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
 
         if problem_params['m'] is not None:

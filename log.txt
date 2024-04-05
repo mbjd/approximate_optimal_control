@@ -2792,6 +2792,12 @@ again corresponding to "noisier" data. from a purely numerical standpoint
 that is probably even quite accurate (if we assume the error is somehow
 proportional to atol + rtol * ||ode state||...)
 
+update, this https://arxiv.org/pdf/2301.05579.pdf has an entry about a
+"Root Mean Squared Logarithmic Error Loss", basically:
+    l = log(1 + y_k) - log(1 + f(x_k)) = log((1 + y_k) / (1 + f(x_k)))
+is this what we should be looking for? does look like it is suited for
+uniform-ish "relative accuracy".
+
 
 
 
@@ -2824,8 +2830,34 @@ formulation and implementation... I think this is fine so long as it
 doesn't become an addiction. maybe it does \o/ put some additional thoughts
 on that on line 2500 in this file (todo list 2024-04-02 in case of change).
 
-current implementation issue: the Vnn function becomes negative or very
-small around the point (cosPhi, sinPhi) = (-1, 0), rest of state=0.
+
+
+
+
+trying out that relative v loss instead (see note yesterday about "Root
+Mean Squared Logarithmic Error Loss", and other comment a few days ago I
+can't find rn). was astonishingly easy and seems to actually work! just
+replaced
+    v_loss  = (v_pred - y['v']) ** 2
+by
+    v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
+the latter is basically the same as the old one for y['v'] << 1, but
+becomes scaled down for larger labels. this is connected to the log
+transformed loss:
+    l(x, y) = (log(1 + y) - log(1 + f(x)))**2
+by replacing both logs with their 1st taylor approx about 1+y, which is
+log(1+y+dy) = log(1+y) + 1/(1+y) dy. Thus the transformed loss becomes
+    l(x, y) = ( log(1+y) - log(1+y) - 1/(1+y) (f(x) - y) )**2
+            =                       ( 1/(1+y) (f(x) - y) )**2
+which is exactly what we replaced in the code. very neat! this will
+(hopefully...?) make normalisation along the y axis unnecessary as well.
+very cool, one might almost say HUGE if true.
+
+
+
+
+current implementation issue though: the Vnn function becomes negative or
+very small around the point (cosPhi, sinPhi) = (-1, 0), rest of state=0.
 yesterdday I decided a functional prior to "push up" the value function
 would be a good solution. but how exactly? priors in general just map to
 additional loss terms. the "prior loss term" probably should be evaluated
@@ -2866,14 +2898,78 @@ def sobolev_loss_with_prior(y):
 
 doing that atm. with literally the simplest prior loss -v, and loss
 strength of 1e-9. obviously the unbounded loss *could* cause issues.
+and indeed it seems that for a tiny range of strengths around like 1e-6 it
+kind of seems to work, but the tuning is way too sensitive to be practical
+imo.
+
+next attempt: loss proportional to (v - 100000)**2. ideally this "large
+constant" would be adjusted to always be like 10x or 100x higher than the
+data distribution, and the loss strength as well. this would probably be
+easier if we did a log transform for the value function, or emulated that
+somehow with a log scaled loss function.
+
+or, considering the below definition of the loss scaled by the y label,
+just do the same with the prior loss -- namely,
+
+(v - v_prior) / (1 + v_prior) ≈ (v - v_prior)/v_prior = (v/v_prior - 1)
+
+doing a parameter sweep on that now. still the tuning seems a bit
+sensitive, looks like nothing happens below 0.1 and above ~5 it blows up
+(although, within the data region it still stays accurate and low sigma
+which is neat). doing a second sweep from 0.1 to 10, while also monitoring
+smallest v mean among all points with cosPhi<0.
+
+it seems at least initially the lowest v actually decreases! always between
+-5 and -6 though. and the trajectory data seems to do just what we want,
+outside of the data region. maybe the lower part of the manifold is still
+considered "inside" somehow?
+
+okay, now there is still a point where it suddenly goes from very slight
+effect (and still wrong negative Vs) to completely messing up the
+extrapolation. maybe this is just fundamentally how the optimum behaves as
+a function of prior strength parameter? not much at all, then suddently
+moving much faster? would kind of make sense intuitively.
+
+But it makes me think that at least this kind of functional prior (trying
+to push V up unboundedly but weakly) is not what we should be doing.
+
+
 additional/alternative options:
  - penalise ||vx|| slightly, AND push up v - they should work against each
    other to a degree but make v large outside data while avoiding huge
-   gradients
+   gradients. but surely still hard to tune...
  - penalise ||vx - x|| or something? idea being that the optimiser of just
    this loss is a quadratic function. or compare with lqr vx and penalise
-   that difference a tiny bit?
+   that difference a tiny bit? BUT well, lqr value function stays zero in
+   normal space direction, which is exactly where the issue currently
+   appears.
+ - calculate not the gradient but the jvp <vx, x> and encourage "outward
+   growth" based on that
+ - do the same but with lower v_prior? (trying that rn, last thing today)
+   seems actually not too bad at first glance! then we just have constant
+   v=v_prior way outside the known region. we should be able to work with
+   that just fine...
 
 in similar fashion we could also add a functional prior stein repulsion
 type term. but that would require pairwise interaction between nn ensemble
 members, complicating the implementation.
+
+completely different (from yesterday, no functional prior, initially rejected)
+ - somehow demand/ensure that the current sublevel set be connected? (but
+   maybe those "bad regions" are connected to the current set?)
+ - only propose points with distance to data < some threshold? seems hacky
+ - ignore it, and throw out the failed forward sims later
+   (and write an acquisition function that does not ONLY choose wrong pts)
+ - but wait, for estimating the currently known level we cannot ignore
+   it, if we do that the obvious way at least...
+
+
+
+
+
+other random implementation thoughts:
+ - switch system state to dict as well? x = {'x': 0.1, 'sinPhi': 0.7} etc.
+ - switch aux output of loss function to dict? then we can more easily look
+   at / plot the prior loss etc.
+
+man this daily log volume is getting out of hand...

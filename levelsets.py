@@ -703,97 +703,7 @@ def testbed(problem_params, algo_params):
 
 
 
-    # choose initial value level. should we just blindly assume that below
-    # this value level we only have globally optimal solutions? then we could
-    # rapidly fill that sublevel set instead of being careful about
-    # collisions... but no way to verify the assumption besides praying
 
-    # v_k = 1000 * problem_params['V_f']
-    # v_k = np.inf  # fullest gas
-    v_k = 5
-
-    # to get a feel for when the linearisation stops being accurate.
-    # important: this is only valid when we have a good covering of the
-    # sublevel set, which with initial data we don't. also maybe doing
-    # something like this for vx would be more meaningful?
-    solution_vs = sols_orig.ys['v'].reshape(-1)
-    lqr_vs = jax.vmap(V_f)(sols_orig.ys['x'].reshape(-1, problem_params['nx']))
-    pl.figure('lqr V vs trajectory V')
-    pl.loglog(lqr_vs, solution_vs, '. ', alpha=.2)
-
-    all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
-
-    # split into train/test set.
-
-    # put in the lqr solution hehehe (for v_k like 5 it is practically the same...)
-    # fake_ys = all_ys.copy()
-    # fake_ys['v'] = jax.vmap(V_f)(all_ys['x'])
-    # fake_ys['vx'] = jax.vmap(jax.jacobian(V_f))(all_ys['x'])
-    # train_ys, test_ys = nn_utils.train_test_split(fake_ys, train_frac=algo_params['nn_train_fraction'])
-
-    train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
-
-
-    v_nn = nn_utils.nn_wrapper(
-        input_dim=problem_params['nx'],
-        layer_dims=algo_params['nn_layerdims'],
-        output_dim=1
-    )
-
-
-    normaliser = nn_utils.data_normaliser(train_ys, problem_params, algo_params)
-
-    ys_n = normaliser.normalise_all_dict(train_ys)
-    test_ys_n = normaliser.normalise_all_dict(test_ys)
-
-    # plot_distributions(ys_n)
-    # ipdb.set_trace()
-
-
-
-
-
-    init_key, key = jax.random.split(key)
-    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
-
-
-    # test loss fct to pdb with concrete values.
-    sol = jtm(itemgetter(12), sols_orig)
-    y = jtm(itemgetter(12), sol.ys)
-    loss = v_nn.sobolev_loss(key, y, params_init, problem_params, algo_params)
-
-    # to get a feel for over/underparameterisation.
-    n_params = count_floats(params_init)
-    n_data = count_floats(train_ys)
-    print(f'params/data ratio = {n_params/n_data:.4f}')
-
-    train_key, key = jax.random.split(key)
-
-    params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-        train_key, ys_n, problem_params, algo_params, ys_test=test_ys_n
-    )
-
-    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-
-    idx = 20
-    sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
-
-    # pl.figure()
-    # plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
-
-    pl.figure('trajectory vs NN')
-    plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-
-    # misuse the plotting function to compare trajectories w/ lqr solution.
-    # it seems like all the optimal control stuff checks out indeed -- we
-    # do have V_lqr(x(t)) ≈ v(t) along the initial part of the solutions.
-    pl.figure('trajectory vs LQR value fct')
-    plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
-
-    pl.figure('training run')
-    for j in range(algo_params['nn_ensemble_size']):
-        plotting_utils.plot_nn_train_outputs(jtm(itemgetter(j), oups_sobolev_ens), alpha=.1, legend=j==0)
-    pl.show()
 
 
     def v_meanstd(x, vmap_params):
@@ -1480,7 +1390,8 @@ def testbed(problem_params, algo_params):
         jax.random.PRNGKey(123), N_testpts, x_extent, log_min_scale=-2
     )
 
-    ipdb.set_trace()
+
+
     # TODO maybe? also some persistent "buffer" where we mark the test pts
     # at which we once had both low sigma and V + couple times σ <= vk.
     # this should "robustify" against the NN occasionally doing dumb stuff.
@@ -1549,6 +1460,133 @@ def testbed(problem_params, algo_params):
 
         return v_k
 
+
+
+    # choose initial value level. should we just blindly assume that below
+    # this value level we only have globally optimal solutions? then we could
+    # rapidly fill that sublevel set instead of being careful about
+    # collisions... but no way to verify the assumption besides praying
+
+    # v_k = 1000 * problem_params['V_f']
+    # v_k = np.inf  # fullest gas
+    v_k = 5
+
+    # to get a feel for when the linearisation stops being accurate.
+    # important: this is only valid when we have a good covering of the
+    # sublevel set, which with initial data we don't. also maybe doing
+    # something like this for vx would be more meaningful?
+    solution_vs = sols_orig.ys['v'].reshape(-1)
+    lqr_vs = jax.vmap(V_f)(sols_orig.ys['x'].reshape(-1, problem_params['nx']))
+    pl.figure('lqr V vs trajectory V')
+    pl.loglog(lqr_vs, solution_vs, '. ', alpha=.2)
+
+    all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
+
+    # split into train/test set.
+
+    # put in the lqr solution hehehe (for v_k like 5 it is practically the same...)
+    # fake_ys = all_ys.copy()
+    # fake_ys['v'] = jax.vmap(V_f)(all_ys['x'])
+    # fake_ys['vx'] = jax.vmap(jax.jacobian(V_f))(all_ys['x'])
+    # train_ys, test_ys = nn_utils.train_test_split(fake_ys, train_frac=algo_params['nn_train_fraction'])
+
+    train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
+
+
+    v_nn = nn_utils.nn_wrapper(
+        input_dim=problem_params['nx'],
+        layer_dims=algo_params['nn_layerdims'],
+        output_dim=1
+    )
+
+
+    normaliser = nn_utils.data_normaliser(train_ys, problem_params, algo_params)
+
+    ys_n = normaliser.normalise_all_dict(train_ys)
+    test_ys_n = normaliser.normalise_all_dict(test_ys)
+
+    # plot_distributions(ys_n)
+    # ipdb.set_trace()
+
+
+
+
+
+    init_key, key = jax.random.split(key)
+    params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+
+    # test loss fct to pdb with concrete values.
+    sol = jtm(itemgetter(12), sols_orig)
+    y = jtm(itemgetter(12), sol.ys)
+    loss = v_nn.sobolev_loss(key, y, params_init, problem_params, algo_params)
+
+    # to get a feel for over/underparameterisation.
+    n_params = count_floats(params_init)
+    n_data = count_floats(train_ys)
+    print(f'params/data ratio = {n_params/n_data:.4f}')
+
+    train_key, key = jax.random.split(key)
+
+    params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
+        train_key, ys_n, problem_params, algo_params, ys_test=test_ys_n
+    )
+
+    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+
+    idx = 20
+    sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
+
+    # pl.figure()
+    # plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
+
+    pl.figure('trajectory vs NN')
+    plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
+
+    # misuse the plotting function to compare trajectories w/ lqr solution.
+    # it seems like all the optimal control stuff checks out indeed -- we
+    # do have V_lqr(x(t)) ≈ v(t) along the initial part of the solutions.
+    pl.figure('trajectory vs LQR value fct')
+    plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
+
+    pl.figure('training run')
+    for j in range(algo_params['nn_ensemble_size']):
+        plotting_utils.plot_nn_train_outputs(jtm(itemgetter(j), oups_sobolev_ens), alpha=.1, legend=j==0)
+    pl.show()
+
+    # test those loss functions.
+    params0 = jtm(itemgetter(0), params_sobolev_ens)
+    loss, terms = v_nn.sobolev_loss(key, y, params0, problem_params, algo_params)
+    loss_p, terms_p = v_nn.sobolev_loss_with_prior(key, y, params0, problem_params, algo_params)
+
+    ipdb.set_trace()
+
+    # small parameter sweep over that unbounded prior loss strength.
+    for j, strength in enumerate(np.logspace(-1, 1, 10)):
+
+        # set param, train nn.
+        algo_params['pushup_prior_strength'] = strength.item()
+        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(train_key, ys_n, problem_params, algo_params)
+
+        # plot trajectory vs nn fit, and mean/std plot.
+        pl.figure()
+        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
+        pl.ylim([-20, 20])
+        pl.savefig(f'tmp/traj_{j:03d}_{strength.item():.8f}.png')
+        pl.close('all')
+
+        pl.figure()
+        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
+        pl.semilogy(v_means, v_stds, '. ', alpha=.1)
+        pl.xlim([-50,50])
+        pl.ylim([1e-1, 1e3])
+        pl.savefig(f'tmp/meanstd_{j:03d}_{strength.item():.8f}.png')
+
+
+        v_means_alt = v_means + (np.inf * test_pts[:, 3] > 0)
+        lowest_v = v_means_alt.min()
+        print(f'j = {j}, strength = {strength}')
+        print(f'min v in lower half of manifold: {lowest_v}')
 
 
     all_ys = sols_orig.ys

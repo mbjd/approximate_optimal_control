@@ -1018,76 +1018,6 @@ def testbed(problem_params, algo_params):
 
         return v_next
 
-    def sample_from_statespace(key, N, extent, problem_params, log_min_scale=0):
-
-        if not (problem_params['system_name'] == 'flatquad' and problem_params['state_names'] == ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega")):
-            raise NotImplementedError('This sampling function is problem specific and will need to be recoded for a new problem :*(')
-
-
-        # sample points "uniformly" from "the whole state space".
-
-        # not actually uniform if log_min_scale != 0, then half of the points are
-        # scaled down so we don't miss the small volume around the origin.
-        # TODO this fails if x_eq != 0...
-
-        # not "the whole state space" because obviously that is unbounded and we have to restrict
-        # ourselves to a box given by -extent <= x <= extent.
-
-        # if manifold, see special logic -- for those particular coordinates we sample uniformly form
-        # the manifold, without down scaling, and also completely ignoring the extent argument.
-
-        # also, maybe (especially for higher dims) ellipsids are better? a bit like this:
-        # - sample from unit normal
-        # - transform magnitude of samples such that they are uniform within unit ball
-        #   (inverse transform normcdf chi squared something, i think I did this once)
-        # - squash with matrix A to transform to ellipse {z: || z.T inv(A).T inv(A) z || <= 1 }
-        # - sample from different scaled versions of this ellipse to avoid the soap bubble effect :)
-
-        # but this is just an intuitive hunch, because for a uniform box most
-        # of the volume is at the  corners, where we might not want it. also
-        # these effects probably don't really kick in at like 6 to 12 dims.
-
-        rnkey, manifoldkey = jax.random.split(key)
-
-        # generate uniform points from a box in R^n
-        x_pts = jax.random.uniform(
-            key=rnkey,
-            shape=(N, problem_params['nx']),
-            minval=-extent,
-            maxval= extent,
-        )
-
-        # if log_min_scale != 0, this will scale half the points down with a
-        # logarithmically scaled factor, while the other half will stay the same.
-        scales = np.clip(np.logspace(log_min_scale, -log_min_scale, N), -np.inf, 1.)[:, None]
-        x_pts = x_pts * scales
-
-        if problem_params['m'] is not None:
-
-            # we are dealing with a manifold state space :o
-
-            # here we are just hard coding uniform sampling over the unit circle
-            # for unit quaternions for SO(3) this would work much the same
-            # but in general this will need a bespoke solution for each manifold :(
-
-            # this really irks me that we have to code problem specific stuff here.
-            # can we specify the manifold in a way that makes this more general?
-            # should this be part of problem_params?
-
-            # generate 2D gaussian points & normalise
-            xys = jax.random.normal(key=manifoldkey, shape=(N, 2))
-            xys = xys / np.linalg.norm(xys, axis=1)[:, None]
-
-            # indices of sinPhi and cosPhi states.
-            assert problem_params['state_names'][2] == 'sinPhi'
-            assert problem_params['state_names'][3] == 'cosPhi'
-            x_pts = x_pts.at[:, 2:4].set(xys)
-
-            # if we instead generate this by drawing Phi ~ U[-pi, pi]
-            # we can apply the same scaling logic to the angle and only
-            # then convert to ambient space representation...
-
-        return x_pts
 
     def propose_pts(key, v_k, v_next, vmap_nn_params, x_extent):
 
@@ -1110,7 +1040,9 @@ def testbed(problem_params, algo_params):
 
             newkey, key = jax.random.split(key)
 
-            x_pts = sample_from_statespace(newkey, 10000, x_extent, problem_params, log_min_scale=-2)
+            x_pts = algo_params['sample_states_batched'](
+                newkey, 10000, x_extent, log_min_scale=-2
+            )
 
             # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
@@ -1534,15 +1466,21 @@ def testbed(problem_params, algo_params):
     # test points, with increased density towards origin.
     # 10000 points doesn't even look like all that much on a plot, maybe we need more...
     N_testpts = 100000
-    extent = np.array([
+
+    # keep this "hardcoded" here? put in algoparams? make some heuristic to
+    # adapt based on data?
+    x_extent = np.array([
         20,  20,  # x and y, [m]
         1., 1.,   # sinPhi and cosPhi [1] (but irrelevant -- see sampling fct)
         20,  20,  # vx and vy, [m/s]
         20*np.pi  # omega [rad/s]
     ])
 
-    test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent/4, problem_params, log_min_scale=-2)
+    test_pts = algo_params['sample_states_batched'](
+        jax.random.PRNGKey(123), N_testpts, x_extent, log_min_scale=-2
+    )
 
+    ipdb.set_trace()
     # TODO maybe? also some persistent "buffer" where we mark the test pts
     # at which we once had both low sigma and V + couple times σ <= vk.
     # this should "robustify" against the NN occasionally doing dumb stuff.
@@ -1682,9 +1620,6 @@ def testbed(problem_params, algo_params):
         # maybe better to put equilibrium instead of 0?
         # also a safety factor if data doesn't "catch" everything.
         # all_x shape = (N_trajs, N_ts, nx)
-        x_extent = 2 * np.abs(all_x_masked).max(axis=(0,1))
-        with np.printoptions(precision=2, suppress=True, linewidth=np.inf):
-            print(f'x extent = {x_extent}')
 
         # nicer version would be some sort of HMC sampler to find many points
         # from Vk+1 \ Vk (or from Vk+1, followed by rejection sampling, probably easier)

@@ -894,7 +894,6 @@ if __name__ == '__main__':
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': np.array([0.1, 10.]),
 
-
         # tells the data normaliser to not normalise those states
         # y-axis (v) is still scaled and with it vx.
         # 'normalise_states': np.array([True, True, False, False, True, True, True]),
@@ -917,6 +916,84 @@ if __name__ == '__main__':
         'sigma_target_abs': 0.5,
         'sigma_target_rel': 0.01,
     }
+
+    def sample_states_batched(key, N, extent, log_min_scale=0):
+
+        # vmapped version of the above, but also scales down half the
+        # points with logspace'd distribution.
+
+        # maybe the "scaling" should also be part of the sampling fct?
+        # stochastic not determinstic? probably only cosmetic though
+
+        keys = jax.random.split(key, N)
+
+        # if log_min_scale != 0, this will scale half the points down with a
+        # logarithmically scaled factor, while the other half will stay the same.
+        scales = np.clip(np.logspace(log_min_scale, -log_min_scale, N), -np.inf, 1.)[:, None]
+
+        pts = jax.vmap(sample_state, in_axes=(0, None, 0))(keys, extent, scales)
+
+        pts = pts * scales
+
+        return pts
+
+    def sample_state(key, extent, scale=1.):
+
+        # sample points "uniformly" from "the whole state space".
+        # problem specific function! thus outside in problem_params.
+
+        # key: usual PRNG key
+        # extent: np.array of shape (nx,). [-extent, extent] are the box
+        #   bounds for uniform sampling. Manifold states cosPhi, sinPhi
+        #   treated separately so their "extent" is irrelevant.
+        # scale: scales the sample by some scalar.
+
+        # TODO think about what happens when x_eq != 0 -- just add it here?
+
+        # maybe (especially for higher dims) ellipsids are better? a bit like this:
+        # - sample from unit normal
+        # - transform magnitude of samples such that they are uniform within unit ball
+        #   (inverse transform normcdf chi squared something, i think I did this once)
+        # - squash with matrix A to transform to ellipse {z: || z.T inv(A).T inv(A) z || <= 1 }
+        # - sample from different scaled versions of this ellipse to avoid the soap bubble effect :)
+
+        # but this is just an intuitive hunch, because for a uniform box most
+        # of the volume is at the corners, where we might not want it. also
+        # these effects probably don't really kick in at like 6 to 12 dims.
+
+
+        # separate the "flat" R^n part and the manifold part.
+        rnkey, manifoldkey = jax.random.split(key)
+
+        # generate uniform points from a box in R^n
+        x_pt = jax.random.uniform(
+            key=rnkey,
+            shape=extent.shape,
+            minval=-extent,
+            maxval= extent,
+        ) * scale
+
+
+        # for the manifold part: uniform sampling from unit circle.
+
+        # if we instead generate this by drawing Phi ~ U[-pi, pi]
+        # we can apply the same scaling logic to the angle and only
+        # then convert to ambient space representation...
+
+        # generate 2D gaussian & normalise
+        xy = jax.random.normal(key=manifoldkey, shape=(2,))
+        xy = xy / np.linalg.norm(xy)
+
+        # indices of sinPhi and cosPhi states.
+        assert problem_params['state_names'][2] == 'sinPhi'
+        assert problem_params['state_names'][3] == 'cosPhi'
+        x_pt = x_pt.at[2:4].set(xy)
+
+        return x_pt
+
+    # just pass on the entire functions :)
+    algo_params['sample_state'] = sample_state
+    algo_params['sample_states_batched'] = sample_states_batched
 
 
     # lqr_sanitycheck(problem_params, algo_params)

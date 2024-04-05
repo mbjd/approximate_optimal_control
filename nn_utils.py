@@ -71,11 +71,11 @@ class data_normaliser(object):
             assert normalise_mask.shape == (nx,), 'statewise normalisation mask invalid (shape)'
             assert normalise_mask.dtype == bool, 'statewise normalisation mask invalid (dtype)'
 
-            # we do NOT normalise the states associated with the manifold. 
+            # we do NOT normalise the states associated with the manifold.
             # this keeps everything related to tangent/normal spaces nice and
-            # independent of the normalisation. I *think* this should work? 
+            # independent of the normalisation. I *think* this should work?
             # what we do though is squeeze the rest of the state space...
-            # so maybe it does affect which costate is penalised how much 
+            # so maybe it does affect which costate is penalised how much
             # in the sobolev loss function. maybe that is a good thing? as long
             # as the vx values all stay in reasonable ranges...
             dont_normalise = ~normalise_mask
@@ -86,7 +86,7 @@ class data_normaliser(object):
         self.normalise_x = lambda x: (x - x_means) / x_stds
         self.unnormalise_x = lambda xn: xn * x_stds + x_means
 
-        # maybe min/max would make more sense here? always put it in range [0, 1] or sth? 
+        # maybe min/max would make more sense here? always put it in range [0, 1] or sth?
         v_mean = train_ode_states['v'].mean()
         v_std  = train_ode_states['v'].std()
 
@@ -235,25 +235,26 @@ class nn_wrapper():
         # v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
         # maybe that is better? if squeeze()ing at the end of nn definition, shapes are the same
 
-        nn_apply_fct = self.nn.apply
-
 
         v_pred = self.nn.apply(params, y['x'])
+        # does the same if jacobian is replaced by grad, jacfwd, jacrev \o/
+        # apparently jacobian is an alias of jacrev.
+        # jacfwd is definitely not smart here (n arguments, 1 output)
         vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
 
 
         v_loss  = (v_pred - y['v' ]) ** 2
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
 
-        if problem_params['m'] is not None: 
+        if problem_params['m'] is not None:
 
             assert algo_params['nn_sobolev_weights'].shape == (2,), 'vxx not implemented with manifold state space'
 
-            # in this case the state space is a submanifold M = {x in R^n: m(x) = 0}. 
+            # in this case the state space is a submanifold M = {x in R^n: m(x) = 0}.
 
             # we still define the NN for inputx in ambient space R^n. v loss
-            # stays the same, but vx loss has to be adjusted so we only take 
-            # derivatives in tangent space directions. 
+            # stays the same, but vx loss has to be adjusted so we only take
+            # derivatives in tangent space directions.
 
             # We do this by constructing an orthonormal basis for normal
             # space, based on constraint function m.
@@ -262,16 +263,20 @@ class nn_wrapper():
             #  1. define m such that B is always an orthonormal basis (and sanity check)
             #  2. (ortho?)normalise it here after calculating the jacobian
             #  3. use the pseudoinverse in the projection instead of transpose.
-            # if going for 3 and maybe also 2, it could be worth doing it in advance? 
+            # if going for 3 and maybe also 2, it could be worth doing it in advance?
 
             # if B is indeed a orthonormal basis of the normal space, then we should have:
             # B.T @ B = I  (B is semi-orthogonal, B @ B.T != I)
-            # instead of checking this numerically which would be cumbersome with jit, we 
+            # instead of checking this numerically which would be cumbersome with jit, we
             # demand that b is actually just a vector in which case it just needs to be normed.
 
-            # cheap version of 1. by assuming the normal space is only 1-dimensional 
-            B = jax.jacobian(problem_params['m'])(y['x'])  
+            # cheap version of 1. by assuming the normal space is only 1-dimensional
+            B = jax.jacobian(problem_params['m'])(y['x'])
             assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
+
+            # also, if X is the cartesian product of several independent
+            # manifolds of co-dimension 1, all vectors \nabla_x m(x) are
+            # pairwise orthogonal, and constructing our basis stays simple.
 
             # and normalise just for good measure.
             B = B / np.linalg.norm(B)
@@ -284,10 +289,16 @@ class nn_wrapper():
             P_tangent = np.eye(problem_params['nx']) - P_normal
 
             # ipdb.set_trace()
-            # we multiply these projections from the RIHGT. because the inner product we want to 
+            # we multiply these projections from the RIHGT. because the inner product we want to
             # describe is <vx, P vec> = vx.T P vec. Then we just penalise the whole linear operator
-            # vx.T P instead of the inner product with some random ass vec. 
+            # vx.T P instead of the inner product with some random ass vec.
             # but it doesn't even matter because both of these projections are symmetric \o/
+
+            # really this is just a particular matrix norm applied to the
+            # vx error:
+            # || vx_error.T @ P_tangent ||^2 = || P_tangent @ vx_error ||^2
+            # = <P vx_err, P vx_err> = vx_err.T @ P.T @ P @ vx_err
+            # = || vx_err ||_{P.T@P}^2
             vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
 
             vx_reg_loss = algo_params['vx_normal_regularisation'] * np.sum( (vx_pred @ P_normal)**2 )
@@ -394,7 +405,7 @@ class nn_wrapper():
            maybe we can also initially train with v and vx and only "fine-tune" with the hessian?
 
          - loss includes (optionally) the hessian error. specifically a stochastic approximation
-           of it: a hessian-vector product with a randomly chosen direction vector. idea from 
+           of it: a hessian-vector product with a randomly chosen direction vector. idea from
            Czarnecki et al.: https://arxiv.org/abs/1706.04859
 
          - testset generation not in here. do it using train_test_split in this file. pass
@@ -429,8 +440,8 @@ class nn_wrapper():
 
         total_decay = algo_params['lr_final'] / algo_params['lr_init']
 
-        # regardless of whether or not steps are used, the decay rate 
-        # sets the decay *per transition step*. 
+        # regardless of whether or not steps are used, the decay rate
+        # sets the decay *per transition step*.
         lr_schedule = optax.exponential_decay(
                 init_value = algo_params['lr_init'],
                 transition_steps = total_iters // N_lr_steps,
@@ -475,9 +486,9 @@ class nn_wrapper():
             aux_output = {
                 'lr': lr_schedule(opt_state[0].count),
                 'train_loss_terms': loss_terms,
-                # outputting ALL params here is possible but not recommended. 
+                # outputting ALL params here is possible but not recommended.
                 # will use huge memory and slow everything down (update, it seems equally fast during training...)
-                # anyway vmapping the whole trainign procedure gives much better model diversity out of the box. 
+                # anyway vmapping the whole trainign procedure gives much better model diversity out of the box.
                 # 'params': nn_params_new,
             }
 
@@ -516,8 +527,8 @@ class nn_wrapper():
     @filter_jit
     def train_sobolev_ensemble(self, key, ys, problem_params, algo_params, ys_test=None):
 
-        # train ensemble by vmapping the whole training procedure with different prng key. 
-        # now the key affects both initialisation and batch selection for each nn. 
+        # train ensemble by vmapping the whole training procedure with different prng key.
+        # now the key affects both initialisation and batch selection for each nn.
 
         init_key, train_key = jax.random.split(key)
         init_keys = jax.random.split(init_key, algo_params['nn_ensemble_size'])
@@ -527,7 +538,7 @@ class nn_wrapper():
 
         # to trick around the optional argument. there is probably a neater way...
         train_with_key_and_params = lambda k, params_init: self.train_sobolev(k, ys, params_init, problem_params, algo_params, ys_test=ys_test)
-        
+
         return jax.vmap(train_with_key_and_params, in_axes=(0, 0))(train_keys, vmap_params_init)
 
 
@@ -535,7 +546,7 @@ class nn_wrapper():
     def train_sobolev_ensemble_from_params(self, key, ys, init_params_vmap, problem_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with
-        # different prng key AND from vmapped params. 
+        # different prng key AND from vmapped params.
 
         # is this implemented in some very wrong way? does this add another
         # axis of vmapping? suspiciously slow atm but only when passing test

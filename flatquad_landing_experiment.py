@@ -260,17 +260,17 @@ def current_weird_experiment(problem_params, algo_params):
 
 def manifold_testing(problem_params, algo_params):
 
-    # first, adapt this function to work at all. 
+    # first, adapt this function to work at all.
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
     # okay, it works :) returns K and P defined for full state space but only
-    # calculates them in tangent space. 
+    # calculates them in tangent space.
 
-    # sanity checked (in pdb): u* stays the same if we change the costate along the 
+    # sanity checked (in pdb): u* stays the same if we change the costate along the
     # "irrelevant" direction [0, 0, 0, 1, 0, 0, 0] (in normal space)
-    # this is because when considered members of T*x M they are the same. 
+    # this is because when considered members of T*x M they are the same.
 
-    # test whether (forward) baumgarte stabilisation works. 
-    # seems that it does :) 
+    # test whether (forward) baumgarte stabilisation works.
+    # seems that it does :)
     def forward_sim_lqr(x0):
 
         def forwardsim_rhs(t, x, args):
@@ -310,29 +310,29 @@ def manifold_testing(problem_params, algo_params):
             u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
             xdot = problem_params['f'](x, u)
 
-            # make a stabilisation term orthogonal to the dynamics, meaning: in the direction of the normal space. 
+            # make a stabilisation term orthogonal to the dynamics, meaning: in the direction of the normal space.
 
             m_eval = problem_params['m'](x)
 
-            # this is an "outward" normal -- it points to the outside of the unit circle. 
+            # this is an "outward" normal -- it points to the outside of the unit circle.
             # might as well just choose (sinPhi, cosPhi)...
-            # maybe we can not worry about inward/outward if instead we define a potential 
+            # maybe we can not worry about inward/outward if instead we define a potential
             # like ||m(x)||^2 and then travel down its gradient?
             normal_dir = jax.jacobian(problem_params['m'])(x)
 
-            # if outside the circle, then m_eval > 0, but we want to be travelling inwards. 
-            # assuming that m(x) has unit norm jacobian on the manifold M, we can calculate the time constant! 
+            # if outside the circle, then m_eval > 0, but we want to be travelling inwards.
+            # assuming that m(x) has unit norm jacobian on the manifold M, we can calculate the time constant!
             # or can we? while we know that the manifold is an invariant of the system, in principle the formula
             # used to extend the RHS to the ambient space could already contain a baumgarte type DEstabilisation
             # term! in general, that formula could be arbitrarily bad!
 
-            # do we just "assume" that the dynamics of the invariant m is marginally stable, i.e. 
+            # do we just "assume" that the dynamics of the invariant m is marginally stable, i.e.
             #    d/dt m(x(t)) = 0
-            # even for points slightly off the manifold? 
+            # even for points slightly off the manifold?
 
-            # or would the proper way of doing this consist not in ADDING a stabilisation term in 
-            # normal direction, but by REPLACING the whole rhs in that direction with something stable? 
-            # probably equivalent to first projecting xdot on the tangent space. this is probably the 
+            # or would the proper way of doing this consist not in ADDING a stabilisation term in
+            # normal direction, but by REPLACING the whole rhs in that direction with something stable?
+            # probably equivalent to first projecting xdot on the tangent space. this is probably the
             # nice and practical way to do it. then the "normal" dynamics are neutrally stable in all cases.
 
             # let's postpone this for later and just keep a close eye on the plots of m(x(t)).
@@ -365,7 +365,7 @@ def manifold_testing(problem_params, algo_params):
 
 
 
-    # next step: backward shooting with PMP. 
+    # next step: backward shooting with PMP.
     # first, naively using the same function as before. should work for short times.
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
@@ -377,15 +377,15 @@ def manifold_testing(problem_params, algo_params):
         # P_lqr = hessian of value fct.
         # everything else follows from usual differentiation rules.
 
-        # this too becomes kind of hairy in the manifold case. the LQR value function 
-        # is naturally defined ONLY on the tangent space at x_eq. if we naively use 
-        # the formula here to extend it to the manifold and whole ambient space, 
-        # we are just defining the value function everywhere to be: 
+        # this too becomes kind of hairy in the manifold case. the LQR value function
+        # is naturally defined ONLY on the tangent space at x_eq. if we naively use
+        # the formula here to extend it to the manifold and whole ambient space,
+        # we are just defining the value function everywhere to be:
         #  projection \Delta x (x = x_eq + \Delta x) to tangent space
         #  evaluation of tangent space value function at that point
-        # which seems reasonable for small, "linearisable" regions around x_eq and seems 
+        # which seems reasonable for small, "linearisable" regions around x_eq and seems
         # to produce quite precisely the same trajectories as the old local coordinates approach.
-        # so we are happy and can keep this code verbatim in the main version :) 
+        # so we are happy and can keep this code verbatim in the main version :)
 
         v_f = 0.5 * x_f.T @ P_lqr @ x_f
         vx_f = P_lqr @ x_f
@@ -397,7 +397,7 @@ def manifold_testing(problem_params, algo_params):
             'vx': vx_f,
         }
 
-        # no vxx here. 
+        # no vxx here.
 
         return solve_backward(state_f)
 
@@ -407,10 +407,9 @@ def manifold_testing(problem_params, algo_params):
 
     sols_backward = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
- 
 
 
-    '''
+
     # do the same with the old version (local coordinates instead of R^n embedding.)
     # hopefully sols will be the same...
     old_problem_params, old_algo_params = old_params()
@@ -436,12 +435,12 @@ def manifold_testing(problem_params, algo_params):
             'vx': vx_f,
         }
 
-        # no vxx here. 
+        # no vxx here.
 
         return solve_backward_old(state_f)
 
-    # transform between "old" (= local coordinates) and "new" (= embedded in R^n) 
-    # representation. 
+    # transform between "old" (= local coordinates) and "new" (= embedded in R^n)
+    # representation.
     def old_to_new(x):
         return np.concatenate([
             x[0:2],  # posx, posy
@@ -451,7 +450,7 @@ def manifold_testing(problem_params, algo_params):
 
     def new_to_old(x):
         # verified experimentally: thetas = np.arctan2(np.sin(thetas), np.cos(thetas))
-        # because old_to_new is not globally invertible this inverts its restriction on 
+        # because old_to_new is not globally invertible this inverts its restriction on
         # the domain -pi/2 < theata < pi/2 or something like that.
         return np.concatenate([
             x[0:2],  # posx, posy
@@ -479,7 +478,7 @@ def manifold_testing(problem_params, algo_params):
         pl.plot(sol_new.ts, sol_new.ys['x'], '. ', c='C0', alpha=1/2)
         pl.plot(interp_ts, jax.vmap(sol_new.evaluate)(interp_ts)['x'], c='C0', alpha=1/2)
 
-        # old solution also transformed to embedded manifold repr. 
+        # old solution also transformed to embedded manifold repr.
         pl.plot(sol_old.ts, jax.vmap(old_to_new)(sol_old.ys['x']), '. ', c='C1', alpha=1/2)
         pl.plot(interp_ts, jax.vmap(old_to_new)(jax.vmap(sol_old.evaluate)(interp_ts)['x']), c='C1', alpha=1/2)
 
@@ -538,9 +537,8 @@ def manifold_testing(problem_params, algo_params):
     pl.subplot(212)
     pl.plot(sols_test.ts.reshape(-1), shit_costates, alpha=1/3, label='normal direction costate for different inits')
     pl.legend()
- 
-    '''
 
+    '''
     import nn_utils
 
     v_nn = nn_utils.nn_wrapper(
@@ -557,6 +555,7 @@ def manifold_testing(problem_params, algo_params):
 
     # def sobolev_loss(self, key, y, params, problem_params, algo_params):
     loss = v_nn.sobolev_loss(key, y, params, problem_params, algo_params)
+    '''
 
     pl.show()
     ipdb.set_trace()
@@ -820,7 +819,7 @@ if __name__ == '__main__':
 
 
         # constraint equation defining the state space manifold as its 0-levelset.
-        # in this case only the unit circle for angle parameterisation. 
+        # in this case only the unit circle for angle parameterisation.
         # if R^n, set this to None
         # the dimension of the manifold is nx - dim(m(x))
         # / 2 so its jacobian is normalised.
@@ -830,7 +829,7 @@ if __name__ == '__main__':
         'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
 
         'nu': 2,
-        # if ever treating slightly bigger systems it would pay to frame this 
+        # if ever treating slightly bigger systems it would pay to frame this
         # as a general convex polytope described by Ax <= b.
         'U_interval': [np.zeros(2), umax*np.ones(2)],
 
@@ -868,18 +867,18 @@ if __name__ == '__main__':
         'throw': False,
 
         # penalisation of the extra value derivative which is defined in the ambient space
-        # but normal to the state manifold. 
-        'vx_normal_regularisation': 0.01,
+        # but normal to the state manifold.
+        'vx_normal_regularisation': 0.001,
 
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
-        'nn_N_epochs': 64,
+        'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.001,
 
         'nn_ensemble_size': 8,
 
@@ -888,12 +887,13 @@ if __name__ == '__main__':
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': np.array([0.1, 1.]),
+        'nn_sobolev_weights': np.array([0.1, 10.]),
 
 
-        # tells the data normaliser to not normalise those states 
+        # tells the data normaliser to not normalise those states
         # (they are part of the unit circle anyway so we just leave them)
-        'normalise_states': np.array([True, True, False, False, True, True, True]),
+        # 'normalise_states': np.array([True, True, False, False, True, True, True]),
+        'normalise_states': np.array([False, False, False, False, False, False, False]),
 
         'nn_progressbar': True,
 

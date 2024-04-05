@@ -532,7 +532,7 @@ def testbed(problem_params, algo_params):
     # find terminal LQR controller and value function.
     # ultimately generate the function unitsphere_to_dXf
 
-    # in manifold case, this is still something which we should do purely 
+    # in manifold case, this is still something which we should do purely
     # on the tangent space...
     if problem_params['m'] is not None:
         K_lqr, P_lqr, Proj_tangent = pontryagin_utils.get_terminal_lqr(problem_params, return_tangent_projection=True)
@@ -549,8 +549,8 @@ def testbed(problem_params, algo_params):
 
         # same as below, except we project the (ambient space) point to the tangent space
         # and then back. this has no affine part though and the nonzero x_eq is disregarded,
-        # so we change it to a lambda function which includes that. 
-        # and finally, we project back to the manifold using the provided function. 
+        # so we change it to a lambda function which includes that.
+        # and finally, we project back to the manifold using the provided function.
         unitsphere_to_dXf_linear = Proj_tangent.T @ np.linalg.inv(L_lqr_tangent) @ Proj_tangent * np.sqrt(problem_params['V_f']) * np.sqrt(2)
         unitsphere_to_dXf = lambda x: problem_params['project_M'](problem_params['x_eq'] + x.T @ unitsphere_to_dXf_linear)
 
@@ -583,7 +583,7 @@ def testbed(problem_params, algo_params):
     vfs = jax.vmap(V_f)(xfs)
 
     # this is not that precise in the manifold case.
-    # nevertheless we continue and assume that for small enough V_f it will still kind of work :) 
+    # nevertheless we continue and assume that for small enough V_f it will still kind of work :)
     # assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
 
@@ -642,30 +642,6 @@ def testbed(problem_params, algo_params):
         all_ls_masked = all_ls + (is_outside_valueband * np.nan)
 
         min_l = np.nanmin(all_ls_masked)
-        return min_l
-
-
-
-    def find_min_l_alt(sols, v_lower, v_upper, problem_params):
-
-        # first extract the data, then calculate u* and l.
-        # seems to actually be slower than the other one :(
-
-        def l_of_y(y):
-            x = y['x']
-            vx = y['vx']
-            u = pontryagin_utils.u_star_2d(x, vx, problem_params)
-            return problem_params['l'](x, u)
-
-        # add NaN to every x with v(x) > v_k
-        is_outside_valueband = ~np.logical_and(v_lower <= sols.ys['v'], sols.ys['v'] <= v_upper)
-
-        ys_relevant = jtm(lambda n: n[~is_outside_valueband], sols.ys)
-
-        # double vmap because we have N_trajectories x N_timesteps ys
-        all_ls = jax.vmap(l_of_y)(ys_relevant)
-
-        min_l = np.nanmin(all_ls)
         return min_l
 
 
@@ -736,10 +712,24 @@ def testbed(problem_params, algo_params):
     # v_k = np.inf  # fullest gas
     v_k = 5
 
+    # to get a feel for when the linearisation stops being accurate.
+    # important: this is only valid when we have a good covering of the
+    # sublevel set, which with initial data we don't. also maybe doing
+    # something like this for vx would be more meaningful?
+    solution_vs = sols_orig.ys['v'].reshape(-1)
+    lqr_vs = jax.vmap(V_f)(sols_orig.ys['x'].reshape(-1, problem_params['nx']))
+    pl.figure('lqr V vs trajectory V')
+    pl.loglog(lqr_vs, solution_vs, '. ', alpha=.2)
 
     all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
 
     # split into train/test set.
+
+    # put in the lqr solution hehehe (for v_k like 5 it is practically the same...)
+    # fake_ys = all_ys.copy()
+    # fake_ys['v'] = jax.vmap(V_f)(all_ys['x'])
+    # fake_ys['vx'] = jax.vmap(jax.jacobian(V_f))(all_ys['x'])
+    # train_ys, test_ys = nn_utils.train_test_split(fake_ys, train_frac=algo_params['nn_train_fraction'])
 
     train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
 
@@ -766,30 +756,18 @@ def testbed(problem_params, algo_params):
     init_key, key = jax.random.split(key)
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
+
+    # test loss fct to pdb with concrete values.
+    sol = jtm(itemgetter(12), sols_orig)
+    y = jtm(itemgetter(12), sol.ys)
+    loss = v_nn.sobolev_loss(key, y, params_init, problem_params, algo_params)
+
     # to get a feel for over/underparameterisation.
     n_params = count_floats(params_init)
     n_data = count_floats(train_ys)
     print(f'params/data ratio = {n_params/n_data:.4f}')
 
     train_key, key = jax.random.split(key)
-    '''
-    # train once with new sobolev loss...
-    params_sobolev, oups_sobolev = v_nn.train_sobolev(
-        train_key, ys_n, params_init, algo_params, ys_test=test_ys_n
-    )
-
-
-    # # and once without
-    # algo_params_fake = algo_params.copy()
-    # algo_params_fake['nn_sobolev_weights'] = algo_params['nn_sobolev_weights'].at[2].set(0.)
-    # train_key, key = jax.random.split(key)
-    # params, oups = v_nn.train_sobolev(
-    #         train_key, ys_n, params_init, algo_params_fake, ys_test=test_ys_n
-    # )
-
-    pl.figure('sobolev with vxx')
-    plotting_utils.plot_nn_train_outputs(oups_sobolev)
-    '''
 
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
         train_key, ys_n, problem_params, algo_params, ys_test=test_ys_n
@@ -803,11 +781,18 @@ def testbed(problem_params, algo_params):
     # pl.figure()
     # plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
 
-    pl.figure()
+    pl.figure('trajectory vs NN')
     plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
 
-    pl.figure()
-    plotting_utils.plot_nn_train_outputs(jtm(itemgetter(0), oups_sobolev_ens))
+    # misuse the plotting function to compare trajectories w/ lqr solution.
+    # it seems like all the optimal control stuff checks out indeed -- we
+    # do have V_lqr(x(t)) ≈ v(t) along the initial part of the solutions.
+    pl.figure('trajectory vs LQR value fct')
+    plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
+
+    pl.figure('training run')
+    for j in range(algo_params['nn_ensemble_size']):
+        plotting_utils.plot_nn_train_outputs(jtm(itemgetter(j), oups_sobolev_ens), alpha=.1, legend=j==0)
     pl.show()
 
 
@@ -1047,22 +1032,22 @@ def testbed(problem_params, algo_params):
 
         # sample points "uniformly" from "the whole state space".
 
-        # not actually uniform if log_min_scale != 0, then half of the points are 
+        # not actually uniform if log_min_scale != 0, then half of the points are
         # scaled down so we don't miss the small volume around the origin.
         # TODO this fails if x_eq != 0...
 
-        # not "the whole state space" because obviously that is unbounded and we have to restrict 
-        # ourselves to a box given by -extent <= x <= extent. 
+        # not "the whole state space" because obviously that is unbounded and we have to restrict
+        # ourselves to a box given by -extent <= x <= extent.
 
-        # if manifold, see special logic -- for those particular coordinates we sample uniformly form 
+        # if manifold, see special logic -- for those particular coordinates we sample uniformly form
         # the manifold, without down scaling, and also completely ignoring the extent argument.
 
         # also, maybe (especially for higher dims) ellipsids are better? a bit like this:
         # - sample from unit normal
-        # - transform magnitude of samples such that they are uniform within unit ball 
+        # - transform magnitude of samples such that they are uniform within unit ball
         #   (inverse transform normcdf chi squared something, i think I did this once)
         # - squash with matrix A to transform to ellipse {z: || z.T inv(A).T inv(A) z || <= 1 }
-        # - sample from different scaled versions of this ellipse to avoid the soap bubble effect :) 
+        # - sample from different scaled versions of this ellipse to avoid the soap bubble effect :)
 
         # but this is just an intuitive hunch, because for a uniform box most
         # of the volume is at the  corners, where we might not want it. also
@@ -1085,17 +1070,17 @@ def testbed(problem_params, algo_params):
 
         if problem_params['m'] is not None:
 
-            # we are dealing with a manifold state space :o 
+            # we are dealing with a manifold state space :o
 
             # here we are just hard coding uniform sampling over the unit circle
             # for unit quaternions for SO(3) this would work much the same
             # but in general this will need a bespoke solution for each manifold :(
 
-            # this really irks me that we have to code problem specific stuff here. 
-            # can we specify the manifold in a way that makes this more general? 
-            # should this be part of problem_params? 
+            # this really irks me that we have to code problem specific stuff here.
+            # can we specify the manifold in a way that makes this more general?
+            # should this be part of problem_params?
 
-            # generate 2D gaussian points & normalise    
+            # generate 2D gaussian points & normalise
             xys = jax.random.normal(key=manifoldkey, shape=(N, 2))
             xys = xys / np.linalg.norm(xys, axis=1)[:, None]
 
@@ -1105,18 +1090,14 @@ def testbed(problem_params, algo_params):
             x_pts = x_pts.at[:, 2:4].set(xys)
 
             # if we instead generate this by drawing Phi ~ U[-pi, pi]
-            # we can apply the same scaling logic to the angle and only 
+            # we can apply the same scaling logic to the angle and only
             # then convert to ambient space representation...
 
         return x_pts
 
     def propose_pts(key, v_k, v_next, vmap_nn_params, x_extent):
 
-
         value_interval = [v_k, v_next]
-
-
-
 
         # ~~~ b) find uniformly sampled points from value band w/ rejection sampling ~~~
 
@@ -1151,6 +1132,12 @@ def testbed(problem_params, algo_params):
             # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
 
             # only be optimistic for the outer boundary instead.
+            # inner boundary is a) relatively low-σ and b) nothing happens
+            # if we are a bit wrong about it.
+            # or, actually, should we be optimistic there too? then we get
+            # an outer approximation of the lower sublevel set, meaning we
+            # don't propose points *right* at the boundary which could be
+            # good right?
             is_in_range = np.logical_and(value_interval[0] <= v_means, optimistic_vs <= value_interval[1])
 
             interesting_x0s = x_pts[is_in_range]
@@ -1196,16 +1183,12 @@ def testbed(problem_params, algo_params):
         if proposal_strategy == 'softmax':
             # scale -> 0 results in just the N_proposals points with highest std being chosen.
             # scale -> infinity results in the proposals being sampled uniformly at random.
-            std_scale = 3
+            # the whole behaviour is quite sensitive to this parameter,
+            # best to leave it close to unity
+            # std_scale = 3
             std_scale = .5
 
-            # weights = np.exp(v_stds / std_scale)
-            # ps = weights / np.sum(weights)
-            # is this not just a softmax function?
-            # -> yes, it is :)
-
             ps = jax.nn.softmax(v_stds / std_scale)
-
             proposals = jax.random.choice(key, all_valueband_pts, shape=(N_proposals,), replace=False, p=ps)
 
             all_idxs = np.arange(N_proposals)
@@ -1460,7 +1443,7 @@ def testbed(problem_params, algo_params):
 
         # look ma no test data
         params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-            train_key, ys_n, problem_params, algo_params
+            train_key, ys_n, problem_params, algo_params, test_ys_n
         )
 
         # warm started version
@@ -1559,7 +1542,7 @@ def testbed(problem_params, algo_params):
 
     # test points, with increased density towards origin.
     # 10000 points doesn't even look like all that much on a plot, maybe we need more...
-    N_testpts = 10000
+    N_testpts = 100000
     extent = np.array([
         20,  20,  # x and y, [m]
         1., 1.,   # sinPhi and cosPhi [1] (but irrelevant -- see sampling fct)
@@ -1567,8 +1550,11 @@ def testbed(problem_params, algo_params):
         20*np.pi  # omega [rad/s]
     ])
 
-    test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent, problem_params, log_min_scale=-4)
-    ipdb.set_trace()
+    test_pts = sample_from_statespace(jax.random.PRNGKey(123), N_testpts, extent/4, problem_params, log_min_scale=-2)
+
+    # TODO maybe? also some persistent "buffer" where we mark the test pts
+    # at which we once had both low sigma and V + couple times σ <= vk.
+    # this should "robustify" against the NN occasionally doing dumb stuff.
 
     # @jax.jit
     def estimate_value_level(test_pts, params_sobolev_ens):
@@ -1598,9 +1584,26 @@ def testbed(problem_params, algo_params):
 
         pl.figure()
 
+
+        N_m = 500
+        thetas = np.linspace(0, 2*np.pi, N_m)
+        manifold = np.column_stack([
+            np.zeros(500),
+            np.zeros(500),
+            np.sin(thetas),
+            np.cos(thetas),
+            np.zeros(500),
+            np.zeros(500),
+            np.zeros(500),
+        ])
+
+        image_means, image_stds = v_meanstds(manifold, params_sobolev_ens)
+
         pl.xlabel('v mean')
         pl.ylabel('v std')
-        pl.loglog(v_means, v_stds, '. ')
+        pl.loglog(v_means, v_stds, '. ', alpha=.05)
+        pl.loglog(image_means, image_stds, alpha=.2, color='red')
+
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
         vmin, vmax = v_means.min(), v_means.max()
         plot_vs = np.linspace(vmin, vmax, 1000)
@@ -1639,6 +1642,8 @@ def testbed(problem_params, algo_params):
             # v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
             v_k = estimate_value_level(test_pts, params_sobolev_ens)
 
+        pl.show()
+        ipdb.set_trace()
         vks.append(v_k)
 
 

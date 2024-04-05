@@ -2219,7 +2219,7 @@ same coin, but still w important differences.
 
 
 
-2023-03-25
+2024-03-25
 
 
 made draft of selecting v_k+1 based on dv/dt and a max time horizon, something
@@ -2236,7 +2236,7 @@ goals tomorrow.
 
 
 
-2023-03-26
+2024-03-26
 
 made a draft of the train_and_prune function. adjusted nn ensemble code so
 PRNG key would also randomise initialisaiton (previously the whole ensemble
@@ -2392,7 +2392,7 @@ that as value increases so does uncertainty fundamentally.
 put the above atol/rtol type parameters and ran a couple relatively
 unsuccessful experiments.
 
-(update: the implicit assumption here is that the manifold is embedded in 
+(update: the implicit assumption here is that the manifold is embedded in
 an ambient euclidean space)
 
 been reading some more geometric (= on manifolds) optimal control theory.
@@ -2465,10 +2465,10 @@ this is a bit of a different way to control "propagation speed",  with the
 density of test points (we can also put more near the origin like currently
 done). Because atm we frequently observe 100% of the forward simulations
 reaching the lower level set I have the hunch that we might be a bit more
-aggressive. 
+aggressive.
 
 this might solve the issue that we don't find points within the value band,
-which might also  just be too narrow. 
+which might also  just be too narrow.
 
 this also makes the propose_pts function jittable probably :)
 
@@ -2476,14 +2476,14 @@ and second idea: the problem of uncertainties rising again could be practically 
 by storing for each test point the smallest sigma ever recorded there, and using that in
 the value level estimation rather than the current one. the idea being, even if the currently
 fitted NN is unsure there, we have demonstrated that it is possible to get a good v/vx estimate
-there. maybe also only record small sigmas if they are inside the value level set? 
+there. maybe also only record small sigmas if they are inside the value level set?
 
 
 and finally third idea: do everything in ambient space in which manifold is
-embedded. See Chang 2011 "simple proof". More comments in dump. 
+embedded. See Chang 2011 "simple proof". More comments in dump.
 
-TODO for a first implementation try: 
- - make branch 
+TODO for a first implementation try:
+ - make branch
  - restate the flatquad problem accordingly with sin/cos of theta (done)
  - and manifold definition with constraint function (done)
  - sanity check if two trajectories that should be equal are equal (done, they are)
@@ -2493,16 +2493,16 @@ TODO for a first implementation try:
  - write loss function with tangent/normal projection (done)
  - sanity check if the tangent/normal projections do what they should (done for 1 pt)
  - also adapt accordingly every time we sample points from state space (done)
- - new tuning params: 
+ - new tuning params:
    - normal direction regularisation loss strength (done)
- - once all of this works for short-ish trajectories, see if we need baumgarte 
+ - once all of this works for short-ish trajectories, see if we need baumgarte
    -> probably not! for 5 second horizon the extent to which we stray off the manifold
       stays at a couple times 1e-5. because we are planning to integrate in short segments,
       this is not much of an issue. probably it will be just fine if we:
-       a) terminate the integration once it is at a much higher value level which 
+       a) terminate the integration once it is at a much higher value level which
           is definitely not (yet) interesting
        b) when that level does become interesting and we want to resume the trajectory,
-          then project the state back to the manifold and the costate back to the 
+          then project the state back to the manifold and the costate back to the
           cotangent space (i.e. set unnecessary "normal costate" to 0)
 
 
@@ -2530,7 +2530,7 @@ off half the day! but some good things do happen. perfect time to call it a
 day. m(x) does grow to about 1e-5 in magnitude for a time horizon of 5 sec.
 maybe if we only ever use this short horizon we get away with not doing any
 baumgarte stabilisation, but projecting back on the manifold every time we
-"continue" the solution? would be neat. 
+"continue" the solution? would be neat.
 
 next tiny goal for tomorrow: look at the unnecessary costate (inner product of
 costate on R^n with normal space direction) to see if it does some weird
@@ -2544,13 +2544,13 @@ solver.
 2024-04-03
 
 
-as said, plotting those costates in normal direction. looks alright actually! 
+as said, plotting those costates in normal direction. looks alright actually!
 they do not stay very close to zero, instead growing at rates about comparable
 to the state itself. perturbing the costate in normal direction, even very
 heavily, does not change the state trajectory at all (except for tiny noise
 due to ode solver). even the "normal costate" trajectory stays the same shape
 precisely, it is just shifted upwards and downwards respectively. this is
-pretty nice. 
+pretty nice.
 
 I expect that if/when we add baumgarte stabilisation for the state manifold
 this becomes a bit messier. if we add a stabilisation term (for backward time)
@@ -2584,10 +2584,10 @@ further todo which I haven't written in yesterday's list until manifolds work:
 
 working on data normalisation atm. first training plots do not look stellar.
 trying to figure out if mistake. i suspect that either normalisation, or
-tangent space projection etc is still incorrect. 
+tangent space projection etc is still incorrect.
 
 after doing a couple of nn training runs, it looks like the vx fit is better
-the lower the vx sobolev weight. definitely something sus going on here. 
+the lower the vx sobolev weight. definitely something sus going on here.
 
 
 
@@ -2601,5 +2601,199 @@ the problem much more pragmatically. something like:
 
 this will only stop once the extrapolation fails to stabilise the system,
 which may happen rather late. maybe clip it with an upper bound, rather
-generously chosen, based on the dv/dt considerations? 
+generously chosen, based on the dv/dt considerations?
+
+
+
+
+2024-04-04
+
+high level todo list, copied&updated from 2024-03-26. mostly the same bc
+i've only been working on proper implementation of manifold stuff...
+
+
+immediate, most important:
+
+- make sure the prune&train function does what it should do
+  (really gravitating towards "aggressive" pruning. having no data in
+  small regions is better than having contradictory data in small regions)
+
+- fix Vnn going below value level when it is definitely outside
+  (see comment below)
+
+- test it and try to find nicer acquisition functions etc.
+
+- start writing...?
+
+implementation "details":
+
+- fix current bug prob. to do with data normalisation & manifold...
+
+- either a) baumgarte for backward shooting or b) back projection (to M x
+  T*xM, meaning project x to M and set unnecessary costate to 0) before
+  resuming trajectory & some mechanism to not integrate for "too long". In
+  all cases, monitor |m(x)| in dataset & warn if not tiny.
+
+- fix practical issue with uncertainty increasing again. generally, find
+  more "robust" way to mark points as "known", combining uncertainty, value
+  sublevel set (probable) membership, maybe others. maybe even dumb hack
+  such as just marking test points "known" permanently even if sigma
+  becomes "too large" again.
+
+- find a way to use constant sized datasets by thinning out the data for
+  "past" low values.
+
+- use the data we already have in the value level band before generating new
+  data. optimally somehow "fuse" it into the active learning process too so we
+  don't blindly extend ALL trajectories leading to ever growing dataset
+
+- make sure everything that can be jitted is jitted
+
+- move some of the hardcoded constants in to algo_params
+
+- find sensibe algo tuning. esp. with regards to:
+  - length of trajectories to balance memory & recalculation load
+  - proposed vs achieved step size.
+
+- data normalisation updating? atm we keep it constant to the initial
+  scaling. is it a better idea to change it (periodically? every
+  iteration?)
+
+very long term stuff:
+
+- everything else like general explicit acitve set cvx opti / optimisation
+  constrained ODE -> switched DAE reformulation
+
+
+
+first, debugging shit nn fits. turning off data normalisation -- data
+happens to be nicely scaled, a bit less than unity in most directions but
+not hugely so. did not improve things. even turned off everything related
+to tangent space, now we try to literally fit the v and vx straight from
+PMP solutions -- no luck.
+
+suspecting error in pontryagin stuff after all. but after plotting
+trajectory vs lqr solution (v and vx) they do match up perfectly at the
+start. actually for ALL the trajectories we have, below the small value
+level of 5, with a loglog plot of v_trajectory vs v_lqr(x_trajectory), it
+is basically a line. ruling this one out. there is some gradient fuckery
+going on in the training procedure.
+
+increasing epochs from 64 to 512, and lr_final from .0001 to .001 made the
+example with "fake" (lqr) data work nicely it seems. was it really this
+simple? trying it (in ipdb) with actual data too, and it looks good!
+
+okay, putting the tangent projection of costate loss back in. as expected,
+some costates show a great fit, while others are completely off. actually,
+precisely two of them are off, and it looks like they are the right ones --
+the ones for cosPhi and sinPhi states. that is good! still zero normal
+space regularisation. trying that next.
+
+seems to work perfectly! with very weak (0.001) regularisation terms the
+unnecessary costate is 0.something near the origin. it seems my streak of
+luck has resumed after a short pause!! will need to see how the normal
+regularisation does if we actually use the whole manifold.
+
+turning normalisation back on, just for y axis though. still works
+perfectly! HOWEVER, turning on statewise normalisation by changing
+
+'normalise_states': np.array([False, False, False, False, False, False, False]),
+
+to
+
+'normalise_states': np.array([True, True, False, False, True, True, True]),
+
+in algo_params makes everything worse again! i think we isolated the bug.
+kind of makes sense that probably we did some linalg wrong when doing the
+tangent space projection stuff... let's rethink that. or actually, atm just
+keep the first option \o/
+
+
+
+
+
+
+looking at the v_means vs v_stds scatterplot again. there is this weird
+"curve" of much larger density looping around the data cloud. I suspect
+this is somehow the image of the manifold, but not quite sure how.
+
+what's actually a bit worse: we get lots of points where the value
+uncertainty is relatively high, but value is negative! this cannot happen
+theoretically but if the NN is that way we think that the current sublevel
+set is actually much larger than it is.
+
+how to fix this? loose thoughts and possible approaches:
+ - functional prior type thing that "pushes up" the value function a slight
+   bit.
+ - somehow demand/ensure that the current sublevel set be connected? (but
+   maybe those "bad regions" are connected to the current set?)
+ - ignore it, and throw out the failed forward sims later
+ - but wait, for estimating the currently known level we cannot ignore
+   it...
+ - standard "active learning" wisdom would be to just treat this as a
+   "feature" of the acquisition function, propose those points again and
+   find out that they are in fact not in the level set. but our oracle
+   cannot do that!
+
+the negative nn value means appear at states which also have low lqr value!
+the only nonzero state where that happens is an upside down rotation (sin,
+cos) = (0, -1). let's check that. CONFIRMED! man my intuition is god level.
+the 100 states with lowest nn v_means are ones close to upside down
+rotation, with the other state variables all being relatively small.
+
+it seems to me like the "functional priors" route is the prime candidate
+for fixing this. it is the only one that fixes the problem (nn estimating
+values which are clearly nonsensical -- there cannot be two disconnected
+value sublevel sets), instead of hacking our way around it.
+
+
+
+immediate todos:
+ - address this just above ("artificial" value sublevel sets far away &
+   disconnected from the real one)
+ - find&fix bug in normalisation with new tangent space vx loss, or ignore
+ - large list from this morning
+
+
+
+
+radical idea: store log of value function? or to avoid nonsmoothness at 0,
+log(1 + V(x))? with gradients modified accordingly? would this replace data
+normalisation? maybe we still need it. it *would* probably make it easier
+to achieve uniform sigma bounds wrt log(1+V), which wrt V mean that we
+accept more uncertainty for higher values. maybe that would "destroy" the
+value gradient by making it very small for high values though.
+
+can we "emulate" this squashing by an appropriate loss modification? i.e.
+make the v loss behave as if we were using a simple loss for fitting log(1
++ V(x)), but keep the vx loss "unscaled"? this would probably amount to
+making the value loss weaker for higher values, from the bayesian viewpoint
+again corresponding to "noisier" data. from a purely numerical standpoint
+that is probably even quite accurate (if we assume the error is somehow
+proportional to atol + rtol * ||ode state||...)
+
+
+
+
+finally, short meeting with bhavya. main points:
+ - rejection sampling for uniform sample over constrain set followed by
+   uncertainty sampling among that set is a *completely* valid approach for
+   doing it :)
+ - suggestion: keep close to "known" acquisition function, don't reinvent
+   the wheel.
+ - Expected Improvement w/ Constraints ("EIC") could be inspiring.
+ - problems with value level set shrinking:
+   - not main focus. select "robust" nn settings like many epochs etc.
+   - maybe try warm starting the NNs after all?
+   - assume for theory, at least in the beginning, that model is perfect,
+     behaves like a GP.
+   - if every now and then a hiccup happens, don't care
+   - if it completely destroys it, then think about additional
+     implementation safeguards, like just not decreasing v_k, retraining if
+     it decreases, marking test points as known whenever sigma was low
+     once, even if it rises again.
+
+
+
+
 

@@ -320,20 +320,21 @@ def manifold_testing(problem_params, algo_params):
             # like ||m(x)||^2 and then travel down its gradient?
             normal_dir = jax.jacobian(problem_params['m'])(x)
 
-            # if outside the circle, then m_eval > 0, but we want to be travelling inwards.
-            # assuming that m(x) has unit norm jacobian on the manifold M, we can calculate the time constant!
-            # or can we? while we know that the manifold is an invariant of the system, in principle the formula
-            # used to extend the RHS to the ambient space could already contain a baumgarte type DEstabilisation
-            # term! in general, that formula could be arbitrarily bad!
+            # it could be that the extension to the ambient space already
+            # has stable/unstable behaviour making it harder to choose
+            # baumgarte time constant.
 
-            # do we just "assume" that the dynamics of the invariant m is marginally stable, i.e.
-            #    d/dt m(x(t)) = 0
-            # even for points slightly off the manifold?
-
-            # or would the proper way of doing this consist not in ADDING a stabilisation term in
-            # normal direction, but by REPLACING the whole rhs in that direction with something stable?
-            # probably equivalent to first projecting xdot on the tangent space. this is probably the
-            # nice and practical way to do it. then the "normal" dynamics are neutrally stable in all cases.
+            # in that case, the proper way would consist not in ADDING a
+            # stabilisation term in normal direction, but by REPLACING the
+            # whole rhs in that direction with something stable. Two main
+            # ways of doing so:
+            # - take output of vector field, project to tangent space.
+            # - project state to manifold, evaluate vector field there. ie.
+            #   modify vector field f_p(z) = f(project_M(z)).
+            # both of these should result in the rhs being "parallel" to
+            # the manifold even if we strayed off of it. resulting in nice
+            # marginally stable behaviour, from there we can change it with
+            # baumgarte.
 
             # let's postpone this for later and just keep a close eye on the plots of m(x(t)).
             baumgarte_stab_term = -1 * normal_dir * m_eval
@@ -819,13 +820,17 @@ if __name__ == '__main__':
 
 
         # constraint equation defining the state space manifold as its 0-levelset.
-        # in this case only the unit circle for angle parameterisation.
         # if R^n, set this to None
-        # the dimension of the manifold is nx - dim(m(x))
+        # number of constraint equations = codimension of manifold.
+        # atm only codimension 1 is supported, because this makes finding
+        # an orthonormal basis for the normal space trivial.
+
+        # in this case only the unit circle for angle parameterisation.
         # / 2 so its jacobian is normalised.
         'm': lambda x: (x[2]**2 + x[3]**2 - 1) / 2,
-        # projection operation onto the manifold -- not sure if ever needed
-        # also not possible for all but the simplest manifolds...
+
+        # projection operation onto the manifold -- great for resetting if
+        # we stray off the manifold due to numerical errors.
         'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
 
         'nu': 2,
@@ -891,7 +896,7 @@ if __name__ == '__main__':
 
 
         # tells the data normaliser to not normalise those states
-        # (they are part of the unit circle anyway so we just leave them)
+        # y-axis (v) is still scaled and with it vx.
         # 'normalise_states': np.array([True, True, False, False, True, True, True]),
         'normalise_states': np.array([False, False, False, False, False, False, False]),
 

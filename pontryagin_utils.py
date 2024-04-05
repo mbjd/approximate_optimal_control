@@ -19,8 +19,8 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
     # all linearisations etc are done about u=0 (arbitrary choice)
     # l_const we can neglect
 
-    # should we specify a custom jacobian-vector product of this function? 
-    # or manually make an implementation that returns value and jacobian? 
+    # should we specify a custom jacobian-vector product of this function?
+    # or manually make an implementation that returns value and jacobian?
     # because it can pretty much be taken from the PWA solution map
     # but not sure if it's worth the effort
 
@@ -137,14 +137,14 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         ustar_overall = all_candidates[best_candidate_idx]
 
         # what if we do essentially the same thing again but with the taylor
-        # expansion centered around current u*?  this should alleviate the problem 
+        # expansion centered around current u*?  this should alleviate the problem
         # of comparing large floats, if we drop the constant term, which we can without
-        # changing anything about the solution. 
+        # changing anything about the solution.
 
         # taylor expansion at 0: .5 u.T H_uu u + H_u(u=0) u + c
-        # to find H_u(u*), evaluate this at u* and differentiate, giving: 
+        # to find H_u(u*), evaluate this at u* and differentiate, giving:
         # H_u(u*) = H_uu u* + H_u(u=0)
-        # thus the new taylor expansion is: 
+        # thus the new taylor expansion is:
         # H(u - u*) + c = .5 (u-u*).T H_uu (u-u*) + [H_uu u* + H_u(0)] (u-u*)
 
         # if many active sets can also do this with just the best k from the first round
@@ -158,12 +158,12 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         ustar_overall = all_candidates[best_candidate_idx_new]
 
 
-        # maybe we are better off using the KKT conditions directly? 
+        # maybe we are better off using the KKT conditions directly?
         # they are, for problem min_x f(x) s.t. g(x) <= 0:
         # 1. stationarity
         #   f_x(x*) + mu.T g_x(x*) = 0
-        # basically gradient zero, but with constraints. 
-        # mu is a lagrange multiplier. if equality constraints, additional one. 
+        # basically gradient zero, but with constraints.
+        # mu is a lagrange multiplier. if equality constraints, additional one.
         # 2. primal feasibility
         #   g(x*) <= 0.
         # 3. dual feasibility
@@ -174,16 +174,16 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         # is 0, or the constraint function is 0 (<=> constraint active), but not both
         # <sketch with boundary of quadrant in g-mu space highlighted as fat line>
 
-        # can we for each solution compute some "KKT violation" penalty? 
-        # basically like 10000 * max violation to any of these equations. 
-        # maybe that is numerically better than just lowest cost. 
+        # can we for each solution compute some "KKT violation" penalty?
+        # basically like 10000 * max violation to any of these equations.
+        # maybe that is numerically better than just lowest cost.
         # at least any cost comparisons or evaluations are out, and only the gradient remains.
 
         # probably being the KKT solution for some active set already implies primal
-        # feasibility so we might ditch checking that. 
+        # feasibility so we might ditch checking that.
 
         # primal feasibility rules out infeasible points obviously.
-        # what is the intuitive purpose of the other two? 
+        # what is the intuitive purpose of the other two?
 
         # mu <= 0 would mean that a constraint is not active but in the wrong
         # direction, i.e. violated. meaning, we have assumed a constraint is
@@ -192,9 +192,9 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         # interior of the feasible set, removing the need for that particular
         # boundary.
 
-        # finally complementary slackness. if a candidate solution violates it, 
-        # then what? then on one hand, the constraint is satisfied thus inactive. 
-        # on the other hand, mu>0 means that we still "tilt" the cost function 
+        # finally complementary slackness. if a candidate solution violates it,
+        # then what? then on one hand, the constraint is satisfied thus inactive.
+        # on the other hand, mu>0 means that we still "tilt" the cost function
         # in the direction of that constraint, making us solve a different problem
         # than what we should. is this also already implied by only looking
         # at active set KKT solutions?
@@ -218,7 +218,7 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
 
         # because of chattering issues with the other method though, here we
         # explore what happens if we try to smooth out the kinks in u* as a
-        # function of (x, \lambda) 
+        # function of (x, \lambda)
 
         # HOWEVER the chattering persists. the root cause is different: we
         # tried to compare relatively large floats which are very small
@@ -228,28 +228,28 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
         # comparisons based on those, which are very small and thus have great
         # float resolution.
 
-        # this is perhaps a bit overkill with all the transcendental functions. 
-        # maybe drop in squareplus(x) = 1/2 (x + sqrt(x^2 + b)) looks like softmax. 
+        # this is perhaps a bit overkill with all the transcendental functions.
+        # maybe drop in squareplus(x) = 1/2 (x + sqrt(x^2 + b)) looks like softmax.
 
-        # the unconstrained solution can violate some constraints. calculate here how much. 
+        # the unconstrained solution can violate some constraints. calculate here how much.
         constraint_violations = np.concatenate([lowerbounds - u_star_unconstrained, u_star_unconstrained - upperbounds])
         smoothing_size = 0.01
         # this is a smooth approximation to max(all_constraint_violations)
         softmax_violation = jax.scipy.special.logsumexp(constraint_violations/smoothing_size) * smoothing_size
 
         # we are only interested in this violation if it is above 0, so we "clip" that with another logsumexp(0, .)
-        # large penalty to approximate constraint well enough still. 
+        # large penalty to approximate constraint well enough still.
         penalty = 1000 * jax.scipy.special.logsumexp(np.array([0., softmax_violation])/smoothing_size)*smoothing_size
 
-        # this is now what we want to minimise among all solution candidates, 
+        # this is now what we want to minimise among all solution candidates,
         all_Hs_adjusted = all_Hs + np.array([penalty, 0, 0, 0, 0])
 
-        # and with a similar smoothing operation we find a "smooth argmin" of this array. 
+        # and with a similar smoothing operation we find a "smooth argmin" of this array.
         # no need for * smoothing_size here -- softmax output always sums to 1.
-        weights = jax.nn.softmax(-all_Hs_adjusted / smoothing_size)        
+        weights = jax.nn.softmax(-all_Hs_adjusted / smoothing_size)
 
         # like this the output is always a convex combination of candidate solutions. the weights vary smoothly
-        # wrt all parameters and approximate the "nonsmooth" solution very vell except close to active set changes. 
+        # wrt all parameters and approximate the "nonsmooth" solution very vell except close to active set changes.
         ustar_overall = weights.T @ all_candidates
         return ustar_overall
 
@@ -261,55 +261,55 @@ def u_star_general_activeset(x, costate, problem_params):
     raise NotImplementedError('not finished')
 
     '''
-    was I fundamentally mistaken before about the nature of this problem? 
+    was I fundamentally mistaken before about the nature of this problem?
 
         u* = argmin_u H(x, u, lambda) = argmin_u l(x, u) + lambda.T @ f(x, u)
 
-    obviously the whole problem changes linearly with lambda. but does that 
+    obviously the whole problem changes linearly with lambda. but does that
     say anything about how the *solution* changes with lambda? not so sure.
 
-    the whole thing is a quadratic in u: 
+    the whole thing is a quadratic in u:
 
         H(x, u, lambda) = H + H_u u + .5 u.T H_uu u
 
     where the RHS is evaluated at (x, 0, lambda) -- quadratic taylor expansion
     in u about 0. l is quadratic in u (by construction) and f is affine in u
-    (control affine!) so this I am pretty sure about. 
+    (control affine!) so this I am pretty sure about.
 
-    But: H changes as a function of x in possibly weird ways! therefore if we 
+    But: H changes as a function of x in possibly weird ways! therefore if we
     want to solve the problem with KKT matrices, we have to recalculate the
     KKT matrices every time from the nonlinear system :(
 
-    from a quick numerical check, it looks like: 
+    from a quick numerical check, it looks like:
      - H_u is not constant across varying (x, u, lambda)
-     - but H_uu is :) 
+     - but H_uu is :)
 
     this first one is only true if l_uu is also constant, which in our case it
     is. should we put that as basic assumption? or be more lax and say just
-    that we assume we can reliably calculate (and autodiff) u*(x, lambda)? 
+    that we assume we can reliably calculate (and autodiff) u*(x, lambda)?
 
-    therefore our QP looks like this: 
+    therefore our QP looks like this:
 
         u* = argmin_u .5 u.T H_uu u + H_u(x, 0 lambda) u (+ H)
-        s.t. G u <= l  
+        s.t. G u <= l
 
     H_uu is constant so no arguments. H_u is evaluated at u=0, but (x, lambda)
     change.  The constant term H(x, 0, lambda) is irrelevant.
 
     This does not look that bad after all. there is one specific place for our
-    parameter 
+    parameter
 
-        p := H_u(x, 0, lambda) 
+        p := H_u(x, 0, lambda)
 
     to enter, and otherwise we have a constant QP. Now, i *think* what
     confused  me is this: it may well be that the QP solution is piecewise
     linear *in p*. but p as a function of (x, lambda) is NOT piecewise linear,
     easily verified by  plotting it along some line in (x, lambda) space. This
-    is not a bad thing as long as we use the chain rule or jax correctly, and 
-    not confusing grad_p u* with grad_(x, lam) u*. 
+    is not a bad thing as long as we use the chain rule or jax correctly, and
+    not confusing grad_p u* with grad_(x, lam) u*.
 
     In fact, H_u = l_u(x, u) + lambda.T @ g(x), if f(x, u) = fstate(x) + g(x) u
-    so we see neatly where the nonlinearity comes from. 
+    so we see neatly where the nonlinearity comes from.
     '''
 
     # TODO
@@ -323,20 +323,20 @@ def u_star_general_activeset(x, costate, problem_params):
     # the other u_star_2d only handles box constraints.
 
     '''
-    some new-ish thoughts. 
-    we can easily write down all KKT matrices for all active sets. we can then do 
-    one of two things. 
-    1) explicitly invert each KKT matrix, to find the linear map from parameter 
-       to solution (and lagrange multipliers) as a nice matrix. 
-    2) store all KKT systems and solve online. 
+    some new-ish thoughts.
+    we can easily write down all KKT matrices for all active sets. we can then do
+    one of two things.
+    1) explicitly invert each KKT matrix, to find the linear map from parameter
+       to solution (and lagrange multipliers) as a nice matrix.
+    2) store all KKT systems and solve online.
 
     2 is certainly better numerically (matrix inversion bad!!!) but we will
     have to store differently sized matrices in some pytree thing. OTOH, with 1
-    we might incur some numerical error but have a nice collection of equally sized 
+    we might incur some numerical error but have a nice collection of equally sized
     matrices we can store in an array of shape (N_activesets, dim(u)+dim(mu), dim(p)).
-    
-    checking KKT conditions afterwards should be the same regardless. I am pretty 
-    sure now that directly checking KKT conditions is miles better than taking 
+
+    checking KKT conditions afterwards should be the same regardless. I am pretty
+    sure now that directly checking KKT conditions is miles better than taking
     the lowest-cost solution inside constraints, because for two close solutions
     with distance d, the objective only differs like d^2, whereas the KKT residuals
     (i think) are all linear-ish. therefore much better numerically. for another day :)
@@ -483,9 +483,9 @@ def define_backward_solver(problem_params, algo_params):
 
     # could just as well take the algo_params already here w/ lexical closure...
     # actually *should* do that probably since they are already baked into f_extended.
-    # therefore it would be very confusing if we tried to change them outside, this 
-    # function respects the change but f_extended does not. 
-    def solve_backward(y_f):
+    # therefore it would be very confusing if we tried to change them outside, this
+    # function respects the change but f_extended does not.
+    def solve_backward(y_f, v_upper=np.inf):
 
         state_f = y_f
 
@@ -506,23 +506,22 @@ def define_backward_solver(problem_params, algo_params):
         T = algo_params['pontryagin_solver_T']
 
         if 'vxx_max_norm' in algo_params and algo_params['pontryagin_solver_vxx']:
-
             terminating_event = diffrax.DiscreteTerminatingEvent(
-                cond_fn = lambda state, **kwargs: np.linalg.norm(state.y['vxx']) > algo_params['vxx_max_norm']
+                cond_fn = lambda state, **kwargs: np.linalg.norm(state.y['vxx']) > algo_params['vxx_max_norm'] and state.y['v'] > v_upper
             )
 
-            backward_sol = diffrax.diffeqsolve(
-                term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
-                stepsize_controller=step_ctrl, saveat=saveat,
-                max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
-                discrete_terminating_event=terminating_event,
-            )
         else:
-            backward_sol = diffrax.diffeqsolve(
-                term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
-                stepsize_controller=step_ctrl, saveat=saveat,
-                max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+            # stop integration at v_upper, always. disable with v_upper=inf.
+            terminating_event = diffrax.DiscreteTerminatingEvent(
+                cond_fn = lambda state, **kwargs: state.y['v'] > v_upper
             )
+
+        backward_sol = diffrax.diffeqsolve(
+            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+            stepsize_controller=step_ctrl, saveat=saveat,
+            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+            discrete_terminating_event=terminating_event,
+        )
 
         return backward_sol
 
@@ -573,7 +572,7 @@ def lqr(A, B, Q, R):
     dx/dt = A x + B u
 
     cost = integral x.T*Q*x + u.T*R*u
-    
+
     this X here is apparently such that LQR value = 0.5 x.T X x.
     """
     # ref Bertsekas, p.151
@@ -603,8 +602,8 @@ def lqr(A, B, Q, R):
 def get_terminal_lqr(problem_params, return_tangent_projection=False):
 
     '''
-    a wrapper for the above lqr function that does some sanity checks 
-    and extracts the local dynamics & cost from the full system 
+    a wrapper for the above lqr function that does some sanity checks
+    and extracts the local dynamics & cost from the full system
     '''
 
     x_eq = problem_params['x_eq']
@@ -624,8 +623,8 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
     if problem_params['m'] is not None:
 
         # we are dealing with a problem on a submanifold of R^n defined by {x: m(x) = 0}.
-        # LQR control can be done on the tangent space of the manifold at equilibrium, 
-        # but a couple technicalities are involved. 
+        # LQR control can be done on the tangent space of the manifold at equilibrium,
+        # but a couple technicalities are involved.
 
         # this also comes up almost verbatim in Tedrake's "Underactuated
         # Robotics", section 8.3.3, "LQR on a manifold". But I swear I came up
@@ -634,8 +633,8 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
         m = problem_params['m']
 
 
-        # otherwise we have to pay special attention to get an orthonormal basis for the 
-        # normal space. a basis with one element (of unit length) is orthonormal :)) 
+        # otherwise we have to pay special attention to get an orthonormal basis for the
+        # normal space. a basis with one element (of unit length) is orthonormal :))
         m_oup = m(x_eq)
         assert m_oup.shape in ((), (1,)), 'only manifolds of co-dimension 1 are allowed'
 
@@ -644,23 +643,23 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
         # here, assume that m_jac has only one nonzero element. this means that the tangent
         # space is aligned with coordinate axes. true for our circle and also for quaternion
         # representation of SO(3).
-        # this also means we can just transform our state space by taking out the coordinate 
-        # where the jacobian is nonzero. 
-        m_jac_is_nonzero = m_jac != 0  # this only works when everything is precise! 
+        # this also means we can just transform our state space by taking out the coordinate
+        # where the jacobian is nonzero.
+        m_jac_is_nonzero = m_jac != 0  # this only works when everything is precise!
         assert m_jac_is_nonzero.sum() == 1, 'tangent space not coordinate aligned :( plz give easier example'
 
-        # projection matrix that removes the redundant degree of freedom in normal direction. 
+        # projection matrix that removes the redundant degree of freedom in normal direction.
         # = projection to tangent space (with both sides in ambient R^n standard basis)
         P = np.eye(nx)[~m_jac_is_nonzero]
 
-        # now we linearly transform the state to z = P x. what happens to the matrices A, B, Q, R? 
-        # the projection is obviously not invertible. is the pseudoinverse appropriate for inserting back into Q, R? 
+        # now we linearly transform the state to z = P x. what happens to the matrices A, B, Q, R?
+        # the projection is obviously not invertible. is the pseudoinverse appropriate for inserting back into Q, R?
         # probably yes because we are on the tangent space anyway.
         # we actually have pinv(P_state) = P_state.T :))
 
         # so say x' = A x + B u, and z = P x. (and x = P.T z because we are on the tangent space.)
         # we get: P.T z' = A (P.T z) + B u
-        #             z' = (P A P.T) z + P B u. 
+        #             z' = (P A P.T) z + P B u.
 
         # Q is like A, transform on both sides. R is only about u so do nothing.
         # essentially we are only taking out the corresponding lines and columns...
@@ -676,8 +675,8 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
 
         K_z, P_z, _ = lqr(A_z, B_z, Q_z, R_z)
 
-        # apply the transformation in opposite direction to transform 
-        # the LQR solution back to the full state space. This just adds 
+        # apply the transformation in opposite direction to transform
+        # the LQR solution back to the full state space. This just adds
         # rows/cols of zero...
         K_lqr = K_z @ P
         P_lqr = P.T @ P_z @ P
@@ -688,7 +687,7 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
 
     else:
 
-        # standard case with euclidean state space. 
+        # standard case with euclidean state space.
         # cheeky controllability test
         ctrb =  np.hstack([np.linalg.matrix_power(A, j) @ B for j in range(problem_params['nx'])])
         if np.linalg.matrix_rank(ctrb) < nx:

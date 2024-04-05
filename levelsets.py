@@ -613,7 +613,7 @@ def testbed(problem_params, algo_params):
             vxx_f = P_lqr
             state_f['vxx'] = vxx_f
 
-        return solve_backward(state_f)
+        return solve_backward(state_f, v_upper=500)
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
@@ -941,7 +941,7 @@ def testbed(problem_params, algo_params):
         return forward_sol
 
 
-    def solve_backward_nn_ens(x_f, vmap_params, algo_params):
+    def solve_backward_nn_ens(x_f, vmap_params, v_upper, algo_params):
 
         # modified from solve_backward_lqr.
 
@@ -952,14 +952,6 @@ def testbed(problem_params, algo_params):
         # mean across only axis resulting in a scalar. differentiate later.
         v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(vmap_params, x).mean()
 
-        v_lqr = lambda x: 0.5 * x.T @ P_lqr @ x
-
-        # see if v_nn and v_lqr match up even here.
-        # all good, same-ish jacobian and hessian at 0.
-        # ipdb.set_trace()
-
-        # v_f = 0.5 * x_f.T @ P_lqr @ x_f
-        # vx_f = P_lqr @ x_f
         v_f = v_nn_unnormalised(x_f)
         vx_f = jax.jacobian(v_nn_unnormalised)(x_f)
 
@@ -974,9 +966,10 @@ def testbed(problem_params, algo_params):
             vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
             state_f['vxx'] = vxx_f
 
-        return solve_backward(state_f)
+        return solve_backward(state_f, v_upper=v_upper)
 
 
+    '''
     # cover a couple different magnitudes
     x0s = np.concatenate([
         # jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
@@ -996,6 +989,7 @@ def testbed(problem_params, algo_params):
     # visualiser.plot_trajectories_meshcat(sols_sobolev)
     # visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
     # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
+    '''
 
 
 
@@ -1260,7 +1254,7 @@ def testbed(problem_params, algo_params):
 
 
 
-    def batched_oracle(proposals, v_k, vmap_nn_params):
+    def batched_oracle(proposals, v_k, v_next, vmap_nn_params):
 
         # forward simulation. this stops if BOTH of these conditions hold.
         # - v_mean + 2 * v_sigma <= v_k
@@ -1305,29 +1299,26 @@ def testbed(problem_params, algo_params):
         # it? with vmapped nn ensemble maybe not..., certainly not if backward sim
         # is without vxx.)
 
-        # here put some new limit on how far we solve backward?
-        # stop at like 5*value_interval[1]?
-        # or use a fixed multiple of the forward sim time?
-        # both?
-        # decrease pontryagin_solver_T overall??
-        sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, algo_params)
+
+        # generous upper bound for value we're interested in rn.
+        # integration of trajectories stops once we pass this threshold.
+        v_upper = v_next + 10 * (v_next - v_k)
+        # sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, algo_params)
 
         # TODO jit this.
-        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None))(usable_xfs, vmap_nn_params, algo_params)
-
+        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None))(
+            usable_xfs, vmap_nn_params, v_upper, algo_params
+        )
 
         # plot 0th forward and backward sol in same plot.
         pl.figure()
-        pl.subplot(221)
         sol0_fwd = jtm(itemgetter(0), forward_sols)
         fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
 
-
+        pl.subplot(221)
         pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
         pl.gca().set_prop_cycle(None)
         plotting_utils.plot_sol(sol0, problem_params)
-
-
 
         return backward_sols_new
 
@@ -1708,7 +1699,7 @@ def testbed(problem_params, algo_params):
         # now that we've proposed a batch of points, we call the oracle.
         # maybe easier to write one function for the whole oracle step, and then vmap it?
         # instead of vmapping the forward solve and backward solve separately...
-        backward_sols_new = batched_oracle(proposed_pts, v_k, params_sobolev_ens)
+        backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens)
 
         # append new data to big data set.
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)

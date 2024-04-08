@@ -215,7 +215,7 @@ class nn_wrapper():
         return means, stds
 
 
-    def sobolev_loss_with_prior(self, key, y, params, v_prior, problem_params, algo_params):
+    def sobolev_loss_with_prior(self, key, y, params, v_prior, prior_extent, problem_params, algo_params):
 
         # calculates the usual sobolev loss BUT adds a functional prior
         # loss to it. here we could also slightly regularise ||vx||^2 to make
@@ -237,13 +237,10 @@ class nn_wrapper():
         # v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
 
         total_loss = original_loss + algo_params['prior_strength'] * prior_loss
+        loss_terms['prior'] = prior_loss
 
         # i am at a:
         return total_loss, loss_terms
-
-        # maybe it would be neater to make loss_terms a dict, then we can
-        # just throw the original & prior loss in there separately?
-
 
     def sobolev_loss(self, key, y, params, problem_params, algo_params):
 
@@ -293,7 +290,14 @@ class nn_wrapper():
         # ran into nan as expected \o/.
         # v_loss = np.log((1 + y['v']) / (1 + v_pred))**2
 
+        # should we also normalise the vx loss in this style? like
+        # vx_loss = || (vx_pred - vx_label) ||^2 / || 1 + vx_label ||^2 ??
+
         vx_loss = np.sum((vx_pred - y['vx']) ** 2)
+
+        lossterms = dict()
+        lossterms['v'] = v_loss
+        lossterms['vx'] = vx_loss
 
         if problem_params['m'] is not None:
 
@@ -354,8 +358,15 @@ class nn_wrapper():
 
             vx_loss = vx_label_loss + vx_reg_loss
 
+            lossterms['vx_reg'] = vx_reg_loss
+            lossterms['vx_label'] = vx_label_loss
+
         # if there are three weights they are for (v, vx, vxx). if only two, (v, vx).
         if algo_params['nn_sobolev_weights'].shape == (3,):
+
+            raise NotImplementedError()
+            # this code is stale at this point.
+            # not adapted yet to new lossterms dict.
 
             # instead of calculating the whole hessian (of v_pred wrt x) and comparing
             # it with y['vxx'], we instead compute the hessian vector product in a
@@ -411,10 +422,9 @@ class nn_wrapper():
             weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
             sobolev_losses = np.array([v_loss, vx_loss])
 
-            # append nan to aux output to have equal shapes for plotting
-            sobolev_losses_emptyvxx = np.array([v_loss, vx_loss, np.nan])
+            loss = weights @ sobolev_losses
 
-            return weights @ sobolev_losses, sobolev_losses_emptyvxx
+            return loss, lossterms
 
         else:
             raise ValueError('nn sobolev weight must be an array of shape (3,) (including vxx) or (2,) (without vxx)')
@@ -431,23 +441,23 @@ class nn_wrapper():
         losses, loss_terms = jax.vmap(self.sobolev_loss, in_axes=(0, 0, None, None, None))(ks, ys, params, problem_params, algo_params)
 
         # mean across batch dim.
-        # should be scalar and (3,) respectively.
-        return np.mean(losses), np.mean(loss_terms, axis=0)
+        return np.mean(losses), jtm(lambda n: n.mean(axis=0), loss_terms)
 
 
-    def sobolev_loss_with_prior_batch_mean(self, k, params, ys, v_prior, problem_params, algo_params):
+    def sobolev_loss_with_prior_batch_mean(self, k, params, ys, v_prior, prior_extent, problem_params, algo_params):
 
         # the size of the actual batch, not what algo_params says.
         # then we can use the same function e.g. for evaluating loss on test set.
         ks = jax.random.split(k, ys['x'].shape[0])
 
-        losses, loss_terms = jax.vmap(self.sobolev_loss_with_prior, in_axes=(0, 0, None, None, None, None))(
-            ks, ys, params, v_prior, problem_params, algo_params
+        losses, loss_terms = jax.vmap(self.sobolev_loss_with_prior, in_axes=(0, 0, None, None, None, None, None))(
+            ks, ys, params, v_prior, prior_extent, problem_params, algo_params
         )
 
         # mean across batch dim.
-        # should be scalar and (3,) respectively.
-        return np.mean(losses), np.mean(loss_terms, axis=0)
+        # return np.mean(losses), np.mean(loss_terms, axis=0)
+
+        return np.mean(losses, axis=0), jtm(lambda n: n.mean(axis=0), loss_terms)
 
 
 
@@ -485,6 +495,23 @@ class nn_wrapper():
         '''
 
 
+        # first the actually meaningful things: set up the prior loss.
+
+        # prior value function: just a lot higher than the rest.
+        v_prior = algo_params['v_prior_factor'] * np.clip(ys['v'].max(), 1., np.inf)
+
+        # extent of the box-shaped prior domain. here we take a minimum of 10,
+        # otherwise a factor times the data min/max extent. the factor
+        # determines the loss strength too! we do want the prior to act
+        # "mostly" in the region where data is not available. thus this factor
+        # must be > 1. volume ratio ~ factor ** nx!! i think this is good, this
+        # makes it unlikely that the prior acts in the data region even for
+        # relatively small factors.
+
+        prior_extent = np.clip(algo_params['prior_extent_factor'] * np.abs(ys['x']).max(axis=0), 10, np.inf)
+
+
+
         # make sure it is of correct shape?
         testset_exists = ys_test is not None
 
@@ -517,17 +544,12 @@ class nn_wrapper():
         optim = optax.adam(learning_rate=lr_schedule)
         opt_state = optim.init(nn_params)
 
-        # ipdb.set_trace()
-
-        # prior value function: just a lot higher than the rest.
-        v_prior = algo_params['v_prior_factor'] * np.clip(ys['v'].max(), 1., np.inf)
-
         def update_step(key, ys, opt_state, params):
 
             # differentiate the whole thing wrt argument 1 = nn params.
             if algo_params['prior_strength'] > 0:
                 (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_with_prior_batch_mean, argnums=1, has_aux=True)(
-                    key, params, ys, v_prior, problem_params, algo_params
+                    key, params, ys, v_prior, prior_extent, problem_params, algo_params
                 )
             else:
                 (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_batch_mean, argnums=1, has_aux=True)(
@@ -567,10 +589,19 @@ class nn_wrapper():
             # probably quite expensive to do this every iteration though...
             # this if is "compile time"
             if ys_test is not None:
+
                 k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
-                test_loss, test_loss_terms = self.sobolev_loss_batch_mean(
-                    k_test, nn_params_new, ys_test, problem_params, algo_params
-                )
+
+                if algo_params['prior_strength'] > 0:
+                    test_loss, test_loss_terms = self.sobolev_loss_with_prior_batch_mean(
+                        k_test, nn_params_new, ys_test, v_prior, prior_extent, problem_params, algo_params
+                    )
+
+                else:
+                    test_loss, test_loss_terms = self.sobolev_loss_batch_mean(
+                        k_test, nn_params_new, ys_test, problem_params, algo_params
+                    )
+
                 aux_output['test_loss_terms'] = test_loss_terms
 
             new_carry = (nn_params_new, opt_state_new, k_new)

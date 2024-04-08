@@ -19,6 +19,8 @@ cmap = 'viridis'
 
 import pontryagin_utils
 
+from misc import *
+
 def plot_sol(sol, problem_params):
 
     # adapted from plot_forward_backward in ddp_optimizer
@@ -43,8 +45,8 @@ def plot_sol(sol, problem_params):
 
     pl.subplot(222, sharex=ax1)
     us = jax.vmap(pontryagin_utils.u_star_2d, in_axes=(0, 0, None))(
-        sol.ys['x'], sol.ys['vx'], problem_params
-    )
+            sol.ys['x'], sol.ys['vx'], problem_params
+            )
     def u_t(t):
         state_t = sol.evaluate(t)
         return pontryagin_utils.u_star_2d(state_t['x'], state_t['vx'], problem_params)
@@ -211,13 +213,13 @@ def plot_nn_train_outputs_old(outputs):
 
 
 
-    
+
 
 def plot_trajectory_vs_nn(sol, params, v_nn_unnormalised):
 
-    # outside, do this: 
+    # outside, do this:
     # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-    
+
 
     ax = pl.subplot(211)
 
@@ -256,7 +258,7 @@ def plot_trajectory_vs_nn(sol, params, v_nn_unnormalised):
 
 def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
 
-    # outside, do this: 
+    # outside, do this:
     # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
     ax = pl.subplot(211)
@@ -317,12 +319,13 @@ def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
 
 
 
-def plot_nn_train_outputs(outputs, alpha=.5, legend=True):
+def plot_nn_train_outputs_basic(outputs, alpha=.5, legend=True):
 
     # pl.figure('NN training visualisation', figsize=(15, 10))
 
-    # make this great again? 
+    # make this great again?
     # (by handling nn ensemble case and absence of test data...)
+    ipdb.set_trace()
 
     # training subplot
     ax = pl.subplot(211)
@@ -347,4 +350,67 @@ def plot_nn_train_outputs(outputs, alpha=.5, legend=True):
         pl.legend()
 
 
+
+def plot_nn_train_outputs(outputs, subsample=16):
+
+    # new version of this, for dict output, like:
+    # outputs.keys() == ['lr', 'test_loss_terms', 'train_loss_terms']
+    # outputs['test_loss_terms'].keys() == ['prior', 'v', 'vx', 'vx_label', 'vx_reg', whatever really]
+
+    # plots the UNSCALED loss terms! so don't fear the worst if some numbers seem rather high or low.
+
+    # works for ensemble (each array node of the pytree has an additional leading dim) or single.
+    # (only ensemble tested though. if single, reshape everything (N,) -> (1, N)? )
+
+    # if single, act as if it was an ensemble (with 1 member).
+    if len(outputs['lr'].shape) == 1:
+        outputs = jax.tree_util.tree_map(lambda n: n[None, :], outputs)
+
+    N_ensemble, N_steps = outputs['lr'].shape
+
+
+
+    # then, make everything flat for easy plotting, including the "iters" array for the x axis
+    # also NaN in the last spot to break up lines.
+    outputs['iters'] = np.kron(np.ones((N_ensemble, 1)), np.arange(N_steps))
+
+    if subsample != 1:
+        # makes the plots easier to view & less resource hungry
+        # outputs = jax.tree_util.tree_map(lambda n: n[:, ::subsample], outputs)
+
+        # would be even cooler if we replace just subsampling with moving average...
+        # idea: reshape from (N_chunks * chunklen) to (N_chunks, chunklen)
+        #       *.mean(axis=1) -> shaped (N_chunks)
+        chunklen = subsample
+
+        N_chunks = N_steps // subsample
+        assert N_chunks * subsample == N_steps, 'use nicer numbers or remove the last bit'
+        outputs = jax.tree_util.tree_map(lambda n: n.reshape(N_ensemble, N_chunks, chunklen).mean(axis=2), outputs)
+
+
+
+
+    outputs = jax.tree_util.tree_map(lambda n: n.at[:, -1].set(np.nan), outputs)
+    outputs = jax.tree_util.tree_map(lambda n: n.reshape(-1), outputs)
+
+    has_test = 'test_loss_terms' in outputs
+
+    # if there is test data we want 2 subplots. otherwise just 1.
+    if has_test:
+        ax = pl.subplot(211)
+
+    pl.loglog(outputs['iters'], outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.5)
+
+    for k in outputs['train_loss_terms']:
+        pl.loglog(outputs['iters'], outputs['train_loss_terms'][k], alpha=.3, label=f'train {k}')
+    pl.legend()
+    pl.grid('on')
+
+    if has_test:
+        pl.subplot(212, sharex=ax, sharey=ax)
+        for k in outputs['test_loss_terms']:
+            pl.loglog(outputs['iters'], outputs['test_loss_terms'][k], alpha=.3, label=f'test {k}')
+
+        pl.legend()
+        pl.grid('on')
 

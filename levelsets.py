@@ -1532,6 +1532,8 @@ def testbed(problem_params, algo_params):
         train_key, ys_n, problem_params, algo_params, ys_test=test_ys_n
     )
 
+    # ipdb.set_trace()
+
     v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
     idx = 20
@@ -1550,11 +1552,12 @@ def testbed(problem_params, algo_params):
     plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
 
     pl.figure('training run')
-    for j in range(algo_params['nn_ensemble_size']):
-        plotting_utils.plot_nn_train_outputs(jtm(itemgetter(j), oups_sobolev_ens), alpha=.1, legend=j==0)
+    plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
     pl.show()
 
+    ipdb.set_trace()
 
+    '''
     # small parameter sweep over that unbounded prior loss strength.
     for j, strength in enumerate(np.logspace(-1, 1, 10)):
 
@@ -1582,6 +1585,7 @@ def testbed(problem_params, algo_params):
         print(f'j = {j}, strength = {strength}')
         print(f'min v in lower half of manifold: {lowest_v}')
         pl.show()
+    '''
 
 
     all_ys = sols_orig.ys

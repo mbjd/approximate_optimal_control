@@ -886,7 +886,9 @@ if __name__ == '__main__':
         # predictable over the whole run...
         'prior_strength': 1.,
         'v_prior_factor': 100.,
+        'prior_extent_factor': 8,
 
+        # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),
         'nn_batchsize': 32,
         'nn_N_epochs': 256,

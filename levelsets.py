@@ -1461,8 +1461,6 @@ def testbed(problem_params, algo_params):
         # SMALLEST frac_certain_inside that is still above the limit.
         k_accept = np.argmin(frac_certain_inside + np.inf * (frac_certain_inside < threshold))
 
-        ipdb.set_trace()
-
         v_k = v_means_sorted[k_accept]
 
         # yet another alternative: specify some sort of "excess sigma" which
@@ -1474,25 +1472,27 @@ def testbed(problem_params, algo_params):
 
         pl.figure()
 
+        # plot the image of {0} x M basically to confirm that the weird loop comes from there
+        # N_m = 500
+        # thetas = np.linspace(0, 2*np.pi, N_m)
+        # manifold = np.column_stack([
+        #     np.zeros(500),
+        #     np.zeros(500),
+        #     np.sin(thetas),
+        #     np.cos(thetas),
+        #     np.zeros(500),
+        #     np.zeros(500),
+        #     np.zeros(500),
+        # ])
 
-        N_m = 500
-        thetas = np.linspace(0, 2*np.pi, N_m)
-        manifold = np.column_stack([
-            np.zeros(500),
-            np.zeros(500),
-            np.sin(thetas),
-            np.cos(thetas),
-            np.zeros(500),
-            np.zeros(500),
-            np.zeros(500),
-        ])
-
-        image_means, image_stds = v_meanstds(manifold, params_sobolev_ens)
+        # image_means, image_stds = v_meanstds(manifold, params_sobolev_ens)
 
         pl.xlabel('v mean')
         pl.ylabel('v std')
-        pl.loglog(v_means, v_stds, '. ', alpha=.1)
-        pl.loglog(image_means, image_stds, alpha=.2, color='red')
+        # pl.loglog(v_means, v_stds, '. ', alpha=.1)
+        pl.loglog(v_means * sigma_small_enough, v_stds * sigma_small_enough, '. ', alpha=.1)
+        pl.loglog(v_means * ~sigma_small_enough, v_stds * ~sigma_small_enough, '. ', alpha=.1)
+        # pl.loglog(image_means, image_stds, alpha=.2, color='red')
 
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
         vmin, vmax = v_means.min(), v_means.max()

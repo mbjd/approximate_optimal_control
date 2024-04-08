@@ -877,11 +877,18 @@ if __name__ == '__main__':
 
         # the amount by which the value function is pushed upwards as a
         # "prior". needs to be very weak compared to data!
-        'pushup_prior_strength': 1e-5,
+        # the effect of this prior is also determined by the data distribution!
+        # if data is in a small set and prior very widely distributed, it is weaker.
+        # if data is "everywhere" too we might need to scale back prior strength...
 
-        # big question: should we aim for over- or underparameterisation?
+        # OTOH if we adapt the prior sampling distribution to be always like
+        # 10x larger than the data extent, we might keep the behaviour more
+        # predictable over the whole run...
+        'prior_strength': 1.,
+        'v_prior_factor': 100.,
+
         'nn_layerdims': (64, 64, 64),
-        'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
+        'nn_batchsize': 32,
         'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,

@@ -215,7 +215,7 @@ class nn_wrapper():
         return means, stds
 
 
-    def sobolev_loss_with_prior(self, key, y, params, problem_params, algo_params):
+    def sobolev_loss_with_prior(self, key, y, params, v_prior, problem_params, algo_params):
 
         # calculates the usual sobolev loss BUT adds a functional prior
         # loss to it. here we could also slightly regularise ||vx||^2 to make
@@ -228,26 +228,15 @@ class nn_wrapper():
         original_loss, loss_terms = self.sobolev_loss(sobolev_key, y, params, problem_params, algo_params)
 
         # evaluate the prior loss at a random point.
-        extent = np.array([20, 20, 0., 0., 20, 20, 20])  # put in algo_params too?
+        extent = np.array([20, 20, 0., 0., 20, 20, 20])  # TODO put in algo_params too?
         prior_x = algo_params['sample_state'](prior_key, extent)
         v_pred = self.nn.apply(params, prior_x)
 
-        # the forbidden thing!!! unbounded loss function.
-
-        # this trivially has a gradient that serves to "push up" the value
-        # function, but only weakly, so it only happens outside of the data
-        # region. we'll see if it works.
-
-        # this could make the total loss negative which would be weird
-        # though. probably good enough to plot it separately though...
-        # might as well make it bounded by changing to abs(v_pred - 100000)
-        # or just -v_pred+100000...
-        # prior_loss = -v_pred
-        v_prior = 500
+        # same as usual loss function. but with "prior" label.
         prior_loss = (v_pred/v_prior - 1)**2
         # v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
 
-        total_loss = original_loss + algo_params['pushup_prior_strength'] * prior_loss
+        total_loss = original_loss + algo_params['prior_strength'] * prior_loss
 
         # i am at a:
         return total_loss, loss_terms
@@ -446,13 +435,15 @@ class nn_wrapper():
         return np.mean(losses), np.mean(loss_terms, axis=0)
 
 
-    def sobolev_loss_with_prior_batch_mean(self, k, params, ys, problem_params, algo_params):
+    def sobolev_loss_with_prior_batch_mean(self, k, params, ys, v_prior, problem_params, algo_params):
 
         # the size of the actual batch, not what algo_params says.
         # then we can use the same function e.g. for evaluating loss on test set.
         ks = jax.random.split(k, ys['x'].shape[0])
 
-        losses, loss_terms = jax.vmap(self.sobolev_loss_with_prior, in_axes=(0, 0, None, None, None))(ks, ys, params, problem_params, algo_params)
+        losses, loss_terms = jax.vmap(self.sobolev_loss_with_prior, in_axes=(0, 0, None, None, None, None))(
+            ks, ys, params, v_prior, problem_params, algo_params
+        )
 
         # mean across batch dim.
         # should be scalar and (3,) respectively.
@@ -528,13 +519,15 @@ class nn_wrapper():
 
         # ipdb.set_trace()
 
+        # prior value function: just a lot higher than the rest.
+        v_prior = algo_params['v_prior_factor'] * np.clip(ys['v'].max(), 1., np.inf)
 
         def update_step(key, ys, opt_state, params):
 
             # differentiate the whole thing wrt argument 1 = nn params.
-            if algo_params['pushup_prior_strength'] != 0:
+            if algo_params['prior_strength'] > 0:
                 (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_with_prior_batch_mean, argnums=1, has_aux=True)(
-                    key, params, ys, problem_params, algo_params
+                    key, params, ys, v_prior, problem_params, algo_params
                 )
             else:
                 (loss, loss_terms), grad = jax.value_and_grad(self.sobolev_loss_batch_mean, argnums=1, has_aux=True)(

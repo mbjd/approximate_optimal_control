@@ -1554,12 +1554,6 @@ def testbed(problem_params, algo_params):
         plotting_utils.plot_nn_train_outputs(jtm(itemgetter(j), oups_sobolev_ens), alpha=.1, legend=j==0)
     pl.show()
 
-    # test those loss functions.
-    params0 = jtm(itemgetter(0), params_sobolev_ens)
-    loss, terms = v_nn.sobolev_loss(key, y, params0, problem_params, algo_params)
-    loss_p, terms_p = v_nn.sobolev_loss_with_prior(key, y, params0, problem_params, algo_params)
-
-    ipdb.set_trace()
 
     # small parameter sweep over that unbounded prior loss strength.
     for j, strength in enumerate(np.logspace(-1, 1, 10)):
@@ -1572,7 +1566,7 @@ def testbed(problem_params, algo_params):
         pl.figure()
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
         pl.ylim([-20, 20])
-        pl.savefig(f'tmp/traj_{j:03d}_{strength.item():.8f}.png')
+        # pl.savefig(f'tmp/traj_{j:03d}_{strength.item():.8f}.png')
         pl.close('all')
 
         pl.figure()
@@ -1580,13 +1574,14 @@ def testbed(problem_params, algo_params):
         pl.semilogy(v_means, v_stds, '. ', alpha=.1)
         pl.xlim([-50,50])
         pl.ylim([1e-1, 1e3])
-        pl.savefig(f'tmp/meanstd_{j:03d}_{strength.item():.8f}.png')
+        # pl.savefig(f'tmp/meanstd_{j:03d}_{strength.item():.8f}.png')
 
 
         v_means_alt = v_means + (np.inf * test_pts[:, 3] > 0)
         lowest_v = v_means_alt.min()
         print(f'j = {j}, strength = {strength}')
         print(f'min v in lower half of manifold: {lowest_v}')
+        pl.show()
 
 
     all_ys = sols_orig.ys

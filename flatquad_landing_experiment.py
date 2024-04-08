@@ -946,8 +946,6 @@ if __name__ == '__main__':
 
         pts = jax.vmap(sample_state, in_axes=(0, None, 0))(keys, extent, scales)
 
-        pts = pts * scales
-
         return pts
 
     def sample_state(key, extent, scale=1.):

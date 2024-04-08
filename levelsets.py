@@ -1448,7 +1448,11 @@ def testbed(problem_params, algo_params):
         #      ―――――――――――――――――――――――――――――――――――――――
         #                #(j: v[j] <= v[k])
 
-        frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / sigma_small_enough.shape[0]
+        # ...probably. i think there might be some sort of mistake in here
+        # frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / sigma_small_enough.shape[0]
+
+        # this is correct i think. we want to divide by the number of smaller vs which in the sorted version is just the index.
+        frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / (np.arange(test_pts.shape[0]) + .0001)
 
         # now, find the largest index k for which that fraction is above the threshold
         threshold = algo_params['frac_certain_in_Vk']
@@ -1456,6 +1460,8 @@ def testbed(problem_params, algo_params):
         # because the function is monotonously decreasing, we may equivalently find the
         # SMALLEST frac_certain_inside that is still above the limit.
         k_accept = np.argmin(frac_certain_inside + np.inf * (frac_certain_inside < threshold))
+
+        ipdb.set_trace()
 
         v_k = v_means_sorted[k_accept]
 
@@ -1691,20 +1697,6 @@ def testbed(problem_params, algo_params):
         if not np.isnan(all_ys['x']).any():
             print('nans appeared haaaalp')
             # ipdb.set_trace()
-
-        # homeboy what's the use?
-        # where_inf = (all_ys['x'] == np.inf).any(axis=2)
-        # where_v_toohigh = all_ys['v'] > v_next_target
-        # where_nan = np.isnan(all_ys['x']).any(axis=2)
-        # where_exclude = np.logical_or(np.logical_or(where_inf, where_v_toohigh), where_nan)
-        # all_x_masked = all_ys['x'].at[where_exclude].set(0)
-
-        # maybe better to put equilibrium instead of 0?
-        # also a safety factor if data doesn't "catch" everything.
-        # all_x shape = (N_trajs, N_ts, nx)
-
-        # nicer version would be some sort of HMC sampler to find many points
-        # from Vk+1 \ Vk (or from Vk+1, followed by rejection sampling, probably easier)
 
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 

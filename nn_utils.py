@@ -223,7 +223,7 @@ class nn_wrapper():
 
         # also for a single data point, vmap outside.
 
-        sobolev_key, prior_key = jax.random.split(key)
+        sobolev_key, prior_key, noise_key = jax.random.split(key, 3)
 
         original_loss, loss_terms = self.sobolev_loss(sobolev_key, y, params, problem_params, algo_params)
 
@@ -231,6 +231,14 @@ class nn_wrapper():
         extent = np.array([20, 20, 0., 0., 20, 20, 20])  # TODO put in algo_params too?
         prior_x = algo_params['sample_state'](prior_key, extent)
         v_pred = self.nn.apply(params, prior_x)
+
+        prior_noise=True
+        if prior_noise:
+            # introduce a small amount of jitter in the prior to avoid
+            # "collapsing" too precisely to the prior mean. maybe SGD will see
+            # thorugh this and still fit a rather precise v = v_prior...
+            v_prior = v_prior * (1 + 0.1 * jax.random.normal(noise_key))
+
 
         # same as usual loss function. but with "prior" label.
         prior_loss = (v_pred/v_prior - 1)**2
@@ -297,39 +305,36 @@ class nn_wrapper():
 
         lossterms = dict()
         lossterms['v'] = v_loss
-        lossterms['vx'] = vx_loss
+        # lossterms['vx'] = vx_loss
 
         if problem_params['m'] is not None:
 
             assert algo_params['nn_sobolev_weights'].shape == (2,), 'vxx not implemented with manifold state space'
 
-            # in this case the state space is a submanifold M = {x in R^n: m(x) = 0}.
+            # in this case the state space is a submanifold of R^n:
+            #     M = {x in R^n: m(x) = 0}.
 
-            # we still define the NN for inputx in ambient space R^n. v loss
+            # we still define the NN for inputs in ambient space R^n. v loss
             # stays the same, but vx loss has to be adjusted so we only take
             # derivatives in tangent space directions.
 
             # We do this by constructing an orthonormal basis for normal
             # space, based on constraint function m.
 
-            # TODO: one of:
-            #  1. define m such that B is always an orthonormal basis (and sanity check)
-            #  2. (ortho?)normalise it here after calculating the jacobian
-            #  3. use the pseudoinverse in the projection instead of transpose.
-            # if going for 3 and maybe also 2, it could be worth doing it in advance?
-
-            # if B is indeed a orthonormal basis of the normal space, then we should have:
-            # B.T @ B = I  (B is semi-orthogonal, B @ B.T != I)
-            # instead of checking this numerically which would be cumbersome with jit, we
-            # demand that b is actually just a vector in which case it just needs to be normed.
-
-            # cheap version of 1. by assuming the normal space is only 1-dimensional
+            # this is trivial if the normal space is 1D (scalar constraint fct)
             B = jax.jacobian(problem_params['m'])(y['x'])
             assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
 
-            # also, if X is the cartesian product of several independent
-            # manifolds of co-dimension 1, all vectors \nabla_x m(x) are
-            # pairwise orthogonal, and constructing our basis stays simple.
+            # if codimension > 1, we will have to do one of:
+            #  1. define m such that B is always an orthonormal basis (and sanity check)
+            #  2. (ortho?)normalise it here after calculating the jacobian
+            #  3. use the pseudoinverse in the projection instead of transpose.
+            #  4. just ignore it, regularise in the directions given by the
+            #     jacobian anyway, it is only a small regularisation after all
+
+            # if X is the cartesian product of several independent manifolds of
+            # co-dimension 1, all vectors \nabla_x m(x) are pairwise
+            # orthogonal, and we have basically done point 1. above.
 
             # and normalise just for good measure.
             B = B / np.linalg.norm(B)
@@ -358,8 +363,16 @@ class nn_wrapper():
 
             vx_loss = vx_label_loss + vx_reg_loss
 
+
+            # overwrites the 'vx' already present, which was calculated without consideration
+            # of the manifold and the fact that the normal direction is not important.
+            # lossterms['vx'] = vx_loss  # this one is kind of unnecessary
             lossterms['vx_reg'] = vx_reg_loss
             lossterms['vx_label'] = vx_label_loss
+        else:
+
+            # regular R^n state space.
+            lossterms['vx'] = vx_loss
 
         # if there are three weights they are for (v, vx, vxx). if only two, (v, vx).
         if algo_params['nn_sobolev_weights'].shape == (3,):

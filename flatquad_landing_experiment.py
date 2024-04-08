@@ -846,6 +846,8 @@ if __name__ == '__main__':
 
 
     algo_params = {
+
+        # ODE SOLVER PARAMS
         'pontryagin_solver_vxx': False,
         'pontryagin_solver_atol': 1e-5,
         'pontryagin_solver_rtol': 1e-5,
@@ -871,6 +873,29 @@ if __name__ == '__main__':
         # results will be unusable due to evaluating solutions outside their domain giving NaN
         'throw': False,
 
+
+
+        # NN ARCHITECTURE & TRAINING
+        # big question: should we aim for over- or underparameterisation?
+        'nn_layerdims': (64, 64, 64),
+        'nn_batchsize': 32,
+        'nn_N_epochs': 256,
+        'nn_train_fraction': .98,
+        'lr_staircase': False,
+        'lr_staircase_steps': 8,
+        'lr_init': 0.01,
+        'lr_final': 0.001,
+
+        'nn_ensemble_size': 8,
+
+        # NN LOSS FUNCTION
+        # relative importance of the losses for v, vx, vxx.
+        # mostly we care about representing vx with great accuracy,
+        # the other two can be thought of as "hints"/priors/inductive biases
+        # to fit the correct vx function.
+        # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
+        'nn_sobolev_weights': np.array([0.1, 10.]),
+
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
         'vx_normal_regularisation': 0.001,
@@ -884,28 +909,9 @@ if __name__ == '__main__':
         # OTOH if we adapt the prior sampling distribution to be always like
         # 10x larger than the data extent, we might keep the behaviour more
         # predictable over the whole run...
-        'prior_strength': 1.,
+        'prior_strength': 50.,
         'v_prior_factor': 100.,
         'prior_extent_factor': 8,
-
-        # big question: should we aim for over- or underparameterisation?
-        'nn_layerdims': (64, 64, 64),
-        'nn_batchsize': 32,
-        'nn_N_epochs': 256,
-        'nn_train_fraction': .98,
-        'lr_staircase': False,
-        'lr_staircase_steps': 8,
-        'lr_init': 0.01,
-        'lr_final': 0.001,
-
-        'nn_ensemble_size': 8,
-
-        # relative importance of the losses for v, vx, vxx.
-        # mostly we care about representing vx with great accuracy,
-        # the other two can be thought of as "hints"/priors/inductive biases
-        # to fit the correct vx function.
-        # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': np.array([0.1, 10.]),
 
         # tells the data normaliser to not normalise those states
         # y-axis (v) is still scaled and with it vx.
@@ -914,6 +920,8 @@ if __name__ == '__main__':
 
         'nn_progressbar': True,
 
+
+        # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
         'thin_data': True,
@@ -928,6 +936,10 @@ if __name__ == '__main__':
         # still unsure if the uncertainty should rather be in terms of vx?
         'sigma_target_abs': 0.5,
         'sigma_target_rel': 0.01,
+
+        # the sublevel set Vk must contain at least this fraction of test points
+        # which are below the sigma target to qualify as "learned".
+        'frac_certain_in_Vk': .99
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

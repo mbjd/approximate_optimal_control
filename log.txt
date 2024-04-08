@@ -2962,6 +2962,21 @@ completely different (from yesterday, no functional prior, initially rejected)
    (and write an acquisition function that does not ONLY choose wrong pts)
  - but wait, for estimating the currently known level we cannot ignore
    it, if we do that the obvious way at least...
+ - just sample only in a small region around current data.... but the
+   particular manifold problem we have now is only fixed if this small
+   region also means close on the manifold, requiring a different sampling
+   method...
+ - outrageous idea: (mis)use the normal direction regularisation.
+   regularise not such that the derivative in that direction is small, but
+   rather nonzero as to reduce the risk of the extrapolation that
+   intersects the manifold again being negative. would be a bit hacky. but
+   i can actually see that working for this example and also quaternions,
+   as in both of them there is really only one point in danger of having
+   small v_mean, IF the extrapolation is well behaved, i.e. close to the
+   LQR solution initially. but, I mean if we sink that low we might as well
+   just impose a prior at that specific point that pushes V up in the
+   absence of strong other information.
+
 
 
 
@@ -2973,3 +2988,69 @@ other random implementation thoughts:
    at / plot the prior loss etc.
 
 man this daily log volume is getting out of hand...
+
+
+
+2024-04-08
+
+doing some long overdue software engineering: switching loss term outputs
+to dict and adapting plotting function accordingly. we include everything
+we want in the dict and the plot is adjusted automatically :)
+
+from the individual terms we get more of an idea how the training actually
+works. it seems that the prior is "fulfilled" last, when all the other
+terms have pretty much already plateued. so we have to be careful that with
+more data/other scaling/whatever we don't completely ignore the prior. BUT
+also, it is not "bad" if we completely optimise the prior whereever there
+is no data, even a "partial" fit where V_nn is not at v_prior but still
+above data and v_k is useful, and arguably fits the term "prior" better.
+
+the most important question is still this: how do we balance the loss
+factor and the sampling density for the prior? the sampling "box" extent is
+quite important, changing it by a factor of 2 effectively changes the prior
+strength by a factor of 2 ** nx, which can be quite a lot! this is central
+and really determines the shape of the uncertainty band, in the GP analogue
+a bit like the kernel width.
+
+this seems nice and all but still our problem, that {0} x M contains points
+with V_nn < 0 (mean), persists. trying to up the prior strenght a bit to
+see what happens.
+
+okay, it seemed to work finally! there are no more v<0 regions, which means
+that estimation of the known value level should work again. though, if we
+select a big value increment, still there might be proposed points which we
+wouldn't actually want to propose. handling this in a nice way is probably
+too much effort, let's try if we can just keep the number of times this
+happens a bit at bay.
+
+running the whole active learning loop for the first time in a while (since
+adding the whole manifold stuff, loss scaling stuff, functional prior
+stuff...)  and maaaan it takes long. already almost 10min of training, for
+6487 data points. crazy. is it something I did wrong performance-wise?
+unsuitable code for jitting? too much memory access when drawing samples?
+(maybe the trivial vmapped version of random.choice is worse than e.g.
+random.choice 8x the amount and then distribute it in terms of memory
+access... no clue about this stuff though. Let's keep this an
+implementation detail not to be worried about unless absolutely necessary)
+
+
+generally it looks nice, v_std goes down as it should. BUT there is the
+same issue as last time: even though *most* points are below the
+sigma threshold for a long stretch of v's, even one of them that is above
+throws the algo off. this follows directly from our calculation of v_k: we
+find the lowest-v point that violates the threshold even slightly, even if
+above the that v, still *most* of the points are below it.
+
+should we change the v_k calculation to do something like: choose the
+largest v such that at least 95% of points inside it are below the sigma
+threshold? would probably add some robustness against outliers. We cannot
+be sure that V_k indeed has uniformly sigma < threshold, but we cannot
+provide that guarantee in any case given we are using finite samples. also,
+I am pretty sure that considering we check again for each trajectory
+whether or not the data can be trusted (= has low sigma and is in value
+sublevel set), having some points of excessive sigma within the level set
+will not throw the algo off.
+
+
+
+

@@ -1145,7 +1145,6 @@ def testbed(problem_params, algo_params):
         # generous upper bound for value we're interested in rn.
         # integration of trajectories stops once we pass this threshold.
         v_upper = v_next + 10 * (v_next - v_k)
-        # sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, algo_params)
 
         # TODO jit this.
         backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None))(
@@ -1154,6 +1153,7 @@ def testbed(problem_params, algo_params):
 
         # plot 0th forward and backward sol in same plot.
         pl.figure()
+        sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, v_upper, algo_params)
         sol0_fwd = jtm(itemgetter(0), forward_sols)
         fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
 
@@ -1420,7 +1420,51 @@ def testbed(problem_params, algo_params):
         v_means_infmasked = v_means + np.inf * sigma_small_enough
         v_k = v_means_infmasked.min()
 
+
+
+
+
+
+
+        # alternative: be relaxed about *a few* high-σ points being inside our set.
         # ipdb.set_trace()
+
+        # two main approaches: a) require that 95% of points in Vk have σ < threshold
+        # or b) require that all but k points in Vk have σ < threshold.
+
+        # the second one could probably be implemented with top_k, but the first is probably smarter...
+        # first one could probably be implemented with some kind of bisection thing?
+        # do we first sort the whole array? -> yes we do :--)
+
+        idx = np.argsort(v_means)
+
+        v_means_sorted = v_means[idx]
+        v_stds_sorted = v_stds[idx]
+        sigma_small_enough_sorted = sigma_small_enough[idx]
+
+        # for each k, this is the fraction
+        #
+        #      #(j: v[j] <= v[k] and σ[j] < threshold)
+        #      ―――――――――――――――――――――――――――――――――――――――
+        #                #(j: v[j] <= v[k])
+
+        frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / sigma_small_enough.shape[0]
+
+        # now, find the largest index k for which that fraction is above the threshold
+        threshold = algo_params['frac_certain_in_Vk']
+
+        # because the function is monotonously decreasing, we may equivalently find the
+        # SMALLEST frac_certain_inside that is still above the limit.
+        k_accept = np.argmin(frac_certain_inside + np.inf * (frac_certain_inside < threshold))
+
+        v_k = v_means_sorted[k_accept]
+
+        # yet another alternative: specify some sort of "excess sigma" which
+        # summed over the points in Vk we must not exceed. then do something
+        # similar as above, but with points far above sigma being worse than
+        # ones just slightly. 100 points a tiny bit above sigma are less bad
+        # than 10 points but 1000x sigma.
+
 
         pl.figure()
 
@@ -1441,14 +1485,14 @@ def testbed(problem_params, algo_params):
 
         pl.xlabel('v mean')
         pl.ylabel('v std')
-        pl.loglog(v_means, v_stds, '. ', alpha=.05)
+        pl.loglog(v_means, v_stds, '. ', alpha=.1)
         pl.loglog(image_means, image_stds, alpha=.2, color='red')
 
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
         vmin, vmax = v_means.min(), v_means.max()
-        plot_vs = np.linspace(vmin, vmax, 1000)
-        pl.loglog([vmin, vmax], [atol, atol], linestyle='--', alpha=.2, label='atol (constant sigma target)')
-        pl.loglog(plot_vs, atol + rtol * plot_vs, linestyle='--', alpha=.2, label='atol + v_mean * rtol (variable sigma target)')
+        pl.loglog([vmin, vmax], [atol, atol], linestyle='--', alpha=.5, label='atol (constant sigma target)')
+        plot_vs = np.logspace(np.log10(vmin)-1, np.log10(vmax+1), 200)
+        pl.loglog(plot_vs, atol + rtol * plot_vs, linestyle='--', alpha=.5, label='atol + v_mean * rtol (variable sigma target)')
 
         # this is not optimal. if the real known value sublevel set only
         # corresponds to a tiny region, then we may not hit it with any
@@ -1555,7 +1599,7 @@ def testbed(problem_params, algo_params):
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
     pl.show()
 
-    ipdb.set_trace()
+    # ipdb.set_trace()
 
     '''
     # small parameter sweep over that unbounded prior loss strength.
@@ -1601,20 +1645,20 @@ def testbed(problem_params, algo_params):
         # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump
 
+        # why did we split up estimate_value_level and propose_pts?
+        # don't we just calculate the whole mean/std at test pts twice?
+
         if k==0:
             v_k = estimate_value_level(test_pts, params_sobolev_ens)
         else:
             # don't allow it to go back down again hehehe
-            # v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
-            v_k = estimate_value_level(test_pts, params_sobolev_ens)
+            v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
+            # v_k = estimate_value_level(test_pts, params_sobolev_ens)
 
         pl.show()
         ipdb.set_trace()
         vks.append(v_k)
 
-
-
-        print(f'known value level (technically: smallest known upper bound): {v_k}')
 
         # additional 0-th step: continue all solutions that currently end at some
         # value between v_k and v_next, so that they go above v_next? and more interestingly,
@@ -1648,11 +1692,12 @@ def testbed(problem_params, algo_params):
             print('nans appeared haaaalp')
             # ipdb.set_trace()
 
-        where_inf = (all_ys['x'] == np.inf).any(axis=2)
-        where_v_toohigh = all_ys['v'] > v_next_target
-        where_nan = np.isnan(all_ys['x']).any(axis=2)
-        where_exclude = np.logical_or(np.logical_or(where_inf, where_v_toohigh), where_nan)
-        all_x_masked = all_ys['x'].at[where_exclude].set(0)
+        # homeboy what's the use?
+        # where_inf = (all_ys['x'] == np.inf).any(axis=2)
+        # where_v_toohigh = all_ys['v'] > v_next_target
+        # where_nan = np.isnan(all_ys['x']).any(axis=2)
+        # where_exclude = np.logical_or(np.logical_or(where_inf, where_v_toohigh), where_nan)
+        # all_x_masked = all_ys['x'].at[where_exclude].set(0)
 
         # maybe better to put equilibrium instead of 0?
         # also a safety factor if data doesn't "catch" everything.

@@ -791,7 +791,7 @@ def testbed(problem_params, algo_params):
     def forward_sim_nn_until_value(x0, params, v_k, vmap=False):
 
         # also simulates forward, but stops once we are with high probability
-        # inside the value level set v_k. (implemented as 2 sigma upper confidence band)
+        # inside the value level set v_k AND we have sufficiently low sigma.
 
         # only vmap=True is implemented.
 
@@ -831,7 +831,10 @@ def testbed(problem_params, algo_params):
             # thus we take an upper confidence band = overestimated value function = inner approx of level set
             # return (v_mean + 2 * v_std <= v_k).item()   # if meanstd returns arrays of shape (), not floats
             is_very_likely_in_Vk = v_mean + 2 * v_std <= v_k
-            has_low_sigma = v_std <= 0.5  # TODO make this threshold an algo_param
+
+            sigma_max = algo_params['sigma_max'](v_mean)
+
+            has_low_sigma = v_std <= sigma_max
 
             # return is_very_likely_in_Vk
 
@@ -924,7 +927,7 @@ def testbed(problem_params, algo_params):
         v_step = T * min_l
         v_next = v_k + v_step
 
-        print(f'v_k+1 target = {v_next}')
+        print(f'v_k+1 target = {v_next:.3f}')
 
         return v_next
 
@@ -1006,7 +1009,7 @@ def testbed(problem_params, algo_params):
         # forget this for now maybe its even a good thing.
 
         v_means, v_stds = v_meanstds(all_valueband_pts, vmap_nn_params)
-        # ipdb.set_trace()
+        sigma_maxs = jax.vmap(algo_params['sigma_max'])(v_means)
 
 
 
@@ -1042,10 +1045,8 @@ def testbed(problem_params, algo_params):
 
         elif proposal_strategy == 'lowest_v_among_uncertain':
 
-            atol = algo_params['sigma_target_abs']
-            rtol = algo_params['sigma_target_rel']
-
-            where_uncertain = v_stds > atol + rtol * v_means
+            # probably would do the same without vmap by relying on broadcasting...
+            where_uncertain = v_stds > sigma_maxs
 
             # replaces the v_means where we are certain enough by inf
             # that way once we multiply by -1 we have -inf and negative values
@@ -1063,7 +1064,7 @@ def testbed(problem_params, algo_params):
             # a uniform subsample
             # probably this will also biased towards the upper level set but maybe not overly so.
             # this seems to make slower progress than just maximum uncertainty...
-            is_uncertain = v_stds > v_std_min
+            is_uncertain = v_stds > sigma_maxs
             N_uncertain = np.sum(is_uncertain)
             ps = is_uncertain / N_uncertain
 
@@ -1119,7 +1120,8 @@ def testbed(problem_params, algo_params):
         # conditions as well. *maybe* there is some edge case where the condition is True at the
         # last step and the solver quits anyway, so it doesn't report quitting "due to" the event?
         mus, sigs = v_meanstds(xfs, vmap_nn_params)
-        is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= 0.5)
+        sig_maxs = algo_params['sigma_max'](mus)
+        is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= sig_maxs)
 
         assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
 
@@ -1416,18 +1418,14 @@ def testbed(problem_params, algo_params):
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
 
-        # easiest way: just literally the finite sample.
-        # there should be a nicer way to estimate the actual
-        #    v_k := max v_k s.t. forall x with v_mean(x) <= v_k: s_std(x) <= sigma_max
-
-        # v_k = max v_k s.t. all test points with v <= v_k have sigma <= sigma_max
-        #     = smallest v_k with sigma > sigma_max.
-        # alternative:
-        atol = algo_params['sigma_target_abs']
-        rtol = algo_params['sigma_target_rel']
-        sigma_small_enough = v_stds <= atol + rtol * v_means
+        sigma_maxs = jax.vmap(algo_params['sigma_max'])(v_means)
+        sigma_small_enough = v_stds <= sigma_maxs
 
         sigma_small_enough = np.logical_or(test_pts_known, sigma_small_enough)
+
+
+
+
 
         # replace everything where sigma is small enough by infinity.
         # then we can take the minimum to find the lowest-v point with
@@ -1486,8 +1484,8 @@ def testbed(problem_params, algo_params):
         # than 10 points but 1000x sigma.
 
 
-        print(f'estimated known value level: {v_k}')
-        print(f'percentage of test points known: {100*sigma_small_enough.mean():.1f}%')
+        print(f'estimated known value level: {v_k:.3f}')
+        print(f'percentage of test points known: {100*sigma_small_enough.mean():.2f}%')
         pl.figure()
 
         # plot the image of {0} x M basically to confirm that the weird loop comes from there
@@ -1513,9 +1511,11 @@ def testbed(problem_params, algo_params):
 
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
         vmin, vmax = v_means.min(), v_means.max()
-        pl.loglog([vmin, vmax], [atol, atol], linestyle='--', alpha=.5, label='atol (constant sigma target)')
+
+
         plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
-        pl.loglog(plot_vs, atol + rtol * plot_vs, linestyle='--', alpha=.5, label='atol + v_mean * rtol (variable sigma target)')
+        plot_sig_maxs = jax.vmap(algo_params['sigma_max'])(plot_vs)
+        pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
 
         # this is not optimal. if the real known value sublevel set only
         # corresponds to a tiny region, then we may not hit it with any
@@ -1708,12 +1708,12 @@ def testbed(problem_params, algo_params):
 
         pl.figure(f'nn training #{k}')
         plotting_utils.plot_nn_train_outputs(oups)
+        pl.ylim([1e-4, 1e3])
         pl.savefig(f'tmp/trainplot_{k:04d}.png')
 
 
         pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-        pl.ylim([1e-4, 1e3])
         pl.savefig(f'tmp/trajectory_{k:04d}.png')
 
         pl.close('all')

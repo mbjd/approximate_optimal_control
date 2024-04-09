@@ -658,7 +658,7 @@ class nn_wrapper():
 
 
     @filter_jit
-    def train_sobolev_ensemble_from_params(self, key, ys, init_params_vmap, problem_params, algo_params, ys_test=None):
+    def train_sobolev_ensemble_warmstarted(self, key, ys, init_params_vmap, problem_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with
         # different prng key AND from vmapped params.
@@ -668,9 +668,16 @@ class nn_wrapper():
         # data... is that the reason? if the test dataset is much larger than
         # the batches we would kind of expect that tbh
 
+        # adjust algoparams for warmstart situation. do this in a neater way if it works.
+        portion = 0.2   # repeat the last "portion" of the usual training loop.
+        algo_params_warmstart = algo_params.copy()
+        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
+        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
+        algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
+
+
         keys = jax.random.split(key, algo_params['nn_ensemble_size'])
 
-        train_with_key_and_params = lambda k, params: self.train_sobolev(k, ys, params, problem_params, algo_params, ys_test=ys_test)
-
-        # vmap only the random key. even keep same initialisation!
+        # vmap key and parameters.
+        train_with_key_and_params = lambda k, params: self.train_sobolev(k, ys, params, problem_params, algo_params_warmstart, ys_test=ys_test)
         return jax.vmap(train_with_key_and_params, in_axes=(0, 0))(keys, init_params_vmap)

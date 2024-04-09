@@ -3052,5 +3052,21 @@ sublevel set), having some points of excessive sigma within the level set
 will not throw the algo off.
 
 
+okay, implemented that, after a couple rounds of fixing elementary errors
+it seems to work nicely. though, obvs doesn't fix the case where the NN
+approximation is *completely* messed up, but serves as a more reasonable
+guess about the known value sublevel set -- much closer to what a human
+looking at the scatterplot might pick intuitively.
 
 
+
+2024-04-09
+
+
+finding it hard to tune prior sensibly. mostly in the first iteration it
+looks perfect, but already in the second one it is suddenly way too strong,
+destroying the extrapolation completely.
+
+maybe one way to make it work is this: for each state point x in the
+training set, impose the prior loss at 10 x? or something similar?
+10*cartesian part of x and random position on manifold? is this dumb?

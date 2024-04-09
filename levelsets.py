@@ -1164,7 +1164,7 @@ def testbed(problem_params, algo_params):
 
         return backward_sols_new
 
-    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval):
+    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, warmstart=False):
 
         # what if we first do a simpler version of this prune_and_train thing?
         # consisting of just one step instead of a loop with sub-valuesteps.
@@ -1270,23 +1270,25 @@ def testbed(problem_params, algo_params):
         init_key, key = jax.random.split(key)
         params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
-        # n_params = count_floats(params_init)
-        # n_data = count_floats(train_ys)
-        # print(f'params/data ratio = {n_params/n_data:.4f}')
+        n_params = count_floats(params_init)
+        n_data = count_floats(train_ys)
+        print(f'params/data ratio = {n_params/n_data:.4f}')
 
-        # look ma no test data
-        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-            train_key, ys_n, problem_params, algo_params, test_ys_n
-        )
 
-        # warm started version
-        # params_sobolev_ens_alt, oups_sobolev_ens_alt = v_nn.train_sobolev_ensemble_from_params(
-        #     train_key, ys_n, params_sobolev_ens, algo_params
-        # )
+        if warmstart:
+            # continue from previous params, only last portion of training.
+            params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_warmstarted(
+                train_key, ys_n, params_sobolev_ens, problem_params, algo_params
+            )
+        else:
+            # training from scratch
+            params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
+                train_key, ys_n, problem_params, algo_params
+            )
 
-        # ipdb.set_trace()
+        # report some form of test/train loss comparison in the end?
 
-        return params_sobolev_ens
+        return params_sobolev_ens, oups_sobolev_ens
 
 
 
@@ -1390,6 +1392,8 @@ def testbed(problem_params, algo_params):
         jax.random.PRNGKey(123), N_testpts, x_extent, log_min_scale=-2
     )
 
+    # use this to "mark" test points that AT SOME POINT were below the sigma limit.
+    test_pts_known = np.zeros((N_testpts,)).astype(bool)
 
 
     # TODO maybe? also some persistent "buffer" where we mark the test pts
@@ -1397,7 +1401,7 @@ def testbed(problem_params, algo_params):
     # this should "robustify" against the NN occasionally doing dumb stuff.
 
     # @jax.jit
-    def estimate_value_level(test_pts, params_sobolev_ens):
+    def estimate_value_level(test_pts, test_pts_known, params_sobolev_ens):
 
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
@@ -1412,6 +1416,8 @@ def testbed(problem_params, algo_params):
         atol = algo_params['sigma_target_abs']
         rtol = algo_params['sigma_target_rel']
         sigma_small_enough = v_stds <= atol + rtol * v_means
+
+        test_pts_known = np.logical_or(test_pts_known, sigma_small_enough)
 
         # replace everything where sigma is small enough by infinity.
         # then we can take the minimum to find the lowest-v point with
@@ -1470,6 +1476,7 @@ def testbed(problem_params, algo_params):
         # than 10 points but 1000x sigma.
 
 
+        print(f'estimated known value level: {v_k}')
         pl.figure()
 
         # plot the image of {0} x M basically to confirm that the weird loop comes from there
@@ -1484,7 +1491,6 @@ def testbed(problem_params, algo_params):
         #     np.zeros(500),
         #     np.zeros(500),
         # ])
-
         # image_means, image_stds = v_meanstds(manifold, params_sobolev_ens)
 
         pl.xlabel('v mean')
@@ -1508,7 +1514,7 @@ def testbed(problem_params, algo_params):
         # maybe we can remedy this by making the test_pts somehow
         # logarithmically distributed?
 
-        return v_k
+        return v_k, test_pts_known
 
 
 
@@ -1517,8 +1523,6 @@ def testbed(problem_params, algo_params):
     # rapidly fill that sublevel set instead of being careful about
     # collisions... but no way to verify the assumption besides praying
 
-    # v_k = 1000 * problem_params['V_f']
-    # v_k = np.inf  # fullest gas
     v_k = 5
 
     # to get a feel for when the linearisation stops being accurate.
@@ -1566,10 +1570,12 @@ def testbed(problem_params, algo_params):
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
 
+    '''
     # test loss fct to pdb with concrete values.
     sol = jtm(itemgetter(12), sols_orig)
     y = jtm(itemgetter(12), sol.ys)
     loss = v_nn.sobolev_loss(key, y, params_init, problem_params, algo_params)
+    '''
 
     # to get a feel for over/underparameterisation.
     n_params = count_floats(params_init)
@@ -1603,7 +1609,7 @@ def testbed(problem_params, algo_params):
 
     pl.figure('training run')
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
-    pl.show()
+    # pl.show()
 
     # ipdb.set_trace()
 
@@ -1646,7 +1652,7 @@ def testbed(problem_params, algo_params):
 
     for k in range(100):
 
-        print(f'active learning iter {k}')
+        print(f'active learning iteration {k}')
 
         # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump
@@ -1655,13 +1661,17 @@ def testbed(problem_params, algo_params):
         # don't we just calculate the whole mean/std at test pts twice?
 
         if k==0:
-            v_k = estimate_value_level(test_pts, params_sobolev_ens)
+            v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
         else:
             # don't allow it to go back down again hehehe
-            v_k = max(v_k, estimate_value_level(test_pts, params_sobolev_ens))
-            # v_k = estimate_value_level(test_pts, params_sobolev_ens)
+            v_new, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
+            if v_new > v_k:
+                v_k = v_new
 
-        pl.show()
+        print(f'fraction of points known = {test_pts_known.mean():.3f}')
+
+
+        # pl.show()
         ipdb.set_trace()
         vks.append(v_k)
 
@@ -1701,13 +1711,9 @@ def testbed(problem_params, algo_params):
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
         # ipdb.set_trace()
-        pl.savefig(f'tmp/valuelevel_{k:06d}.png')
-        pl.close('all')
+        # pl.savefig(f'tmp/valuelevel_{k:06d}.png')
 
         # ~~~~ ORACLE ~~~~
-        # now that we've proposed a batch of points, we call the oracle.
-        # maybe easier to write one function for the whole oracle step, and then vmap it?
-        # instead of vmapping the forward solve and backward solve separately...
         backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens)
 
         # append new data to big data set.
@@ -1715,10 +1721,12 @@ def testbed(problem_params, algo_params):
 
 
         train_key = key  # yolo
-        params_sobolev_ens = prune_and_train_simple(
-            train_key, params_sobolev_ens, all_ys, [v_k, v_next_target]
-        )
+        params_sobolev_ens, oups = prune_and_train_simple( train_key, params_sobolev_ens, all_ys, [v_k, v_next_target])
 
+
+        pl.figure(f'nn training #{k}')
+        plotting_utils.plot_nn_train_outputs(oups)
+        pl.show()
         # ipdb.set_trace()
 
 

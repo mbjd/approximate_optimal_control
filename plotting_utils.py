@@ -384,7 +384,11 @@ def plot_nn_train_outputs(outputs, subsample=16):
         chunklen = subsample
 
         N_chunks = N_steps // subsample
-        assert N_chunks * subsample == N_steps, 'use nicer numbers or remove the last bit'
+
+        # remove the last bit to make evenly divisible
+        N_steps = N_chunks * subsample
+        outputs = jax.tree_util.tree_map(lambda n: n[:, 0:N_steps], outputs)
+
         outputs = jax.tree_util.tree_map(lambda n: n.reshape(N_ensemble, N_chunks, chunklen).mean(axis=2), outputs)
 
 

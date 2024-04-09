@@ -723,7 +723,7 @@ def old_params():
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'active_learning_batchsize': 512,
+        'active_learning_batchsize': 64,
 
         # sigma target = sigma_target_abs + sigma_target_rel * v_mean
         # still unsure if the uncertainty should rather be in terms of vx?

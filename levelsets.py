@@ -1417,7 +1417,7 @@ def testbed(problem_params, algo_params):
         rtol = algo_params['sigma_target_rel']
         sigma_small_enough = v_stds <= atol + rtol * v_means
 
-        test_pts_known = np.logical_or(test_pts_known, sigma_small_enough)
+        sigma_small_enough = np.logical_or(test_pts_known, sigma_small_enough)
 
         # replace everything where sigma is small enough by infinity.
         # then we can take the minimum to find the lowest-v point with
@@ -1477,6 +1477,7 @@ def testbed(problem_params, algo_params):
 
 
         print(f'estimated known value level: {v_k}')
+        print(f'percentge of points known: {100*test_pts_known.mean():.1f}%')
         pl.figure()
 
         # plot the image of {0} x M basically to confirm that the weird loop comes from there
@@ -1514,7 +1515,7 @@ def testbed(problem_params, algo_params):
         # maybe we can remedy this by making the test_pts somehow
         # logarithmically distributed?
 
-        return v_k, test_pts_known
+        return v_k, sigma_small_enough
 
 
 
@@ -1660,15 +1661,8 @@ def testbed(problem_params, algo_params):
         # why did we split up estimate_value_level and propose_pts?
         # don't we just calculate the whole mean/std at test pts twice?
 
-        if k==0:
-            v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
-        else:
-            # don't allow it to go back down again hehehe
-            v_new, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
-            if v_new > v_k:
-                v_k = v_new
+        v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
 
-        print(f'fraction of points known = {test_pts_known.mean():.3f}')
 
 
         # pl.show()
@@ -1726,6 +1720,9 @@ def testbed(problem_params, algo_params):
 
         pl.figure(f'nn training #{k}')
         plotting_utils.plot_nn_train_outputs(oups)
+        pl.figure(f'random trajectory, iter {k}')
+        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
+
         pl.show()
         # ipdb.set_trace()
 

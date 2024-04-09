@@ -3070,3 +3070,12 @@ destroying the extrapolation completely.
 maybe one way to make it work is this: for each state point x in the
 training set, impose the prior loss at 10 x? or something similar?
 10*cartesian part of x and random position on manifold? is this dumb?
+
+other idea for the prior: instead of specifying the point should have
+Vnn(x) close to v_prior, just specify *at least* v_prior. that means
+probably going from a symmetric loss function:
+ l = ((v - v_prior) / v_prior)**2
+to something like:
+ l = softplus(-(v - v_prior) / v_prior)
+which penalises underestimation but doesn't care about overestimation.
+not sure if all these prior thoughts are worth it...

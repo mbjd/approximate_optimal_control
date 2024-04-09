@@ -909,7 +909,7 @@ if __name__ == '__main__':
         # OTOH if we adapt the prior sampling distribution to be always like
         # 10x larger than the data extent, we might keep the behaviour more
         # predictable over the whole run...
-        'prior_strength': 50.,
+        'prior_strength': 0.001,
         'v_prior_factor': 100.,
         'prior_extent_factor': 8,
 

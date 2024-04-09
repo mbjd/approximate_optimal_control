@@ -229,10 +229,15 @@ class nn_wrapper():
 
         # evaluate the prior loss at a random point.
         extent = np.array([20, 20, 0., 0., 20, 20, 20])  # TODO put in algo_params too?
-        prior_x = algo_params['sample_state'](prior_key, extent)
+        # prior_x = algo_params['sample_state'](prior_key, extent)
+
+
+        prior_x = np.array([0, 0, 0, -1., 0, 0, 0])
+        v_prior = 5.
+
         v_pred = self.nn.apply(params, prior_x)
 
-        prior_noise=True
+        prior_noise=False
         if prior_noise:
             # introduce a small amount of jitter in the prior to avoid
             # "collapsing" too precisely to the prior mean. maybe SGD will see
@@ -247,7 +252,6 @@ class nn_wrapper():
         total_loss = original_loss + algo_params['prior_strength'] * prior_loss
         loss_terms['prior'] = prior_loss
 
-        # i am at a:
         return total_loss, loss_terms
 
     def sobolev_loss(self, key, y, params, problem_params, algo_params):
@@ -359,9 +363,15 @@ class nn_wrapper():
             # = || vx_err ||_{P.T@P}^2
             vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
 
-            vx_reg_loss = algo_params['vx_normal_regularisation'] * np.sum( (vx_pred @ P_normal)**2 )
+            # try this scaling similar to v.
+            # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))
+            # second one should be more "correct" but maybe only scaling by the sqrt of it
+            # is somehow not bad too?
+            vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))**2
 
-            vx_loss = vx_label_loss + vx_reg_loss
+            vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
+
+            vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss
 
 
             # overwrites the 'vx' already present, which was calculated without consideration
@@ -521,7 +531,7 @@ class nn_wrapper():
         # makes it unlikely that the prior acts in the data region even for
         # relatively small factors.
 
-        prior_extent = np.clip(algo_params['prior_extent_factor'] * np.abs(ys['x']).max(axis=0), 10, np.inf)
+        prior_extent = np.clip(algo_params['prior_extent_factor'] * np.abs(ys['x']).max(axis=0), 1., np.inf)
 
 
 

@@ -1477,7 +1477,7 @@ def testbed(problem_params, algo_params):
 
 
         print(f'estimated known value level: {v_k}')
-        print(f'percentge of points known: {100*test_pts_known.mean():.1f}%')
+        print(f'percentage of test points known: {100*sigma_small_enough.mean():.1f}%')
         pl.figure()
 
         # plot the image of {0} x M basically to confirm that the weird loop comes from there
@@ -1504,7 +1504,7 @@ def testbed(problem_params, algo_params):
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
         vmin, vmax = v_means.min(), v_means.max()
         pl.loglog([vmin, vmax], [atol, atol], linestyle='--', alpha=.5, label='atol (constant sigma target)')
-        plot_vs = np.logspace(np.log10(vmin)-1, np.log10(vmax+1), 200)
+        plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
         pl.loglog(plot_vs, atol + rtol * plot_vs, linestyle='--', alpha=.5, label='atol + v_mean * rtol (variable sigma target)')
 
         # this is not optimal. if the real known value sublevel set only
@@ -1514,6 +1514,21 @@ def testbed(problem_params, algo_params):
         # value level set.
         # maybe we can remedy this by making the test_pts somehow
         # logarithmically distributed?
+
+
+        # here we can sometimes include points far too high which obviously are
+        # outside the known set but still have low sigma. for those we should
+        # NOT store permanently that we "know" them...
+        # so just as a heuristic, we only accept "known" points up to 2x the estimated value level.
+        # at least the prior won't mess this up if we always set v_prior = like 100 v_k
+
+        # small sigma AND definitely in level set.
+        newly_known = np.logical_and(sigma_small_enough, v_means + 2 * v_stds <= v_k)
+
+        # small sigma AND probably in (higher) level set.
+        # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)
+
+        test_pts_known = np.logical_or(test_pts_known, newly_known)
 
         return v_k, sigma_small_enough
 

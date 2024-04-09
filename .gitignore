@@ -9,3 +9,4 @@ animation*
 *.swp
 *.png
 tmp/
+tmp_euler/

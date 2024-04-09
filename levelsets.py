@@ -1083,7 +1083,7 @@ def testbed(problem_params, algo_params):
         plot=True
         if plot:
             # pl.plot(v_means, v_stds, '. ', label='candidates')
-            pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='proposals')
+            pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='proposals', alpha=.2, color='green')
             pl.legend()
 
             pl.xlim([1e-1, 1e4])
@@ -1151,16 +1151,19 @@ def testbed(problem_params, algo_params):
             usable_xfs, vmap_nn_params, v_upper, algo_params
         )
 
-        # plot 0th forward and backward sol in same plot.
-        pl.figure()
-        sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, v_upper, algo_params)
-        sol0_fwd = jtm(itemgetter(0), forward_sols)
-        fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
+        # TODO global switch for plot+show/plot+savefig/no plot
+        plot=False
+        if plot:
+            # plot 0th forward and backward sol in same plot.
+            pl.figure()
+            sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, v_upper, algo_params)
+            sol0_fwd = jtm(itemgetter(0), forward_sols)
+            fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
 
-        pl.subplot(221)
-        pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
-        pl.gca().set_prop_cycle(None)
-        plotting_utils.plot_sol(sol0, problem_params)
+            pl.subplot(221)
+            pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
+            pl.gca().set_prop_cycle(None)
+            plotting_utils.plot_sol(sol0, problem_params)
 
         return backward_sols_new
 
@@ -1625,35 +1628,40 @@ def testbed(problem_params, algo_params):
 
     pl.figure('training run')
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
-    # pl.show()
+    pl.show()
 
     # ipdb.set_trace()
 
 
     all_ys = sols_orig.ys
 
+    # more detailed plots w/ savefig.
+    pl.rcParams['figure.figsize'] = (16, 9)
 
 
     vks = []
 
     for k in range(100):
 
-        print(f'active learning iteration {k}')
-
         # active learning with level-set ideas embedded.
-        # first pseudocode algo in idea dump
+        # first pseudocode algo in idea dump.
+        # seems to finally work alright!!! (after fixing mostly nn training issues)
+
+        # this has got to be a bit fancy
+        print('\n\n\n')
+        print(f' ~~~~ active learning iteration {k} ~~~~')
+
 
         # why did we split up estimate_value_level and propose_pts?
         # don't we just calculate the whole mean/std at test pts twice?
 
+        vk_prev = v_k
         v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
 
+        if v_k < vk_prev:
+            print('warning; the level set is shrinking.\nprobably the NN is misbehaving again *rolls eyes*')
 
-
-        # pl.show()
-        ipdb.set_trace()
         vks.append(v_k)
-
 
         # additional 0-th step: continue all solutions that currently end at some
         # value between v_k and v_next, so that they go above v_next? and more interestingly,
@@ -1682,15 +1690,10 @@ def testbed(problem_params, algo_params):
 
         key = jax.random.PRNGKey(k)
 
-        # the state space region considered for uniform -> rejection sampling.
-        if not np.isnan(all_ys['x']).any():
-            print('nans appeared haaaalp')
-            # ipdb.set_trace()
-
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
-        # ipdb.set_trace()
-        # pl.savefig(f'tmp/valuelevel_{k:06d}.png')
+        # this figure is opened in estimate_value_level and further written to in propose_pts...
+        pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
         backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens)
@@ -1705,10 +1708,15 @@ def testbed(problem_params, algo_params):
 
         pl.figure(f'nn training #{k}')
         plotting_utils.plot_nn_train_outputs(oups)
+        pl.savefig(f'tmp/trainplot_{k:04d}.png')
+
+
         pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
+        pl.ylim([1e-4, 1e3])
+        pl.savefig(f'tmp/trajectory_{k:04d}.png')
 
-        pl.show()
+        pl.close('all')
         # ipdb.set_trace()
 
 

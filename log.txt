@@ -3118,7 +3118,7 @@ to be in a more expected range.
 often seeing "warning: densely sampled interval smaller than value
 interval". should think about a way to address this. just keep it
 simple&stupid and turn off data thinning? runtime is probably not a huge
-concern if we manage to write a good report nonetheless.
+concern if we manage to write a good report nonetheless. -> turned off.
 
 should we prioritise dense data close to the previous, "certified", v_k?
 because that is where we need it first to expand the level set.
@@ -3132,3 +3132,9 @@ just stop the trajectories we have kind of a natural data thinning going
 on: if the fit is good despite low trajectory density, we won't propose
 those states.
 
+
+
+
+current run is going VERY nicely! made a meshcat viz for the first time in
+a while. while the stabilised set is not yet huge (v_k around 100), it is
+also not tiny! very optimistic rn.

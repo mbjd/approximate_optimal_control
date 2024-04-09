@@ -232,8 +232,13 @@ class nn_wrapper():
         # prior_x = algo_params['sample_state'](prior_key, extent)
 
 
-        prior_x = np.array([0, 0, 0, -1., 0, 0, 0])
-        v_prior = 5.
+        # alternatively, impose the prior only at the point where otherwise we
+        # would get "wrong" values close to 0. This is more of a practical fix
+        # and less of a bayesian-inspired functional prior type story. but if
+        # it works who am I to judge (myself...)
+        # even outside of the manifold!
+        v_prior = 5
+        prior_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
 
         v_pred = self.nn.apply(params, prior_x)
 
@@ -246,8 +251,15 @@ class nn_wrapper():
 
 
         # same as usual loss function. but with "prior" label.
-        prior_loss = (v_pred/v_prior - 1)**2
+        # prior_loss = (v_pred/v_prior - 1)**2
         # v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
+
+        # alternatively: only penalise too small v's, not too high.
+        # v_prior - v_pred > 0 <=> v_prior > v_pred which is bad.
+        # conversely if <0 (then the 0 is chosen instead) we overestimate which is good.
+        # prior_loss = np.maximum(0, v_prior - v_pred)
+        # smooth version for nicer plots hehehe
+        prior_loss = jax.nn.softplus(v_prior - v_pred)
 
         total_loss = original_loss + algo_params['prior_strength'] * prior_loss
         loss_terms['prior'] = prior_loss

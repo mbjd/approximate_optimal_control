@@ -3079,3 +3079,56 @@ to something like:
  l = softplus(-(v - v_prior) / v_prior)
 which penalises underestimation but doesn't care about overestimation.
 not sure if all these prior thoughts are worth it...
+
+or, again similar idea as last time, have ONE hessian loss at the origin,
+with the LQR value, but also with a p.d. quadratic term in normal direction
+to the manifold. in the absence of any data that should already make the
+extrapolation positive definite, right...?
+
+
+yet another one. whenever we notice that the proposals don't go anywhere,
+add a "prior datapoint" in that spot with really high value? intuitively,
+the fact that we were NOT able to reach the lower value level set indicates
+that the value may be much higher than the previous extrapolation said.
+maybe this is the way to go?
+
+
+other idea, maybe a bit unhinged: have the PRNG key for sampling the prior
+x point (and noise) be a deterministic function of the data point, e.g.
+some low significance bits mixed together and cast to int. then we have
+"noise" in the prior which is fixed and which might help increase
+uncertainty in unknown regions. (though practically, we can just treat "v
+really high" the same as "sigma large" even if simga is actually small)
+
+
+thought over lunch: maybe i have already been doing what I couldn't wrap my
+head around? explanation -- if we generate solutions over the value
+interval [v_k, v_target], but then later find out the fit is only accurate
+up to v_k+1 which is between those two, then still we are using the NN
+trained with data over the whole value interval in the forward/backward
+sampling process. so we are already going into those "unknown" crevaces,
+while still being helped with an extrapolation from other regions! is this
+nice or what
+
+sometimes seeing test vx regularisation loss go to suspiciously low
+numbers, like 1e-14, but then back up. is it really possible that the
+normal regularisation works that well (for some points)? other batches seem
+to be in a more expected range.
+
+often seeing "warning: densely sampled interval smaller than value
+interval". should think about a way to address this. just keep it
+simple&stupid and turn off data thinning? runtime is probably not a huge
+concern if we manage to write a good report nonetheless.
+
+should we prioritise dense data close to the previous, "certified", v_k?
+because that is where we need it first to expand the level set.
+
+other thought over lunch: the fact that atm we don't continue solutions
+exactly is maybe not (only) a bug but also a feature. if we continue
+solutions we benefit from less approximation error but have to either
+brute-force continue them all, or include them in the active learning
+process, which would complicate that a fair bit. on the other hand if we
+just stop the trajectories we have kind of a natural data thinning going
+on: if the fit is good despite low trajectory density, we won't propose
+those states.
+

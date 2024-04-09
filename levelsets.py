@@ -1231,6 +1231,11 @@ def testbed(problem_params, algo_params):
 
                 # thin out the data, if we have more data than N_band + N_lower
 
+                # should we not instead of the top k values take the ones just
+                # above the known level set? or close above&below? with the
+                # current way we might sample less densely in the region we
+                # need to learn first
+
                 arr, top_idx = jax.lax.top_k(usable_ys['v'], N_band)
                 print('thinning out data')
                 print(f'densely sampled value interval = [{arr.min()}, {arr.max()}]')
@@ -1402,6 +1407,8 @@ def testbed(problem_params, algo_params):
 
     # @jax.jit
     def estimate_value_level(test_pts, test_pts_known, params_sobolev_ens):
+
+        # this function could also try to detect learning failure...
 
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
@@ -1575,13 +1582,6 @@ def testbed(problem_params, algo_params):
     ys_n = normaliser.normalise_all_dict(train_ys)
     test_ys_n = normaliser.normalise_all_dict(test_ys)
 
-    # plot_distributions(ys_n)
-    # ipdb.set_trace()
-
-
-
-
-
     init_key, key = jax.random.split(key)
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
@@ -1628,36 +1628,6 @@ def testbed(problem_params, algo_params):
     # pl.show()
 
     # ipdb.set_trace()
-
-    '''
-    # small parameter sweep over that unbounded prior loss strength.
-    for j, strength in enumerate(np.logspace(-1, 1, 10)):
-
-        # set param, train nn.
-        algo_params['pushup_prior_strength'] = strength.item()
-        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(train_key, ys_n, problem_params, algo_params)
-
-        # plot trajectory vs nn fit, and mean/std plot.
-        pl.figure()
-        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-        pl.ylim([-20, 20])
-        # pl.savefig(f'tmp/traj_{j:03d}_{strength.item():.8f}.png')
-        pl.close('all')
-
-        pl.figure()
-        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
-        pl.semilogy(v_means, v_stds, '. ', alpha=.1)
-        pl.xlim([-50,50])
-        pl.ylim([1e-1, 1e3])
-        # pl.savefig(f'tmp/meanstd_{j:03d}_{strength.item():.8f}.png')
-
-
-        v_means_alt = v_means + (np.inf * test_pts[:, 3] > 0)
-        lowest_v = v_means_alt.min()
-        print(f'j = {j}, strength = {strength}')
-        print(f'min v in lower half of manifold: {lowest_v}')
-        pl.show()
-    '''
 
 
     all_ys = sols_orig.ys

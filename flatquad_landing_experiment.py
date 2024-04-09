@@ -702,7 +702,7 @@ def old_params():
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.0005,
 
         'nn_ensemble_size': 8,
 
@@ -717,13 +717,13 @@ def old_params():
 
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
-        'thin_data': True,
+        'thin_data': False,
         'N_band': 4096,
         'N_lower': 4096,
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'active_learning_batchsize': 64,
+        'active_learning_batchsize': 32,
 
         # sigma target = sigma_target_abs + sigma_target_rel * v_mean
         # still unsure if the uncertainty should rather be in terms of vx?
@@ -909,7 +909,7 @@ if __name__ == '__main__':
         # OTOH if we adapt the prior sampling distribution to be always like
         # 10x larger than the data extent, we might keep the behaviour more
         # predictable over the whole run...
-        'prior_strength': 0.001,
+        'prior_strength': 0.01,
         'v_prior_factor': 100.,
         'prior_extent_factor': 8,
 
@@ -924,7 +924,7 @@ if __name__ == '__main__':
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
-        'thin_data': True,
+        'thin_data': False,
         'N_band': 4096,
         'N_lower': 4096,
 

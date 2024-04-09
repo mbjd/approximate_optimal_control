@@ -1018,6 +1018,7 @@ def testbed(problem_params, algo_params):
 
         # every one of these just needs to set proposal_idxs.
         proposal_strategy = 'lowest_v_among_uncertain'
+        proposal_strategy = 'uniform_among_uncertain'
 
         if proposal_strategy == 'softmax':
             # scale -> 0 results in just the N_proposals points with highest std being chosen.

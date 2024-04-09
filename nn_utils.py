@@ -217,8 +217,12 @@ class nn_wrapper():
 
     def sobolev_loss_with_prior(self, key, y, params, v_prior, prior_extent, problem_params, algo_params):
 
-        # calculates the usual sobolev loss BUT adds a functional prior
-        # loss to it. here we could also slightly regularise ||vx||^2 to make
+        # calculates the usual sobolev loss BUT adds a functional prior loss to
+        # it. main purpose is to avoid situations where v_nn(x) < 0 or ≈ 0
+        # outside of the data region, where we kind of know the value function
+        # must be HIGHER than all available data.
+
+        # here we could also slightly regularise ||vx||^2 to make
         # it low-ish outside of the data region.
 
         # also for a single data point, vmap outside.

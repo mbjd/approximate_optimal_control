@@ -3137,4 +3137,24 @@ those states.
 
 current run is going VERY nicely! made a meshcat viz for the first time in
 a while. while the stabilised set is not yet huge (v_k around 100), it is
-also not tiny! very optimistic rn.
+also not tiny! very optimistic rn. i cannot overstate how nice it is to
+finally see it run as i want it to. putting it on euler for a (maybe)
+longer run.
+
+noticing that with the current proposal strategy (lowest_v_among_uncertain)
+we always set a high v_next target but achieve much lower. (like atm: going
+from 112 to a target of 278, but only achieving 125.) still nice because
+the progress seems to be reliable. am trying the other
+(uniform_among_uncertain) on euler to see if markedly different.
+
+whoops maybe it is the other way around (uniform on xps, lowest on euler).
+but maybe also I changed it since running and it is lowest on both. man i
+should have a cleaner workflow there. ask again for launch script with all
+combinations of whatever args we want?
+
+noting that the cpu is not even 50% loaded later in the run (on xps). is it
+IO bound?
+
+still got a 1000 implementation thoughts in the back of my head. probably
+though i'll distance myself from the nitty gritty for a day or two while
+writing basic theory a bit more neatly.

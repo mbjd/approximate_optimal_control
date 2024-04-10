@@ -718,8 +718,6 @@ def testbed(problem_params, algo_params):
 
     def vx_meanstd(x, vmap_params):
 
-        # evaluate the lower (beta<0) or upper (beta>0) confidence band of the value function.
-        # this serves as a *probable* overapproximation of the true value sublevel set.
         vxs_ensemble = jax.vmap(jax.jacobian(v_nn_unnormalised, argnums=1), in_axes=(0, None))(vmap_params, x)
 
         v_mean = vs_ensemble.mean()
@@ -758,16 +756,16 @@ def testbed(problem_params, algo_params):
 
         if vmap:
             # we have a whole NN ensemble. use the mean here.
-            v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            # v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
             # mean across only axis resulting in a scalar. differentiate later.
-            v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(params, x).mean()
+            v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(params, x).mean()
 
         else:
-            v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            v_fct = lambda x: v_nn_unnormalised(params, x)
 
         def forwardsim_rhs(t, x, args):
 
-            lam_x = jax.jacobian(v_nn_unnormalised)(x).squeeze()
+            lam_x = jax.jacobian(v_fct)(x).squeeze()
             # lam_x = P_lqr @ x  # <- for lqr instead
             u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
             return problem_params['f'](x, u)
@@ -793,20 +791,20 @@ def testbed(problem_params, algo_params):
         # also simulates forward, but stops once we are with high probability
         # inside the value level set v_k AND we have sufficiently low sigma.
 
-        # only vmap=True is implemented.
+        # only vmap=True is tested as of now.
 
         if vmap:
             # we have a whole NN ensemble. use the mean here.
-            v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            # v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
             # mean across only axis resulting in a scalar. differentiate later.
-            v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(params, x).mean()
+            v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(params, x).mean()
 
         else:
-            v_nn_unnormalised = lambda x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+            v_fct = lambda x: v_nn_unnormalised(params, x)
 
         def forwardsim_rhs(t, x, args):
 
-            lam_x = jax.jacobian(v_nn_unnormalised)(x).squeeze()
+            lam_x = jax.jacobian(v_fct)(x).squeeze()
             # lam_x = P_lqr @ x  # <- for lqr instead
             u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
             return problem_params['f'](x, u)
@@ -856,17 +854,10 @@ def testbed(problem_params, algo_params):
 
     def solve_backward_nn_ens(x_f, vmap_params, v_upper, algo_params):
 
-        # modified from solve_backward_lqr.
+        v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x).mean()
 
-        # change this (lexical closure of normaliser) if during main iteration we change
-        # the data normalisation!!!
-
-        v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-        # mean across only axis resulting in a scalar. differentiate later.
-        v_nn_unnormalised = lambda x: jax.vmap(v_nn_unnormalised_single, in_axes=(0, None))(vmap_params, x).mean()
-
-        v_f = v_nn_unnormalised(x_f)
-        vx_f = jax.jacobian(v_nn_unnormalised)(x_f)
+        v_f = v_fct(x_f)
+        vx_f = jax.jacobian(v_fct)(x_f)
 
         state_f = {
             'x': x_f,
@@ -874,6 +865,8 @@ def testbed(problem_params, algo_params):
             'v': v_f,
             'vx': vx_f,
         }
+
+        # TODO if manifold, backproject here?
 
         if algo_params['pontryagin_solver_vxx']:
             vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
@@ -956,8 +949,6 @@ def testbed(problem_params, algo_params):
             x_pts = algo_params['sample_states_batched'](
                 newkey, 10000, x_extent, log_min_scale=-2
             )
-
-            # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
 
             # what kind of points do we propose? we want points x such that:
             # - x is withing the value band V_{k+1} \ V_k
@@ -1275,8 +1266,9 @@ def testbed(problem_params, algo_params):
         # split into train/test set.
         train_ys, test_ys = nn_utils.train_test_split(usable_ys)
 
-        ys_n = normaliser.normalise_all_dict(train_ys)
-        test_ys_n = normaliser.normalise_all_dict(test_ys)
+        # use these instead if we somehow need the normaliser again
+        # ys_n = normaliser.normalise_all_dict(train_ys)
+        # test_ys_n = normaliser.normalise_all_dict(test_ys)
 
         init_key, key = jax.random.split(key)
         params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
@@ -1289,12 +1281,12 @@ def testbed(problem_params, algo_params):
         if warmstart:
             # continue from previous params, only last portion of training.
             params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_warmstarted(
-                train_key, ys_n, params_sobolev_ens, problem_params, algo_params
+                train_key, train_ys, params_sobolev_ens, problem_params, algo_params
             )
         else:
             # training from scratch
             params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-                train_key, ys_n, problem_params, algo_params
+                train_key, train_ys, problem_params, algo_params
             )
 
         # report some form of test/train loss comparison in the end?
@@ -1581,10 +1573,9 @@ def testbed(problem_params, algo_params):
     )
 
 
-    normaliser = nn_utils.data_normaliser(train_ys, problem_params, algo_params)
-
-    ys_n = normaliser.normalise_all_dict(train_ys)
-    test_ys_n = normaliser.normalise_all_dict(test_ys)
+    # normaliser = nn_utils.data_normaliser(train_ys, problem_params, algo_params)
+    # ys_n = normaliser.normalise_all_dict(train_ys)
+    # test_ys_n = normaliser.normalise_all_dict(test_ys)
 
     init_key, key = jax.random.split(key)
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
@@ -1605,12 +1596,15 @@ def testbed(problem_params, algo_params):
     train_key, key = jax.random.split(key)
 
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-        train_key, ys_n, problem_params, algo_params, ys_test=test_ys_n
+        train_key, train_ys, problem_params, algo_params, ys_test=test_ys
     )
 
     # ipdb.set_trace()
 
-    v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+    # shouldn't it have been called "de-normalised" anyway?
+    # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+    # because that one is actually "unnormalised":
+    v_nn_unnormalised = v_nn
 
     idx = 20
     sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
@@ -1694,7 +1688,7 @@ def testbed(problem_params, algo_params):
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
-        pl.savefig(f'tmp/meanstds_{k:04d}.png')
+        # pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
         backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens)
@@ -1710,13 +1704,14 @@ def testbed(problem_params, algo_params):
         pl.figure(f'nn training #{k}')
         plotting_utils.plot_nn_train_outputs(oups)
         pl.ylim([1e-4, 1e3])
-        pl.savefig(f'tmp/trainplot_{k:04d}.png')
+        # pl.savefig(f'tmp/trainplot_{k:04d}.png')
 
 
         pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-        pl.savefig(f'tmp/trajectory_{k:04d}.png')
+        # pl.savefig(f'tmp/trajectory_{k:04d}.png')
 
+        pl.show()
         pl.close('all')
         # ipdb.set_trace()
 

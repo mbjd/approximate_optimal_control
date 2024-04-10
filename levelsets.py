@@ -1007,9 +1007,10 @@ def testbed(problem_params, algo_params):
         N_proposals = algo_params['active_learning_batchsize']
 
 
-        # every one of these just needs to set proposal_idxs.
-        proposal_strategy = 'lowest_v_among_uncertain'
-        proposal_strategy = 'uniform_among_uncertain'
+        proposal_strategy = algo_params['proposal_strategy']
+
+        # every one of these just needs to set proposal_idxs - the indices of
+        # proposed points in the array all_valueband_pts.
 
         if proposal_strategy == 'softmax':
             # scale -> 0 results in just the N_proposals points with highest std being chosen.

@@ -1400,10 +1400,6 @@ def testbed(problem_params, algo_params):
     test_pts_known = np.zeros((N_testpts,)).astype(bool)
 
 
-    # TODO maybe? also some persistent "buffer" where we mark the test pts
-    # at which we once had both low sigma and V + couple times σ <= vk.
-    # this should "robustify" against the NN occasionally doing dumb stuff.
-
     # @jax.jit
     def estimate_value_level(test_pts, test_pts_known, params_sobolev_ens):
 
@@ -1510,15 +1506,6 @@ def testbed(problem_params, algo_params):
         plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
         plot_sig_maxs = jax.vmap(algo_params['sigma_max'])(plot_vs)
         pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
-
-        # this is not optimal. if the real known value sublevel set only
-        # corresponds to a tiny region, then we may not hit it with any
-        # test points. what's more, the test points could not even hit
-        # "close" to that set. in that case we estimate a much too high
-        # value level set.
-        # maybe we can remedy this by making the test_pts somehow
-        # logarithmically distributed?
-
 
         # here we can sometimes include points far too high which obviously are
         # outside the known set but still have low sigma. for those we should

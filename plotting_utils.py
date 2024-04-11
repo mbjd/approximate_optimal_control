@@ -351,7 +351,7 @@ def plot_nn_train_outputs_basic(outputs, alpha=.5, legend=True):
 
 
 
-def plot_nn_train_outputs(outputs, subsample=16):
+def plot_nn_train_outputs(outputs, subsample=64):
 
     # new version of this, for dict output, like:
     # outputs.keys() == ['lr', 'test_loss_terms', 'train_loss_terms']

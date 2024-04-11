@@ -909,8 +909,9 @@ def testbed(problem_params, algo_params):
 
         # instead calculate a more educated guess like this:
         # TODO make this configurable via algo_params
+        # and get the time constant from problemparams...
         fastestpole_tau = .49  # from LQR solution.
-        T = 10 * fastestpole_tau
+        T = 5 * fastestpole_tau
 
         # use actual previous value level instead?
         min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
@@ -937,9 +938,11 @@ def testbed(problem_params, algo_params):
 
         all_valueband_pts = np.zeros((0, problem_params['nx']))
 
-        N_pts_desired = 8 * algo_params['active_learning_batchsize']  # we want 1000 points that are inside the value band.
+        # we want that many points inside the value band, from which we
+        # can then select the proposals.
+        N_pts_desired = 8 * algo_params['active_learning_batchsize']
+
         i=0
-        # key = jax.random.PRNGKey(k)
         while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
 
             i = i + 1   # a counter so we return if it never happens.
@@ -1003,7 +1006,6 @@ def testbed(problem_params, algo_params):
         sigma_maxs = jax.vmap(algo_params['sigma_max'])(v_means)
 
 
-
         N_proposals = algo_params['active_learning_batchsize']
 
 
@@ -1012,31 +1014,50 @@ def testbed(problem_params, algo_params):
         # every one of these just needs to set proposal_idxs - the indices of
         # proposed points in the array all_valueband_pts.
 
-        if proposal_strategy == 'softmax':
-            # scale -> 0 results in just the N_proposals points with highest std being chosen.
-            # scale -> infinity results in the proposals being sampled uniformly at random.
-            # the whole behaviour is quite sensitive to this parameter,
-            # best to leave it close to unity
-            # std_scale = 3
-            std_scale = .5
+        do_replace = False
 
-            ps = jax.nn.softmax(v_stds / std_scale)
-            proposals = jax.random.choice(key, all_valueband_pts, shape=(N_proposals,), replace=False, p=ps)
+        if proposal_strategy == 'max_sigma':
 
-            all_idxs = np.arange(N_proposals)
-            proposal_idxs = jax.random.choice(key, all_idxs, shape=(N_proposals,), replace=False, p=ps)
-
-
-        # but that's kind of dumb, we give a small probability of also selecting points with exactly
-        elif proposal_strategy == 'max_sigma':
-
-            # much simpler.
+            # very simple.
             # possible problem: we select only "far" points with very large sigma, while neglecting
             # the ones that are closer which maybe we should do first to even reach the far points
-            _, proposal_idxs = jax.lax.top_k(v_stds, N_proposals)
+            _, proposal_idxs = jax.lax.top_k(v_stds / sigma_maxs, N_proposals)
+
+        elif proposal_strategy == 'max_sigma_and_uniform':
+
+            # mix max_sigma with uniform strategy.
+            # first propose 50% of points like max_sigma,
+            # then add uniform selection of remaining uncertain points.
+
+            maxsigma_frac = .5
+            N_maxsigma = int(N_proposals * maxsigma_frac)
+            N_uniform = N_proposals - N_maxsigma
+
+            # first choose *some* max sigma points.
+            _, proposal_idxs_max_sigma = jax.lax.top_k(v_stds / sigma_maxs, N_proposals)
+
+            # then find all points p which
+            #  a) have uncertainty above max value
+            #  b) we have not already chosen in the max_sigma step above.
+            where_uncertain = v_stds > sigma_maxs
+            where_available = where_uncertain.at[proposal_idxs_max_sigma].set(False)
+
+            N_available = where_available.sum()
+            ps = where_available / N_available  # this casts to float :)
+
+            # from those remaining points, get the uniform sample.
+            # same move to avoid undefined behaviour as before
+
+            # is there something smarter though? because that way we end up putting the same trajectory in the dataset several times.
+            # i guess this is not that bad if we try to avoid this situation by tuning.
+
+            do_replace = N_uniform > N_available
+            proposal_idxs_uniform = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=do_replace, p=ps)
+
+            proposal_idxs = np.concatenate([proposal_idxs_max_sigma, proposal_idxs_uniform])
 
 
-        elif proposal_strategy == 'lowest_v_among_uncertain':
+        elif proposal_strategy == 'lowest_v_uncertain':
 
             # probably would do the same without vmap by relying on broadcasting...
             where_uncertain = v_stds > sigma_maxs
@@ -1052,7 +1073,7 @@ def testbed(problem_params, algo_params):
             # step can be increased???
 
 
-        elif proposal_strategy == 'uniform_among_uncertain':
+        elif proposal_strategy == 'uniform_uncertain':
             # other, simpler idea: among the points with excessive uncertainty just choose
             # a uniform subsample
             # probably this will also biased towards the upper level set but maybe not overly so.
@@ -1067,10 +1088,57 @@ def testbed(problem_params, algo_params):
 
             proposal_idxs = jax.random.choice(key, N_pts_desired, shape=(N_proposals,), replace=do_replace, p=ps)
 
+        # these two "softmax" strategies can be understood as an interpolation
+        # between uniform_among_uncertain (= softmax_but_only_uncertain as the
+        # scale we divide by inside the softmax goes to +inf) and max_sigma
+        # (= softmax as that scale goes to 0)
+
+        elif proposal_strategy == 'softmax':
+
+            # by scaling with sigma_maxs we hit the right range for the softmax function hopefully.
+            # the factor just makes the distribution a bit closer to uniform.
+            scale = 10
+            ps = jax.nn.softmax(v_stds / sigma_maxs / scale)
+            # proposals = jax.random.choice(key, all_valueband_pts, shape=(N_proposals,), replace=False, p=ps)
+
+            # passing an int (N_proposals) is understood as choosing from arange(0, N_proposals)
+            proposal_idxs = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=False, p=ps)
+
+        elif proposal_strategy == 'softmax_uncertain':
+
+            # same as above, but after the softmax we modify the weights to
+            # place 0 probability on the samples already below sigma, instead
+            # of just low probability. though in short ipdb experiments this
+            # changes almost nothing, as the points are already VERY unlikely
+
+            scale = 10
+            ps = jax.nn.softmax(v_stds / sigma_maxs / scale)
+
+            is_certain = v_stds < sigma_maxs
+            ps = ps.at[is_certain].set(0)
+            ps = ps / ps.sum()
+
+            # can this run into some sort of undefined behavior if after
+            # zeroing out we have less than N_proposals point left?
+            # -> yes, it says so in the docs https://jax.readthedocs.io/en/latest/_autosummary/jax.random.choice.html
+
+            # same fix as above. if we want more proposals than are available
+            # (= number of uncertain points), then we have to resort to choice
+            # with replacement.
+
+            # still TODO test this. maybe this is incorrect & fails silently?
+            do_replace = N_proposals > (~is_certain).sum()
+
+            proposal_idxs = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=False, p=ps)
+
+        # but that's kind of dumb, we give a small probability of also selecting points with exactly
+
         else:
             raise ValueError(f'unknown proposal strategy "{proposal_strategy}"')
 
 
+        if do_replace:
+            print('warning -- had too few points to sammple, resorting to choice(replace=True)')
 
         # make some global --loglevel style algoparam to decide what to plot?
         # and/or switching between savefig and show? especially useful for euler...
@@ -1207,8 +1275,6 @@ def testbed(problem_params, algo_params):
         _, in_band = jax.lax.top_k(all_ys['v'] * (all_ys['v'] <= v))
         '''
 
-
-
         bool_train_idx = in_band & ~is_suboptimal
 
         # b) train the NN again, while ignoring data marked as suboptimal.
@@ -1304,6 +1370,16 @@ def testbed(problem_params, algo_params):
         # for v in linspace(v_k, v_k+1):
         #     prune clearly suboptimal solutions (and maybe a small segment before too)
         #     re-train NN with pruned dataset
+
+        # -> this is probably dumb. the whole point of using pontryagin at all
+        # is that we have two different time discretisations, a fine one (= ODE
+        # integrator) for the trajectories responsible for local optimality,
+        # and a larger one to prune non-globally-optimal solutions. let's
+        # embrace (or disprove....) the fact that most practical problems work
+        # just fine if pruning happens at a much smaller rate. if true that
+        # enables us to minimise the main bottleneck which is repeated function
+        # approximation.
+
 
         v_substeps = np.linspace(*v_interval, 10)
 
@@ -1536,10 +1612,12 @@ def testbed(problem_params, algo_params):
     # important: this is only valid when we have a good covering of the
     # sublevel set, which with initial data we don't. also maybe doing
     # something like this for vx would be more meaningful?
+    '''
     solution_vs = sols_orig.ys['v'].reshape(-1)
     lqr_vs = jax.vmap(V_f)(sols_orig.ys['x'].reshape(-1, problem_params['nx']))
     pl.figure('lqr V vs trajectory V')
     pl.loglog(lqr_vs, solution_vs, '. ', alpha=.2)
+    '''
 
     all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
 
@@ -1676,7 +1754,7 @@ def testbed(problem_params, algo_params):
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
-        # pl.savefig(f'tmp/meanstds_{k:04d}.png')
+        pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
         backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens)
@@ -1692,14 +1770,14 @@ def testbed(problem_params, algo_params):
         pl.figure(f'nn training #{k}')
         plotting_utils.plot_nn_train_outputs(oups)
         pl.ylim([1e-4, 1e3])
-        # pl.savefig(f'tmp/trainplot_{k:04d}.png')
+        pl.savefig(f'tmp/trainplot_{k:04d}.png')
 
 
         pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-        # pl.savefig(f'tmp/trajectory_{k:04d}.png')
+        pl.savefig(f'tmp/trajectory_{k:04d}.png')
 
-        pl.show()
+        # pl.show()
         pl.close('all')
         # ipdb.set_trace()
 

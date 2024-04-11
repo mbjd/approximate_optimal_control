@@ -930,15 +930,16 @@ if __name__ == '__main__':
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'active_learning_batchsize': 256,
+        'active_learning_batchsize': 512,
 
         # proposal strategy ≅ acquisition function.
         # implemented:
-        #  - softmax
         #  - max_sigma
-        #  - lowest_v_among_uncertain
-        #  - uniform_among_uncertain
-        'proposal_strategy': 'uniform_among_uncertain',
+        #  - lowest_v_uncertain
+        #  - uniform_uncertain
+        #  - softmax
+        #  - softmax_uncertain
+        'proposal_strategy': 'max_sigma_and_uniform',
 
         # sigma max = sigma_target_abs + sigma_target_rel * v_mean
         'sigma_max': lambda mu: 0.5 + 0.01 * mu,

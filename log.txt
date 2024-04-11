@@ -3158,3 +3158,46 @@ IO bound?
 still got a 1000 implementation thoughts in the back of my head. probably
 though i'll distance myself from the nitty gritty for a day or two while
 writing basic theory a bit more neatly.
+
+
+
+
+2024-04-11
+
+took a well earned day of slacking off yesterday, had plans to start the
+writeup of the basic algo today.
+
+instead got caught in the parameter tuning spiral. but with good success!!
+first, nn layer size 64 -> 32, batchsize 32 -> 16 keeps NN quality about
+the same but is cheaper to train.
+
+then, larger active learning batch sizes are actually worth it! increased
+from 64 to 256, and now to 1024 even. the results are kind of crazy: in
+some cases the value level set grows faster than the target! (this is kind
+of suspicious though because then we are building our further trajectories
+from essentially extrapolated data. if this keeps happening might need some
+safeguard against it. but lets wait and see, it also happens only once
+during a small run.)
+
+also playing around with proposal strategies. realised that it makes more
+sense to scale the stds by sigma_max in the softmax one, then they all have
+kind of the same dimensionless meaning. from then we can scale it by
+another constant to interpolate between max_sigma and uniform_uncertain
+essentially. probably the practical difference between all of them
+decreases as we
+
+maybe another similar thing (to softmax) is a mixed uniform and max_sigma
+strategy? literally just maybe 50% max sigma and 50% uniform from the
+remaining. that way we "shoot for the stars" (= fast progress to high-σ
+regions) while still not failing completely if we asked for too much. very
+similar in concept to softmax but maybe easier to tune?
+
+i think sometimes a weird "oscillation" starts to happen: in iteration k we
+set a rather high value target, then with max_sigma or softmax strategy we
+propose many points which are "too far", and we can only use a small amount
+of the simulations. then in iter k+1 we observe small progress in value
+level. the iteration goes very well and we estimate high value level in
+k+2, and the cycle repeats.
+
+implementing that 50/50 combined proposal strategy in hopes that it will
+fix this behaviour.

@@ -877,8 +877,8 @@ if __name__ == '__main__':
 
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
-        'nn_layerdims': (64, 64, 64),
-        'nn_batchsize': 32,
+        'nn_layerdims': (32, 32, 32),
+        'nn_batchsize': 16,
         'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
@@ -930,7 +930,7 @@ if __name__ == '__main__':
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'active_learning_batchsize': 64,
+        'active_learning_batchsize': 256,
 
         # proposal strategy ≅ acquisition function.
         # implemented:

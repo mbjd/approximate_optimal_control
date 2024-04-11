@@ -418,3 +418,18 @@ def plot_nn_train_outputs(outputs, subsample=16):
         pl.legend()
         pl.grid('on')
 
+        pl.figure()
+        # make another plot - train loss vs test loss with line y=x for comparison.
+        if not  outputs['test_loss_terms'].keys() == outputs['train_loss_terms'].keys():
+            print('plot_nn_train_outputs: different keys for train/test data, kinda sus')
+
+        for k in outputs['train_loss_terms']:
+            pl.loglog(outputs['train_loss_terms'][k], outputs['test_loss_terms'][k], alpha=.3, label=k)
+        pl.loglog([1e-8, 1e3], [1e-8, 1e3], linestyle='--', alpha=.3, c='black')
+        pl.xlabel('training losses')
+        pl.ylabel('test losses')
+        pl.grid('on')
+        pl.legend()
+
+
+

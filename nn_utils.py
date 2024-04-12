@@ -695,11 +695,11 @@ class nn_wrapper():
         # the batches we would kind of expect that tbh
 
         # adjust algoparams for warmstart situation. do this in a neater way if it works.
-        portion = 0.2   # repeat the last "portion" of the usual training loop.
         algo_params_warmstart = algo_params.copy()
-        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
-        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
-        algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
+        portion = 0.2   # repeat the last "portion" of the usual training loop.
+        # algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
+        # algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
+        # algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
 
 
         keys = jax.random.split(key, algo_params['nn_ensemble_size'])

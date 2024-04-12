@@ -942,6 +942,9 @@ def testbed(problem_params, algo_params):
         # can then select the proposals.
         N_pts_desired = 8 * algo_params['active_learning_batchsize']
 
+        # here just use testpts? or another similar but constant set?
+        # with log_min_scale getting enough samples should be easy enough.
+
         i=0
         while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
 
@@ -1364,7 +1367,7 @@ def testbed(problem_params, algo_params):
 
     def prune_and_train_substeps(params_sobolev_ens, all_ys, v_interval):
 
-        raise NotImplementedError('for now use prune_and_train_simple plz')
+        raise NotImplementedError('for now use prune_and_train simple plz')
 
         # pseudocode:
         # for v in linspace(v_k, v_k+1):
@@ -1606,7 +1609,7 @@ def testbed(problem_params, algo_params):
     # rapidly fill that sublevel set instead of being careful about
     # collisions... but no way to verify the assumption besides praying
 
-    v_k = 5
+    v_k = 50
 
     # to get a feel for when the linearisation stops being accurate.
     # important: this is only valid when we have a good covering of the
@@ -1620,6 +1623,13 @@ def testbed(problem_params, algo_params):
     '''
 
     all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
+
+    # what if instead we don't really constrain this initial data set to a
+    # low-ish value level, and just let the v_k estimator figure out up to
+    # which level it worked? -> value level is the same but extrapolation seems
+    # to improve which makes sense. equivalently we can just set v_k a bit
+    # higher initially
+    # all_ys = select_train_pts([0.001, 500], sols_orig)
 
     # split into train/test set.
 
@@ -1764,7 +1774,7 @@ def testbed(problem_params, algo_params):
 
 
         train_key = key  # yolo
-        params_sobolev_ens, oups = prune_and_train_simple( train_key, params_sobolev_ens, all_ys, [v_k, v_next_target])
+        params_sobolev_ens, oups = prune_and_train_simple( train_key, params_sobolev_ens, all_ys, [v_k, v_next_target], warmstart=True)
 
 
         pl.figure(f'nn training #{k}')

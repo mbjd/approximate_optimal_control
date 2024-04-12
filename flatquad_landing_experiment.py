@@ -939,7 +939,7 @@ if __name__ == '__main__':
         #  - uniform_uncertain
         #  - softmax
         #  - softmax_uncertain
-        'proposal_strategy': 'max_sigma_and_uniform',
+        'proposal_strategy': 'uniform_uncertain',
 
         # sigma max = sigma_target_abs + sigma_target_rel * v_mean
         'sigma_max': lambda mu: 0.5 + 0.01 * mu,

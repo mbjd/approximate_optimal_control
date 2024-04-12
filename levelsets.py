@@ -1026,6 +1026,57 @@ def testbed(problem_params, algo_params):
             # the ones that are closer which maybe we should do first to even reach the far points
             _, proposal_idxs = jax.lax.top_k(v_stds / sigma_maxs, N_proposals)
 
+        if proposal_strategy == 'max_kernel':
+
+            # very experimental implementation. we choose the max sigma point,
+            # then mark all points in a given radius as unusable. maybe this is
+            # not maxkernel at all but should ensure that we can propose
+            # high-sigma points without them all being in the same region.
+
+
+            def scan_fct(sigmas, inp):
+
+                # carry the array of standard deviations. replace ones we don't
+                # want to use with -inf or scale them down somehow. that way we
+                # can just select the argmax every time :)
+
+                # find max sigma.
+                proposal_idx = np.argmax(sigmas)
+                proposal = all_valueband_pts[proposal_idx]
+
+                # mark close ones as unused.
+
+                # say we have some kernel function k(x, y) satisfying:
+                # 0 <= k(x, y) <= 1
+                # k(x, x) = 1
+
+                # like this cute RBF kernel here.
+                # how to tune this length scale in a smart way??
+                # ideas for kernels:
+                #  - the lqr state cost matrix
+                #  - something from the NN? NN tangent kernel???
+                #  - instead max determinant stuff from lenart?
+                #  - no clue tbh.
+                lengthscale = .3
+                k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
+
+                # then we just scale everything by 1-that kernel?
+                weights = jax.vmap(lambda x: 1 - k(x, proposal))(all_valueband_pts)
+
+                carry = sigmas * weights
+
+                # oup = (proposal_idx, carry)  # just to look at the data :)
+                oup = proposal_idx
+
+                return carry, oup
+
+            sigma_relative = v_stds / sigma_maxs
+
+            final_carry, oups = jax.lax.scan(scan_fct, sigma_relative, None, length=N_proposals)
+            proposal_idxs = oups
+
+
+
         elif proposal_strategy == 'max_sigma_and_uniform':
 
             # mix max_sigma with uniform strategy.
@@ -1121,15 +1172,6 @@ def testbed(problem_params, algo_params):
             ps = ps.at[is_certain].set(0)
             ps = ps / ps.sum()
 
-            # can this run into some sort of undefined behavior if after
-            # zeroing out we have less than N_proposals point left?
-            # -> yes, it says so in the docs https://jax.readthedocs.io/en/latest/_autosummary/jax.random.choice.html
-
-            # same fix as above. if we want more proposals than are available
-            # (= number of uncertain points), then we have to resort to choice
-            # with replacement.
-
-            # still TODO test this. maybe this is incorrect & fails silently?
             do_replace = N_proposals > (~is_certain).sum()
 
             proposal_idxs = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=False, p=ps)
@@ -1764,6 +1806,7 @@ def testbed(problem_params, algo_params):
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
+        # and here too...
         pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~

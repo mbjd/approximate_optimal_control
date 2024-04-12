@@ -3201,3 +3201,35 @@ k+2, and the cycle repeats.
 
 implementing that 50/50 combined proposal strategy in hopes that it will
 fix this behaviour.
+
+
+
+
+
+
+meeting fr.
+
+
+methods: nice till now. most important advice:
+
+- cleanly separate acquisition function & optimisation procedure!
+- ensure proposals away from each other w/ maxkernel, maxdeterminant.
+- try to reduce number of "magic constants"
+
+
+
+writeup
+
+important: sensible baselines.
+
+basic obvious ones:
+uniform sampling/uncertainty sampling everywhere/restricted domain
+
+other ones:
+- compare result w other trajectory optimiser
+- compare w neural fitted bellman recursion type thing?
+- compare w any RL algo?
+each one probably significant effort, and unclear wheter comparison even
+meaningful...
+
+

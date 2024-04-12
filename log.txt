@@ -3206,30 +3206,51 @@ fix this behaviour.
 
 
 
+2024-04-12
 
-meeting fr.
+meeting.
+
+    methods: nice till now. most important advice:
+
+    - cleanly separate acquisition function & optimisation procedure!
+    - ensure proposals away from each other w/ maxkernel, maxdeterminant.
+    - try to reduce number of "magic constants"
 
 
-methods: nice till now. most important advice:
+    about writeup
 
-- cleanly separate acquisition function & optimisation procedure!
-- ensure proposals away from each other w/ maxkernel, maxdeterminant.
-- try to reduce number of "magic constants"
+    important: sensible baselines.
+
+    basic obvious ones:
+    uniform sampling/uncertainty sampling everywhere/restricted domain
+
+    other ones:
+    - compare result w other trajectory optimiser
+    - compare w neural fitted bellman recursion type thing?
+    - compare w any RL algo?
+    each one probably significant effort, and unclear wheter comparison even
+    meaningful...
+
+    couple examples sent to inspire :)
+
+    euler launch script -> lenart gave git repo
 
 
+implemented basic version of max kernel proposal generation, for simple
+acquisition function σ(x) (x constrained to be in plausible value level
+set). works as intended in itself, but fails because it tends to propose
+ALL states in some high-sigma region that also happens to have Vnn(x) in
+[v_k, v_k+1], but only because of extrapoltion weirdness not because the
+actual solution is there. So all oracle calls fail and we get stuck.
 
-writeup
+possible remedy:
+ - revamp "prior" type thing so that this doesn't happen
+ - add all points where forward sim failed to the dataset temporarily, with
+   some high value label.
+ - mark those specific points as "invalid" already in the proposal step,
+   and re-propose from the rest and hope that forward sim will reach Vk?
 
-important: sensible baselines.
-
-basic obvious ones:
-uniform sampling/uncertainty sampling everywhere/restricted domain
-
-other ones:
-- compare result w other trajectory optimiser
-- compare w neural fitted bellman recursion type thing?
-- compare w any RL algo?
-each one probably significant effort, and unclear wheter comparison even
-meaningful...
-
+these do essentially the same. i am gravitating towards the second bc that
+probably involves fewer problem-dependent tuning & heursitics. work for
+next week.
 

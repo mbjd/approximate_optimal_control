@@ -3258,11 +3258,12 @@ next week.
 
 2024-04-15
 
-removed some dependencies to hopefully make the venv easier on nas
-storage. noticed it is probably smarter to do everything on the local
-directory of the eth machine /local/home/username. it has a warning there
-that nothing is backed up which we don't need anyway if we put everything
-important in the repo.
+removed some dependencies to hopefully make the venv easier on nas storage.
+noticed it is probably smarter to do everything on the local directory of the
+eth machine /local/home/username. it has a warning there that nothing is
+backed up which we don't need anyway if we put everything important in the
+repo. also the NN fitting seems to run twice as fast if doing it from there?
+no clue why precisely.
 
 
 idea to "unify" max kernel distance and possible heuristics to ensure our
@@ -3275,3 +3276,13 @@ v_mean and v_std... then our kernel function used for maxkernel can
 replicate all the visual intuitive thinking we are applying now, and
 basically ensure diversity of points also (or, only?) in this new extended
 space.
+
+
+stopped being "optimistic" when estimating the next value level set for
+sampling proposals. it seems to make it run much, much better!! so that might
+have been a dumb idea. an unrealistically high goal -- situations where the
+optimistic level set FAR exceeds the "neutral" estimate based on the
+extrapolated v_mean were quite common and caused many states from which the
+forward simulations were unstable. Now in just 4 iterations it goes to value level 100 :) albeit with 512 batchsize. but as discussed I think relatively large batch sizes, in comparision to other active learning solutions, are what we should go for. we want to learn the whole function in value level set slices, not individual points. really this is probably more "continuous time dynamic programming" or "particle based neural HJB solver" or whatever, rather than active learning itself.
+
+

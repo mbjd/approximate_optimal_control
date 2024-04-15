@@ -963,7 +963,10 @@ def testbed(problem_params, algo_params):
             v_means, v_stds = v_meanstds(x_pts, vmap_nn_params)
 
             # optimistic_vs = v_means - 2 * v_stds
-            optimistic_vs = v_means - 1 * v_stds
+            # optimistic_vs = v_means - 1 * v_stds
+
+            # not optimistic hehe
+            optimistic_vs = v_means 
 
             # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
 
@@ -1057,7 +1060,7 @@ def testbed(problem_params, algo_params):
                 #  - something from the NN? NN tangent kernel???
                 #  - instead max determinant stuff from lenart?
                 #  - no clue tbh.
-                lengthscale = .3
+                lengthscale = .5
                 k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
 
                 # then we just scale everything by 1-that kernel?

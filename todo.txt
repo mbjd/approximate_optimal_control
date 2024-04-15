@@ -39,7 +39,8 @@ theory.
 implementation, most important.
 
 - spend some time thinking about prune&train function and try to see it
-  working with some appropriately selected test case.
+  working with some appropriately selected test case. make sure it works
+  both from a theory standpoint and in practice at least for easy cases.
 
 - always be on the lookout for magic constants that can be eliminated
 
@@ -62,7 +63,11 @@ implementation, mid/low importance.
 - in general, make it more "transparent". output much more data so we can
   locate failures more quickly. also some global "output verboseness"
   setting? probably it would be wise to also use wandb for this stuff at
-  some point...
+  some point... for example:
+  - "straying off" of manifold into ambient space
+  - time durations/time steps stats of all trajectories
+  - distance between proposed point and (closest point on) optimal
+    trajectory?
 
 - more jit where possible.
 

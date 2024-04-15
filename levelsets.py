@@ -1318,15 +1318,6 @@ def testbed(problem_params, algo_params):
         # v_cutoff = v_lower / 10
         # in_band = in_band & (v_cutoff <= all_ys['v'])
 
-        '''
-        # in future: don't use any or only use few of the lower-value points
-        # -> thin band level set method :)
-        v_min = v / 2  # or something... or set fixed number of pts and find with argpartition?
-        in_band = (v_min <= all_ys['v']) & (all_ys['v'] <= v)
-
-        # top k only works with one axis... reshape?
-        _, in_band = jax.lax.top_k(all_ys['v'] * (all_ys['v'] <= v))
-        '''
 
         bool_train_idx = in_band & ~is_suboptimal
 

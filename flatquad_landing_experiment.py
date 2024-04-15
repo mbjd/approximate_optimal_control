@@ -902,7 +902,7 @@ if __name__ == '__main__':
         # but normal to the state manifold.
         'vx_normal_regularisation': 0.001,
 
-        # this is not a proper "prior" in the bayesian sense, but rather just an additional weak 
+        # this is not a proper "prior" in the bayesian sense, but rather just an additional weak
         # loss term that makes the value function large-ish at the problematic state of being upside
         # down but otherwise at equilibrium state.
         'prior_strength': 0.01,

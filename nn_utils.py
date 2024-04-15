@@ -580,7 +580,12 @@ class nn_wrapper():
                 staircase=algo_params['lr_staircase']
         )
 
-        optim = optax.adam(learning_rate=lr_schedule)
+        if algo_params['weight_decay'] > 0:
+            # default weight_decay=0.0001
+            optim = optax.adamw(learning_rate=lr_schedule, weight_decay=algo_params['weight_decay'])
+        else:
+            optim = optax.adam(learning_rate=lr_schedule)
+
         opt_state = optim.init(nn_params)
 
         def update_step(key, ys, opt_state, params):
@@ -595,7 +600,11 @@ class nn_wrapper():
                     key, params, ys, problem_params, algo_params
                 )
 
-            updates, opt_state = optim.update(grad, opt_state)
+            if algo_params['weight_decay'] > 0:
+                # adamw wants params here too.
+                updates, opt_state = optim.update(grad, opt_state, params)
+            else:
+                updates, opt_state = optim.update(grad, opt_state)
             params = optax.apply_updates(params, updates)
             return opt_state, params, loss_terms
 

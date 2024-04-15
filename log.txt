@@ -3283,6 +3283,66 @@ sampling proposals. it seems to make it run much, much better!! so that might
 have been a dumb idea. an unrealistically high goal -- situations where the
 optimistic level set FAR exceeds the "neutral" estimate based on the
 extrapolated v_mean were quite common and caused many states from which the
-forward simulations were unstable. Now in just 4 iterations it goes to value level 100 :) albeit with 512 batchsize. but as discussed I think relatively large batch sizes, in comparision to other active learning solutions, are what we should go for. we want to learn the whole function in value level set slices, not individual points. really this is probably more "continuous time dynamic programming" or "particle based neural HJB solver" or whatever, rather than active learning itself.
+forward simulations were unstable. Now in just 4 iterations it goes to value
+level 100 :) albeit with 512 batchsize. but as discussed I think relatively
+large batch sizes, in comparision to other active learning solutions, are what
+we should go for. we want to learn the whole function in value level set
+slices, not individual points. really this is probably more "continuous time
+dynamic programming" or "particle based neural HJB solver" or whatever, rather
+than active learning itself.
 
 
+also the fact that the estimated known value level increases in smaller and
+smaller steps (pretty much regardless of all algo tuning) is probably a
+consequence of the fact that the volume of each value level set is much larger
+than the previous one. if they were all spheres, that volume would just
+increase with its radius to the power of nx (or nx-1?) therefore, if we think
+of our NN like a GP, in that it has a fixed region around each datapoint where
+it decreases uncertainty, we still need to "fill" the state space with a
+constant density of samples. Of course NNs are better than that, but maybe we
+need some smart regularisation terms or something else still? We want the NN
+to be quite confident when it notices that the stabilisation maneuver of the
+fast states is "almost" invariant wrt the slow states. How can we encode that
+assumption? 
+
+Intuitively this would mean the feedback controller remaining "almost"
+constant as we vary the slow states a bit, or Dv du*/dx (where v is a
+direction only pointing in the "slow state" direction) is small. Can we
+directly get a regularisation term from this? u* is a function of (x,
+\lambda), so taking two x-derivatives of that we are at a third derivative of
+the overall value function. is this practical? is this even needed? can we not
+just directly penalise some version of the "feedback gain" in direction of
+slow states? which would correspond to Dv u* with v pointing in slow state
+direction. That would be nicer to implement probably, corresponding to just a
+(value) hessian-vector product probably. maybe we can even skip the u* map and
+do the regularisation to the costates directly? then this would correspond to
+penalising
+
+ || d/dx_i  d/dx_j  v_nn(x) ||
+
+for all j and i which correspond to slow state. this is now actually just a
+block of the hessian matrix. maybe we'll try that. 
+
+maybe some other ways to hand-wavily encourage "smoothness" in the NN work as
+well. like adam with weight decay? trying that next.
+
+adamw with standard setting DOES improve progress another small bit, like 10
+or 20%. neat. however the trajectory plots look worse, with the extrapolation
+going haywire quite quickly. but still always 100% of forward simulations
+reach the level set. not sure what to make of this.
+
+BUT in general all these things are probably "secondary" considerations. I
+think the most important thing is to write clean theory, at a level where the
+ML model is treated as a black box. i.e. just the level-set DP idea, the
+proposal strategy, the pruning/fitting, the proof that it works under
+simplifying but reasonable assumptions like well calibrated model, probably
+some sort of smoothness/regularity of the solution, etc. 
+
+then in a second more detailed exposition we can go over the practical
+implementation, including particularities of ensemble training,
+prior/regularisation components, how/if we ensure smoothness and good
+interpolation, how we empirically verify calibration (or brush it under the
+rug if not...). 
+
+now probably as said before is the time to start with 1. instead of spending
+time on possibly diminishing returns in 2....

@@ -3331,6 +3331,9 @@ or 20%. neat. however the trajectory plots look worse, with the extrapolation
 going haywire quite quickly. but still always 100% of forward simulations
 reach the level set. not sure what to make of this.
 
+weight decay + no warmstarting makes the confidence bands look smoother again...
+
+
 BUT in general all these things are probably "secondary" considerations. I
 think the most important thing is to write clean theory, at a level where the
 ML model is treated as a black box. i.e. just the level-set DP idea, the
@@ -3374,4 +3377,4 @@ possibility of reaching zero or very low training loss everywhere by pruning
 boundaries/watersheds where the interpolation is left to be smooth. also we
 have to think about what happens to the uncertainty in those regions: maybe it
 never goes down enough for us to "accept" those points which would be
-junfortunate.
+unfortunate.

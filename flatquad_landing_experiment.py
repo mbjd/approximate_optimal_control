@@ -885,10 +885,10 @@ if __name__ == '__main__':
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.001,
-        'weight_decay': .0001,
+        'weight_decay': .01,
 
         'nn_ensemble_size': 8,
-        'nn_warm_start': True,
+        'nn_warm_start': False,
 
         # NN LOSS FUNCTION
         # relative importance of the losses for v, vx, vxx.

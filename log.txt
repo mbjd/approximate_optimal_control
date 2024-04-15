@@ -3254,3 +3254,24 @@ these do essentially the same. i am gravitating towards the second bc that
 probably involves fewer problem-dependent tuning & heursitics. work for
 next week.
 
+
+
+2024-04-15
+
+removed some dependencies to hopefully make the venv easier on nas
+storage. noticed it is probably smarter to do everything on the local
+directory of the eth machine /local/home/username. it has a warning there
+that nothing is backed up which we don't need anyway if we put everything
+important in the repo.
+
+
+idea to "unify" max kernel distance and possible heuristics to ensure our
+proposals are distributed somewhat evenly on the value interval [vk, vk+1].
+wy don't we just define a kernel function not in terms of just the state x,
+but in terms of an augmented variable z = [x, mu_V(x)]? this is basically a
+standard nonlinear feature transformation. then the kernel function can be
+such that it also prioritises sampling from different v means. or even
+v_mean and v_std... then our kernel function used for maxkernel can
+replicate all the visual intuitive thinking we are applying now, and
+basically ensure diversity of points also (or, only?) in this new extended
+space.

@@ -241,7 +241,7 @@ class nn_wrapper():
         # and less of a bayesian-inspired functional prior type story. but if
         # it works who am I to judge (myself...)
         # even outside of the manifold!
-        v_prior = 5
+        v_prior = 500
         prior_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
 
         v_pred = self.nn.apply(params, prior_x)

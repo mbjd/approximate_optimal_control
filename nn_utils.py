@@ -232,7 +232,7 @@ class nn_wrapper():
         original_loss, loss_terms = self.sobolev_loss(sobolev_key, y, params, problem_params, algo_params)
 
         # evaluate the prior loss at a random point.
-        extent = np.array([20, 20, 0., 0., 20, 20, 20])  # TODO put in algo_params too?
+        # extent = np.array([20, 20, 0., 0., 20, 20, 20])  # TODO put in algo_params too?
         # prior_x = algo_params['sample_state'](prior_key, extent)
 
 
@@ -241,7 +241,7 @@ class nn_wrapper():
         # and less of a bayesian-inspired functional prior type story. but if
         # it works who am I to judge (myself...)
         # even outside of the manifold!
-        v_prior = 500
+        v_prior = algo_params['v_prior']
         prior_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
 
         v_pred = self.nn.apply(params, prior_x)
@@ -537,7 +537,7 @@ class nn_wrapper():
         # first the actually meaningful things: set up the prior loss.
 
         # prior value function: just a lot higher than the rest.
-        v_prior = algo_params['v_prior_factor'] * np.clip(ys['v'].max(), 1., np.inf)
+        # v_prior = algo_params['v_prior_factor'] * np.clip(ys['v'].max(), 1., np.inf)
 
         # extent of the box-shaped prior domain. here we take a minimum of 10,
         # otherwise a factor times the data min/max extent. the factor
@@ -547,7 +547,11 @@ class nn_wrapper():
         # makes it unlikely that the prior acts in the data region even for
         # relatively small factors.
 
-        prior_extent = np.clip(algo_params['prior_extent_factor'] * np.abs(ys['x']).max(axis=0), 1., np.inf)
+        # prior_extent = np.clip(algo_params['prior_extent_factor'] * np.abs(ys['x']).max(axis=0), 1., np.inf)
+
+        # update; don't use any of that
+        v_prior = None
+        prior_extent = None
 
 
 

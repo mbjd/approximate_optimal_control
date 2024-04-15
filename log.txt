@@ -3346,3 +3346,32 @@ rug if not...).
 
 now probably as said before is the time to start with 1. instead of spending
 time on possibly diminishing returns in 2....
+
+
+
+
+BUT, just had to do another experiment. data thinning again. specifically very
+simplistic: just throw out (= don't use for training) all the data below a
+value of v_k/10. last time we tried this stuff there was no permanent
+"marking" of points as known when were known *at some point*. seems to work
+even better than expected! we achieve not only smaller datasets per iteration
+but also faster progress! maybe due to the fact that we are "asking less" of
+the NN in each iteration.
+
+despite this, and the warm starting, the final train error seems to increase
+as main the iterations progress. is this OK? intuitively because we only have
+relative losses we should be able to achieve low loss constantly. or are we
+already in the "nonsmooth" situation??
+
+
+still there are also quite regular spikes in training losses. could this be
+already a sign of nonsmoothness (and working pruning, or at least somewhat
+working?) in the case of nonsmooth decision boundaries such spikes almost have
+to be expected i think. which unfortunately have the opportunity to heavily
+slow down training progress. maybe we do need to ensure the (practical)
+possibility of reaching zero or very low training loss everywhere by pruning
+"generously", leaving a strip empty of data around the decision
+boundaries/watersheds where the interpolation is left to be smooth. also we
+have to think about what happens to the uncertainty in those regions: maybe it
+never goes down enough for us to "accept" those points which would be
+junfortunate.

@@ -888,6 +888,7 @@ if __name__ == '__main__':
         'weight_decay': .0001,
 
         'nn_ensemble_size': 8,
+        'nn_warm_start': True,
 
         # NN LOSS FUNCTION
         # relative importance of the losses for v, vx, vxx.
@@ -901,18 +902,13 @@ if __name__ == '__main__':
         # but normal to the state manifold.
         'vx_normal_regularisation': 0.001,
 
-        # the amount by which the value function is pushed upwards as a
-        # "prior". needs to be very weak compared to data!
-        # the effect of this prior is also determined by the data distribution!
-        # if data is in a small set and prior very widely distributed, it is weaker.
-        # if data is "everywhere" too we might need to scale back prior strength...
-
-        # OTOH if we adapt the prior sampling distribution to be always like
-        # 10x larger than the data extent, we might keep the behaviour more
-        # predictable over the whole run...
+        # this is not a proper "prior" in the bayesian sense, but rather just an additional weak 
+        # loss term that makes the value function large-ish at the problematic state of being upside
+        # down but otherwise at equilibrium state.
         'prior_strength': 0.01,
-        'v_prior_factor': 100.,
-        'prior_extent_factor': 8,
+        'v_prior': 500.,
+        # 'v_prior_factor': 100.,
+        # 'prior_extent_factor': 8,
 
         # tells the data normaliser to not normalise those states
         # y-axis (v) is still scaled and with it vx.

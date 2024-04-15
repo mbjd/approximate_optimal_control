@@ -1313,6 +1313,10 @@ def testbed(problem_params, algo_params):
         # next step: build training data out of this pruned mess.
         in_band = (0 <= all_ys['v']) & (all_ys['v'] <= v_upper)
 
+        # exclude way past data.
+        v_cutoff = v_lower / 10
+        in_band = in_band & (v_cutoff <= all_ys['v'])
+
         '''
         # in future: don't use any or only use few of the lower-value points
         # -> thin band level set method :)
@@ -1820,7 +1824,13 @@ def testbed(problem_params, algo_params):
 
 
         train_key = key  # yolo
-        params_sobolev_ens, oups = prune_and_train_simple( train_key, params_sobolev_ens, all_ys, [v_k, v_next_target], warmstart=True)
+        params_sobolev_ens, oups = prune_and_train_simple(
+            train_key,
+            params_sobolev_ens,
+            all_ys,
+            [v_k, v_next_target],
+            warmstart=algo_params['nn_warm_start']
+        )
 
 
         pl.figure(f'nn training #{k}')

@@ -1,0 +1,92 @@
+todo list now in separate file, instead of carrying over every couple days
+in log.
+
+
+report.
+
+- write structure proposal. what goes where?
+
+- think about baselines. as per meeting on 2024-04-12:
+  - obvious one: uniform proposals vs max-sigma(ish) ones
+  - other ones, maybe far fetched:
+    - compare result w other trajectory optimiser
+      easy win if we can give poignant example of local/global issue being
+      solved
+    - compare w neural fitted bellman recursion (discrete time) type thing?
+      is there an easy reference implementation?
+    - compare w any RL algo?
+
+
+
+
+
+
+theory.
+
+- write down everything cleanly once for a start.
+
+- frame it as "clean" active learning problem by separating acquisition
+  function from sampling/optimisation method.
+
+- think about whether measuring uncertainty only in terms of V (not vxx)
+  makes sense.
+
+
+
+
+
+
+implementation, most important.
+
+- spend some time thinking about prune&train function and try to see it
+  working with some appropriately selected test case.
+
+- always be on the lookout for magic constants that can be eliminated
+
+
+
+
+
+implementation, mid/low importance.
+
+- handle manifold correctly.
+  probably projecting back after each simulation is good enough. thoughts
+  in log 2024-04-02.
+
+- make "prior" without problem specific hacks?
+  currently we push up Vnn(x) at the point where it empirically tends to
+  come close to zero again, which is the equilibrium but with the quad
+  upside down. is there a way to find this out automatically, maybe based
+  on failed forward simulations? probably yes. unclear if better.
+
+- in general, make it more "transparent". output much more data so we can
+  locate failures more quickly. also some global "output verboseness"
+  setting? probably it would be wise to also use wandb for this stuff at
+  some point...
+
+- more jit where possible.
+
+- adapt visualisation to "embedded manifold" representation. (transforming
+  to old repr should work just fine)
+
+- system state as dict too? probably not worth the effort though.
+
+
+
+
+
+implementation, long term "extra" goals, probably overkill though:
+
+- find out a nice "tailored" regularization scheme. optimally it should
+  alleviate the slowing progress as value level (and volume of value bands)
+  grows. probably this is closely connected to the intuition that the
+  optimal solution of "well behaved" (= smooth, with some amount of
+  timescale separation) problems is "almost-invariant" in directions of the
+  slow states.
+
+- nicer way to handle u* convex optimisation.
+  - general explicit qp solver (still bruteforce, or with simple pruning of
+    never-optimal active sets)
+  - constrained ODE -> switched DAE reformulation like in that one paper
+    https://link.springer.com/article/10.1007/s10957-020-01744-4
+

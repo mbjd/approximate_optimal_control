@@ -966,7 +966,7 @@ def testbed(problem_params, algo_params):
             # optimistic_vs = v_means - 1 * v_stds
 
             # not optimistic hehe
-            optimistic_vs = v_means 
+            optimistic_vs = v_means
 
             # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
 
@@ -1314,8 +1314,9 @@ def testbed(problem_params, algo_params):
         in_band = (0 <= all_ys['v']) & (all_ys['v'] <= v_upper)
 
         # exclude way past data.
-        v_cutoff = v_lower / 10
-        in_band = in_band & (v_cutoff <= all_ys['v'])
+        # but really this is the job of algo_params['thin_data'] and the code just below
+        # v_cutoff = v_lower / 10
+        # in_band = in_band & (v_cutoff <= all_ys['v'])
 
         '''
         # in future: don't use any or only use few of the lower-value points

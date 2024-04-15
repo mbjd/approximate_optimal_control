@@ -1778,7 +1778,7 @@ def testbed(problem_params, algo_params):
         vk_prev = v_k
         v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
 
-        if v_k < vk_prev:
+        if v_k < vk_prev and k > 0:
             print('warning; the level set is shrinking.\nprobably the NN is misbehaving again *rolls eyes*')
 
         vks.append(v_k)

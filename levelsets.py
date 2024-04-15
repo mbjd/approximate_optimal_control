@@ -1735,8 +1735,8 @@ def testbed(problem_params, algo_params):
     # misuse the plotting function to compare trajectories w/ lqr solution.
     # it seems like all the optimal control stuff checks out indeed -- we
     # do have V_lqr(x(t)) ≈ v(t) along the initial part of the solutions.
-    pl.figure('trajectory vs LQR value fct')
-    plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
+    # pl.figure('trajectory vs LQR value fct')
+    # plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
 
     pl.figure('training run')
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)

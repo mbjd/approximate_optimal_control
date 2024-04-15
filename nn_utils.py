@@ -714,8 +714,8 @@ class nn_wrapper():
         # algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
         # algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
 
-        algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
-
+        # seemed to make it worse :(
+        # algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
 
         keys = jax.random.split(key, algo_params['nn_ensemble_size'])
 

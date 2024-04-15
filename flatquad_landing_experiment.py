@@ -888,7 +888,7 @@ if __name__ == '__main__':
         'weight_decay': .01,
 
         'nn_ensemble_size': 8,
-        'nn_warm_start': False,
+        'nn_warm_start': True,
 
         # NN LOSS FUNCTION
         # relative importance of the losses for v, vx, vxx.
@@ -927,7 +927,7 @@ if __name__ == '__main__':
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'active_learning_batchsize': 512,
+        'active_learning_batchsize': 128,
 
         # proposal strategy ≅ acquisition function.
         # implemented:

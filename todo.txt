@@ -69,6 +69,14 @@ implementation, mid/low importance.
   - distance between proposed point and (closest point on) optimal
     trajectory?
 
+- think more about the "practical tricks" such as estimating a slightly
+  bigger level set of low enough sigma & simulating forward until sigma is
+  low enough, or the "buffer" marking points as optimal, despite them maybe
+  going above the sigma limit sometime.
+  are they necessary? can we eliminate them and replace w/ something
+  smarter? if not, at least make sure that they don't allow any wildly
+  unexpected behaviour by close monitoring.
+
 - more jit where possible.
 
 - adapt visualisation to "embedded manifold" representation. (transforming

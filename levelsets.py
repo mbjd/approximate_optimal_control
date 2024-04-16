@@ -852,7 +852,7 @@ def testbed(problem_params, algo_params):
         return forward_sol
 
 
-    def solve_backward_nn_ens(x_f, vmap_params, v_upper, algo_params):
+    def solve_backward_nn_ens(x_f, vmap_params, v_upper, problem_params, algo_params):
 
         v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x).mean()
 
@@ -866,7 +866,49 @@ def testbed(problem_params, algo_params):
             'vx': vx_f,
         }
 
-        # TODO if manifold, backproject here?
+        # if manifold, backproject here.
+        if problem_params['m'] is not None:
+
+            # easy part: project x to the manifold.
+            state_f['x'] = problem_params['project_M'](x_f)
+
+            # now we want to set the costate to 0 in the "irrelevant" normal direction.
+            # get normal & tangent space projections just like in nn_utils
+            B = jax.jacobian(problem_params['m'])(x_f)
+            assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
+            B = B / np.linalg.norm(B)
+
+            # orthogonal projection to normal space at current x
+            P_normal = np.outer(B, B)
+            # orthogonal projection to tangent space at current x
+            P_tangent = np.eye(problem_params['nx']) - P_normal
+
+            # from this construction we have P_normal + P_tangent = I. can we
+            # thus just project a costate onto the tangent space? will this
+            # work out?
+
+            # the costate is in T*xM, the cotangent space, whereas the state
+            # derivative is in TxM. Together they can form the inner product
+            # <lambda, xdot> as they often do, which equals d/dt V(x(t)).
+
+            # We decompose lambda:
+            # lambda = (P_normal + P_tangent) lambda = lambda_normal + lambda_tangent.
+            # the inner product becomes <lambda, xdot> =
+            #   = <P_normal lambda, xdot> + <P_tangent lambda, xdot>
+            #   = lambda.T P_normal.T xdot + lambda.T P_tangent.T xdot     | writing it out in R^n standard basis
+            #   = <lambda, P_normal.T xdot> + <lambda, P_tangent.T xdot>   | changing parentheses without effect & writing as inner product again
+            #   = <lambda, P_normal xdot> + <lambda, P_tangent xdot>       | projection matrices symmetric
+            #   = 0                       + <lambda, P_tangent xdot>       | normal space is orthogonal to tangent space of which xdot is an element
+
+            # thus, we see that we can arbitrarily modify the costate in
+            # normal direction without affecting the relevant inner products.
+            # this is kind of obvious right? more formally this means
+            # (something like) the canonical map from T*x R^n to T*x M is a
+            # surjection, with all lambda in T*x R^n differing only by a
+            # vector in normal direction mapping to the same element of T*x M.
+
+            state_f['vx'] = P_tangent @ vx_f
+
 
         if algo_params['pontryagin_solver_vxx']:
             vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
@@ -1206,13 +1248,18 @@ def testbed(problem_params, algo_params):
 
 
 
-    def batched_oracle(proposals, v_k, v_next, vmap_nn_params):
+    def batched_oracle(proposals, v_k, v_next, vmap_nn_params, problem_params):
 
         # forward simulation. this stops if BOTH of these conditions hold.
         # - v_mean + 2 * v_sigma <= v_k
         # - v_sigma <= 0.5
         # so we can be quite sure the information at that point is usable.
         # (also stops if time horizon ends. )
+
+        # project proposals to manifold. should not be needed if sampling fct
+        # is properly designed. still here just in case :)jk
+        proposals = jax.vmap(problem_params['project_M'])(proposals)
+
         forward_sols = jax.vmap(forward_sim_nn_until_value, in_axes=(0, None, None, None))(
             proposals,
             vmap_nn_params,
@@ -1221,6 +1268,7 @@ def testbed(problem_params, algo_params):
         )
 
         xfs = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(forward_sols)
+
 
         # the solutions that stopped due to DiscreteTerminatingEvent
         stopped_bc_terminatingevent = forward_sols.result == 1
@@ -1235,6 +1283,7 @@ def testbed(problem_params, algo_params):
         assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
 
         print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
+
 
         # if we have a different amount every time, we cannot jit the simulation.
         # therefore we just mark it as nan and try to tune the algo such that not too many
@@ -1258,8 +1307,8 @@ def testbed(problem_params, algo_params):
         v_upper = v_next + 10 * (v_next - v_k)
 
         # TODO jit this.
-        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None))(
-            usable_xfs, vmap_nn_params, v_upper, algo_params
+        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None, None))(
+            usable_xfs, vmap_nn_params, v_upper, problem_params, algo_params
         )
 
         # TODO global switch for plot+show/plot+savefig/no plot
@@ -1267,7 +1316,7 @@ def testbed(problem_params, algo_params):
         if plot:
             # plot 0th forward and backward sol in same plot.
             pl.figure()
-            sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, v_upper, algo_params)
+            sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, v_upper, problem_params, algo_params)
             sol0_fwd = jtm(itemgetter(0), forward_sols)
             fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
 
@@ -1753,7 +1802,7 @@ def testbed(problem_params, algo_params):
 
     vks = []
 
-    for k in range(100):
+    for k in range(5):
 
         # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump.
@@ -1809,7 +1858,7 @@ def testbed(problem_params, algo_params):
         pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
-        backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens)
+        backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
 
         # append new data to big data set.
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)
@@ -1844,6 +1893,8 @@ def testbed(problem_params, algo_params):
     pl.plot(vks, label='known value level')
     pl.legend()
 
+    pl.figure('off manifold straying m(x)')
+    pl.plot(jax.vmap(problem_params['m'])(all_ys['x'].reshape(-1, 7)))
 
     pl.show()
     ipdb.set_trace()

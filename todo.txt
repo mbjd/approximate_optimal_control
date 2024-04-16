@@ -53,6 +53,9 @@ implementation, mid/low importance.
 - handle manifold correctly.
   probably projecting back after each simulation is good enough. thoughts
   in log 2024-04-02.
+  update, did a basic version: project to manifold and cotangent space before
+  each backward sol. still ignore manifold within ODE solver. works fine,
+  |m(x)| becomes around 1e-5 at most.
 
 - make "prior" without problem specific hacks?
   currently we push up Vnn(x) at the point where it empirically tends to
@@ -73,9 +76,10 @@ implementation, mid/low importance.
   bigger level set of low enough sigma & simulating forward until sigma is
   low enough, or the "buffer" marking points as optimal, despite them maybe
   going above the sigma limit sometime.
-  are they necessary? can we eliminate them and replace w/ something
-  smarter? if not, at least make sure that they don't allow any wildly
-  unexpected behaviour by close monitoring.
+  are they necessary? can we eliminate them and replace w/ something smarter?
+  if not, at least make sure that they don't allow any wildly unexpected
+  behaviour by close monitoring. is there a nice way to simulate a tiny bit
+  further and use lower-sigma information if possible?
 
 - more jit where possible.
 

@@ -885,7 +885,7 @@ if __name__ == '__main__':
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.001,
-        'weight_decay': .01,
+        'weight_decay': .001,
 
         'nn_ensemble_size': 8,
         'nn_warm_start': True,

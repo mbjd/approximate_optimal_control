@@ -28,6 +28,36 @@ from operator import itemgetter
 # many of these functions probably don't work. they were hacked together within the testbed function
 # and depend on some variables there. if needed again, put back there or include variables as proper arguments.
 
+
+def plot_calibration(all_ys, pred_v_means, pred_v_stds):
+
+    # calibration plot = plot of true frequency of data in each confidence band
+    # vs predicted frequency.
+
+    # although it may be questioned if this plot is at all relevant for us. we
+    # basically have deterministic data (except ODE solver error) and just want
+    # to distinguish between "inside" the known set and "outside" of it.
+
+    sigmas = np.linspace(-5, 5, 300)
+    predicted_fractions = jax.scipy.stats.norm.cdf(sigmas)
+
+    # the error between predicted and label, scaled by the std dev.
+    # if model is well calibrated, this should be normally distributed.
+    normalised_predictions = (pred_v_means - all_ys['v']) / pred_v_stds
+
+    observed_fractions = np.mean(normalised_predictions[:, None] < sigmas, axis=0)
+
+    pl.plot(predicted_fractions, observed_fractions, '.-')
+    pl.plot([0, 1], [0, 1], '--', c='black', alpha=.1)
+    pl.xlabel('predicted fraction')
+    pl.ylabel('observed fraction')
+
+
+
+
+
+
+
 def plot_distributions(ys_n):
 
     pl.figure()
@@ -636,7 +666,10 @@ def testbed(problem_params, algo_params):
             return problem_params['l'](x, u)
 
         # double vmap because we have N_trajectories x N_timesteps ys
-        all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
+        # all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
+
+        # single vmap because guess what, we don't anymore, now just N_pts
+        all_ls = jax.vmap(l_of_y)(ys)
 
         # add NaN to every x with v(x) > v_k
         is_outside_valueband = ~np.logical_and(v_lower <= ys['v'], ys['v'] <= v_upper)
@@ -1347,7 +1380,10 @@ def testbed(problem_params, algo_params):
 
         v_lower, v_upper = v_interval
 
-        v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+        # v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+
+        # now without the extra dim the vmap we already did is sufficient
+        v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
 
         trajectory_outside_levelset = v_lower < all_ys['v']
 
@@ -1355,17 +1391,12 @@ def testbed(problem_params, algo_params):
         # are outside of value level set
         nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
 
-        # alternatively: argue that within the value level set, mean should be
-        # accurate enough.
-        # nn_v_likely_in_levelset = v_nn_means < v_lower
-
         is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
         # alternatively, rely only on bnn posterior sigma, not level set.
         # is_suboptimal = v_nn_means + 3 * v_nn_stds < all_ys['v']
 
         # plot trajectory vs nn where is_suboptimal just to take a glance?
-
 
         # next step: build training data out of this pruned mess.
         in_band = (0 <= all_ys['v']) & (all_ys['v'] <= v_upper)
@@ -1797,12 +1828,27 @@ def testbed(problem_params, algo_params):
 
     pl.figure('training run')
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
-    pl.show()
+
+
 
     # ipdb.set_trace()
 
 
-    all_ys = sols_orig.ys
+    def flat_sol_ys(sols):
+        # for a sols object with ys dict, reshape each member of the ys dict
+        # from (N_trajectories, N_t_per_trajectory, x) to (N_pts, x)
+        # (where x is either nx or nothing for scalar values)
+        # also removes nan or inf values.
+
+        # would be cool: if we still include a single nan point between the solutions
+        # to make plotting "everything at once" nicer bc it breaks the line.
+
+        where_usable = np.logical_and(~np.isnan(sols.ys['v']), ~np.isinf(sols.ys['v']))
+        new_ys = jtm(lambda node: node[where_usable], sols.ys)
+        return new_ys
+
+    all_ys = flat_sol_ys(sols_orig)
+
 
     # more detailed plots w/ savefig.
     pl.rcParams['figure.figsize'] = (16, 9)
@@ -1873,14 +1919,25 @@ def testbed(problem_params, algo_params):
         is_usable = backward_sols_new.stats['num_accepted_steps'] > 0
         print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
 
+        '''
         # find out how close we got.
         # this depends on the specific timesteps too...
         sol_min_dist = lambda x, sol: np.min(np.linalg.norm(sol.ys['x'] - x[None, :], axis=1))
-        min_dists = jax.vmap(sol_min_dist, in_axes=(0, 0))(proposed_pts, backward_sols_new)
-        ipdb.set_trace()
+        sol_dists = lambda x, sol: np.linalg.norm(sol.ys['x'] - x[None, :], axis=1)
 
-        # append new data to big data set.
-        all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)
+        min_dists = jax.vmap(sol_min_dist, in_axes=(0, 0))(proposed_pts, backward_sols_new)
+        dists = jax.vmap(sol_dists, in_axes=(0, 0))(proposed_pts, backward_sols_new)
+        ipdb.set_trace()
+        '''
+
+        # append new data to main data set, now in flattened shape. would it be
+        # smarter to keep this in some sort of dict to avoid reallocation?
+        # -> probably marginal gains
+
+        # truly unhinged idea: keep the big dataset sorted by ys['v'], so we can
+        # do binary search to find the relevant value ranges?
+        new_ys = flat_sol_ys(backward_sols_new)
+        all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
 
 
         train_key = key  # yolo
@@ -1893,7 +1950,7 @@ def testbed(problem_params, algo_params):
         )
 
 
-        pl.figure(f'nn training #{k}')
+        pl.figure(f'nn training iter {k}')
         plotting_utils.plot_nn_train_outputs(oups)
         pl.ylim([1e-4, 1e3])
         pl.savefig(f'tmp/trainplot_{k:04d}.png')
@@ -1902,6 +1959,13 @@ def testbed(problem_params, algo_params):
         pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
         pl.savefig(f'tmp/trajectory_{k:04d}.png')
+
+        # all_ys is already flattened? -> no :(
+        pl.figure(f'nn calibration, iter {k}')
+        means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
+        plot_calibration(all_ys, means, stds)
+        pl.savefig(f'tmp/calibration_{k:04d}.png')
+        # pl.show()
 
         # pl.show()
         pl.close('all')

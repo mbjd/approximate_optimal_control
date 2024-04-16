@@ -3378,3 +3378,70 @@ boundaries/watersheds where the interpolation is left to be smooth. also we
 have to think about what happens to the uncertainty in those regions: maybe it
 never goes down enough for us to "accept" those points which would be
 unfortunate.
+
+
+
+
+2024-04-17
+
+
+made the manifold projection finally correct. project back before starting
+backward sim, and for good measure project costate to correct cotangent
+space (numerically same as projecting to tangent space). also wrapped the
+entire "oracle" function with an equinox filter_jit, makes it noticeably
+quicker :)
+
+
+ideas about that regularisation/inductive biases/approximate invariances
+thing, not particularly organised.
+ - penalise hessian in "slow" state direction
+ - something smart w/ weight decay and other "classic" smoothness tricks
+ - include some sort of HJB PINN type loss term after all???
+   probably this is the most precise sort of inductive bias we can give the
+   model... impose that loss at data points or different points?
+ - normalise data to "squeeze together" slow states in x-axis direction? if
+   the NN has a GP type kernel analogue this will fit more data into the
+   region influenced by the kernel. does it work like that?
+   would need to work out correct transformation including manifold stuff
+   which might be not trivial.
+
+
+but this is REALLY not the time to do these small implementation tricks...
+
+
+thinking about pruning fct.
+
+generally: i think conservatism is misplaced here (in the sense of "only
+remove data if we really are like >99% sure that it's suboptimal). if we
+prune conservatively, then we may get situations where different local
+solutions for the same(-ish) x are in the training dataset contradicting
+each other.
+
+even if we prune "perfectly" based on knowledge of all local solutions
+everywhere, the resulting nonsmooth watershed will still cause difficulties
+with nn training.
+
+so i think the better approach would be to leave an "empty strip" with no
+data close to the watershed. that way the NN is free to interpolate between
+the two sides, maintaining some degree of smoothness while still having a
+practical approximation of the globally optimal solution. it will be
+interesting to see how the closed loop trajectories behave near this
+"interpolated" watershed.
+
+(github copilot wrote like 20% of this damn. it also writes lots of shit)
+
+how can we realise this "empty strip" idea based on data?
+
+first very trivial idea: whenever we notice that a point is clearly
+suboptimal (i.e. v above vk and vnn(x) < vk with high probability), remove
+not just the whole preceding (speaking in forward time) trajectory, but
+also a short segment after that, like half a second?
+
+maybe it is smarter to do this based on value, not time: whenever a
+solution has v(t) > vnn(x(t)) with high probability, then prune the part of
+the solution "above" vnn(x(t)). (mean? confidence band? think about that)
+
+for all these strategies,
+
+
+

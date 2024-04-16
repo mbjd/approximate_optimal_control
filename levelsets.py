@@ -1317,6 +1317,8 @@ def testbed(problem_params, algo_params):
             usable_xfs, vmap_nn_params, v_upper, problem_params, algo_params
         )
 
+
+
         # TODO global switch for plot+show/plot+savefig/no plot
         plot=False
         if plot:
@@ -1808,7 +1810,7 @@ def testbed(problem_params, algo_params):
 
     vks = []
 
-    for k in range(5):
+    for k in range(30):
 
         # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump.
@@ -1870,6 +1872,12 @@ def testbed(problem_params, algo_params):
         # simpler way:
         is_usable = backward_sols_new.stats['num_accepted_steps'] > 0
         print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
+
+        # find out how close we got.
+        # this depends on the specific timesteps too...
+        sol_min_dist = lambda x, sol: np.min(np.linalg.norm(sol.ys['x'] - x[None, :], axis=1))
+        min_dists = jax.vmap(sol_min_dist, in_axes=(0, 0))(proposed_pts, backward_sols_new)
+        ipdb.set_trace()
 
         # append new data to big data set.
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)

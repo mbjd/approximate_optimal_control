@@ -1287,6 +1287,7 @@ def testbed(problem_params, algo_params):
         # somehow try to do it? is chex the tool for this?
         # assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
 
+
         # if we have a different amount every time, we cannot jit the simulation.
         # therefore we just mark it as nan and try to tune the algo such that not too many
         # of them are nan.

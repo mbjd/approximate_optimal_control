@@ -53,6 +53,9 @@ implementation, mid/low importance.
 - handle manifold correctly.
   probably projecting back after each simulation is good enough. thoughts
   in log 2024-04-02.
+  update, did a basic version: project to manifold and cotangent space before
+  each backward sol. still ignore manifold within ODE solver. works fine,
+  |m(x)| becomes around 1e-5 at most.
 
 - make "prior" without problem specific hacks?
   currently we push up Vnn(x) at the point where it empirically tends to

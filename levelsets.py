@@ -1136,6 +1136,7 @@ def testbed(problem_params, algo_params):
                 #  - something from the NN? NN tangent kernel???
                 #  - instead max determinant stuff from lenart?
                 #  - no clue tbh.
+                # probably this should be part of algo_params.
                 lengthscale = .5
                 k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
 
@@ -1683,7 +1684,9 @@ def testbed(problem_params, algo_params):
 
 
         print(f'estimated known value level: {v_k:.3f}')
-        print(f'percentage of test points known: {100*sigma_small_enough.mean():.2f}%')
+        print(f'test points known: {100*sigma_small_enough.mean():.2f}%')
+        half = test_pts.shape[0] // 2
+        print(f'state space volume known: {100*sigma_small_enough[half:].mean():.6f}%')
         pl.figure()
 
         # plot the image of {0} x M basically to confirm that the weird loop comes from there
@@ -1831,7 +1834,13 @@ def testbed(problem_params, algo_params):
 
 
 
+    pl.show()
     # ipdb.set_trace()
+
+
+    def print_solver_stats(sols):
+        pass
+
 
 
     def flat_sol_ys(sols):
@@ -1844,8 +1853,8 @@ def testbed(problem_params, algo_params):
         # to make plotting "everything at once" nicer bc it breaks the line.
 
         where_usable = np.logical_and(~np.isnan(sols.ys['v']), ~np.isinf(sols.ys['v']))
-        new_ys = jtm(lambda node: node[where_usable], sols.ys)
-        return new_ys
+        flat_ys = jtm(lambda node: node[where_usable], sols.ys)
+        return flat_ys
 
     all_ys = flat_sol_ys(sols_orig)
 
@@ -1936,6 +1945,9 @@ def testbed(problem_params, algo_params):
 
         # truly unhinged idea: keep the big dataset sorted by ys['v'], so we can
         # do binary search to find the relevant value ranges?
+
+        print_solver_stats(backward_sols_new)
+
         new_ys = flat_sol_ys(backward_sols_new)
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
 

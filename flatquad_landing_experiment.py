@@ -849,8 +849,8 @@ if __name__ == '__main__':
 
         # ODE SOLVER PARAMS
         'pontryagin_solver_vxx': False,
-        'pontryagin_solver_atol': 1e-5,
-        'pontryagin_solver_rtol': 1e-5,
+        'pontryagin_solver_atol': 1e-4,
+        'pontryagin_solver_rtol': 1e-4,
 
         # with throw=True we can set this pretty tight - it will just stop early.
         # will have to make sure ourselves that this is not a problem
@@ -879,13 +879,13 @@ if __name__ == '__main__':
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 16,
-        'nn_N_epochs': 256,
+        'nn_N_epochs': 512,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.001,
-        'weight_decay': .001,
+        'lr_final': 0.0001,
+        'weight_decay': .0001,
 
         'nn_ensemble_size': 8,
         'nn_warm_start': True,

@@ -2,6 +2,7 @@ import jax
 import jax.numpy as np
 import numpy as onp
 import diffrax
+import equinox
 
 import nn_utils
 import plotting_utils
@@ -1248,6 +1249,7 @@ def testbed(problem_params, algo_params):
 
 
 
+    @equinox.filter_jit
     def batched_oracle(proposals, v_k, v_next, vmap_nn_params, problem_params):
 
         # forward simulation. this stops if BOTH of these conditions hold.
@@ -1280,15 +1282,18 @@ def testbed(problem_params, algo_params):
         sig_maxs = algo_params['sigma_max'](mus)
         is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= sig_maxs)
 
-        assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
-
-        print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
-
+        # this assertion never failed since the last change of making
+        # sigma_max a function specified in algo_params. should we still
+        # somehow try to do it? is chex the tool for this?
+        # assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
 
         # if we have a different amount every time, we cannot jit the simulation.
         # therefore we just mark it as nan and try to tune the algo such that not too many
         # of them are nan.
-        usable_xfs = xfs.at[~is_usable].set(np.nan)
+        # usable_xfs = xfs.at[~is_usable].set(np.nan)
+
+        # turns out that was itself not jittable. this should work:
+        usable_xfs = np.where(is_usable[:, None], xfs, np.nan * xfs)
 
         # as we kind of would expect, is_usable correlates clearly (negatively) with the amount of
         # solver steps. so the most effort is spent calculating solutions which we're never going to use.
@@ -1859,6 +1864,11 @@ def testbed(problem_params, algo_params):
 
         # ~~~~ ORACLE ~~~~
         backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
+
+        # is_usable = ~np.isnan(jax.vmap(lambda sol: sol.ys['v'][sol.stats['num_accepted_steps']])(backward_sols_new))
+        # simpler way:
+        is_usable = backward_sols_new.stats['num_accepted_steps'] > 0
+        print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
 
         # append new data to big data set.
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, backward_sols_new.ys)

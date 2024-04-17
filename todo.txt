@@ -59,6 +59,16 @@ implementation, mid/low importance.
   each backward sol. still ignore manifold within ODE solver. works fine,
   |m(x)| becomes around 1e-5 at most.
 
+- reject estimated known value level above last value target. this happens
+  sometimes in the early stages of the run, especially with large active
+  learning batchsizes. this means we "trust" the extrapolation because the
+  nns agree, however i don't think we should. fix is a simple clipping
+  operation.
+  or not? for simple control problems/very well designed NNs with inductive
+  biases *just right* for the solutions at hand this might reasonably
+  happnen. and also fits the paradigm of "we assume well calibrated model"
+  and treating it as a black box initially.
+
 - make "prior" without problem specific hacks?
   currently we push up Vnn(x) at the point where it empirically tends to
   come close to zero again, which is the equilibrium but with the quad

@@ -3456,3 +3456,68 @@ only in larger steps? i guess only half becuase still the data does not
 switch between trajectory and function representation every time. but still
 something to think about.
 
+
+
+
+
+2024-04-17
+
+can we impose some sort of hessian loss in the direction of the
+trajectories? we don't have vxx anymore but maybe just with the
+interpolation? because visually the nn fits do seem to be nonsensical close
+to the boundary of the region with data. the label vx is matched well but
+not the shape of the curve. which was expected anyway.
+
+looked at longer run started yesterday evening, 60 iters, got up to value
+level 1069.046!!! very nice. even cooler, that corresponds to 8% of state
+space volume (as measured by large uniform sample, unscaled part only).
+it looks like the volume goes up exponentially with the value level, so
+there is after all a chance of decent progress!
+
+but the trajectory vs nn plot shows a rather non-smooth fit. do we really
+need to find even better hyperparameters? or it could be a sign that
+pruning doesn't really work. also the training (even training!) loss looks
+almost flat towards the run, going from like 0.3 to 0.1 or even a bit above
+still (the vx train loss).
+
+
+changed sobolev weights to lower vx weight just to see what happens.
+interestingly training vx loss goes down even further (1e-3), test not
+quite as much (1e-2), sign of overfitting. visually the trajectory/nn plot
+looks pretty much the same. is a higher v cost the "secret" to achieving
+smaller v uncertainty, facilitating active learning?? calibration plots (in
+terms of v...) look nicer too. this probably doesn't matter as much as i
+thought initially.
+
+relaxed relative uncertainty tolerance from 1% to 5%. also looks nice. at
+least we get faster test results that way -- at a later time we can switch
+to tighter tol again. i have the feeling that some "known points" creep in
+which are above the value level -- at least the scatterplot looks like it.
+either this is wrong code somewhere or the code is as i think it is but
+does not do what i think it should do.
+
+but in general, i think i finally found algo settings that allow us to
+prototype at a reasonable pace. now all that's left is to actually do
+that...
+
+about that pruning operation, continuation from yesterday. this is the
+central missing pillar from a theory standpoint and must be addressed.
+basic idea is still this - for each point that is "definitely suboptimal",
+proceed along the trajectory like this:
+ - all preceding states are obviously also definitely suboptimal, so remove
+   those (concrete proof though?)
+ - the subsequent points will probably at some point become optimal, as the
+   trajectory was started (in backward time) inside Vk which we presume to
+   be nicely optimal no matter what. How do we find a sensible point to
+   start including those new points again?
+
+
+some a bit more concrete versions of this idea. prune every point that is
+very likely suboptimal (based on just posterior, or posterior+Vk
+membership). Additionally
+ - prune some time duration before that as well.
+ - prune some fixed value interval before as well.
+ - prune every point of the trajectory where v is above the nn value that
+   prompeted the pruning.
+
+

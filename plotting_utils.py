@@ -223,7 +223,7 @@ def plot_trajectory_vs_nn(sol, params, v_nn_unnormalised):
 
     ax = pl.subplot(211)
 
-    interp_ts = np.linspace(sol.t0, sol.t1, 200)
+    interp_ts = np.linspace(sol.t0, sol.t1, 1000)
 
     xs = sol.ys['x']
     ts = sol.ys['t']
@@ -351,7 +351,7 @@ def plot_nn_train_outputs_basic(outputs, alpha=.5, legend=True):
 
 
 
-def plot_nn_train_outputs(outputs, subsample=64):
+def plot_nn_train_outputs(outputs, subsample=256):
 
     # new version of this, for dict output, like:
     # outputs.keys() == ['lr', 'test_loss_terms', 'train_loss_terms']
@@ -409,6 +409,7 @@ def plot_nn_train_outputs(outputs, subsample=64):
         pl.loglog(outputs['iters'], outputs['train_loss_terms'][k], alpha=.3, label=f'train {k}')
     pl.legend()
     pl.grid('on')
+    pl.ylim([1e-5, 1e3])
 
     if has_test:
         pl.subplot(212, sharex=ax, sharey=ax)
@@ -428,6 +429,8 @@ def plot_nn_train_outputs(outputs, subsample=64):
         pl.loglog([1e-8, 1e3], [1e-8, 1e3], linestyle='--', alpha=.3, c='black')
         pl.xlabel('training losses')
         pl.ylabel('test losses')
+        pl.xlim([1e-5, 1e3])
+        pl.ylim([1e-5, 1e3])
         pl.grid('on')
         pl.legend()
 

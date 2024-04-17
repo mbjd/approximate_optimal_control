@@ -679,16 +679,6 @@ def testbed(problem_params, algo_params):
 
 
 
-    # lmin = find_min_l(sols_orig, 10, 20, problem_params)
-    # ipdb.set_trace()
-
-    # visualiser.plot_trajectories_meshcat(sols_orig)
-    # ipdb.set_trace()
-
-    # debug_nan_sol(sols_orig, problem_params, algo_params)
-    # ipdb.set_trace()
-
-
 
     def select_train_pts(value_interval, sols):
 
@@ -1059,6 +1049,10 @@ def testbed(problem_params, algo_params):
             all_valueband_pts = np.concatenate([all_valueband_pts, interesting_x0s], axis=0)
 
         if all_valueband_pts.shape[0] < N_pts_desired:
+
+            # this has never happened since we started using non-uniform sample
+            # concentrated around equilibrium here too
+
             print('did not find enough points!')
             ipdb.set_trace()
 
@@ -1675,47 +1669,6 @@ def testbed(problem_params, algo_params):
 
         v_k = v_means_sorted[k_accept]
 
-        # yet another alternative: specify some sort of "excess sigma" which
-        # summed over the points in Vk we must not exceed. then do something
-        # similar as above, but with points far above sigma being worse than
-        # ones just slightly. 100 points a tiny bit above sigma are less bad
-        # than 10 points but 1000x sigma.
-
-
-        print(f'estimated known value level: {v_k:.3f}')
-        print(f'test points known: {100*sigma_small_enough.mean():.2f}%')
-        half = test_pts.shape[0] // 2
-        print(f'state space volume known: {100*sigma_small_enough[half:].mean():.6f}%')
-        pl.figure()
-
-        # plot the image of {0} x M basically to confirm that the weird loop comes from there
-        # N_m = 500
-        # thetas = np.linspace(0, 2*np.pi, N_m)
-        # manifold = np.column_stack([
-        #     np.zeros(500),
-        #     np.zeros(500),
-        #     np.sin(thetas),
-        #     np.cos(thetas),
-        #     np.zeros(500),
-        #     np.zeros(500),
-        #     np.zeros(500),
-        # ])
-        # image_means, image_stds = v_meanstds(manifold, params_sobolev_ens)
-
-        pl.xlabel('v mean')
-        pl.ylabel('v std')
-        # pl.loglog(v_means, v_stds, '. ', alpha=.1)
-        pl.loglog(v_means * sigma_small_enough, v_stds * sigma_small_enough, '. ', alpha=.1)
-        pl.loglog(v_means * ~sigma_small_enough, v_stds * ~sigma_small_enough, '. ', alpha=.1)
-        # pl.loglog(image_means, image_stds, alpha=.2, color='red')
-
-        pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
-        vmin, vmax = v_means.min(), v_means.max()
-
-
-        plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
-        plot_sig_maxs = jax.vmap(algo_params['sigma_max'])(plot_vs)
-        pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
 
         # here we can sometimes include points far too high which obviously are
         # outside the known set but still have low sigma. for those we should
@@ -1730,6 +1683,27 @@ def testbed(problem_params, algo_params):
         # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)
 
         test_pts_known = np.logical_or(test_pts_known, newly_known)
+
+
+        print(f'estimated known value level: {v_k:.3f}')
+        pl.figure()
+
+        pl.xlabel('v mean')
+        pl.ylabel('v std')
+
+        pl.loglog(v_means + (np.nan * test_pts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
+        pl.loglog(v_means + (np.nan * ~test_pts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
+        pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
+
+        vmax = v_means.max()
+        plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
+        plot_sig_maxs = jax.vmap(algo_params['sigma_max'])(plot_vs)
+        pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
+
+
+        print(f'test points known: {100*test_pts_known.mean():.2f}%')
+        half = test_pts.shape[0] // 2
+        print(f'state space volume known: {100*test_pts_known[half:].mean():.6f}%')
 
         return v_k, sigma_small_enough
 
@@ -1861,7 +1835,7 @@ def testbed(problem_params, algo_params):
 
     vks = []
 
-    for k in range(30):
+    for k in range(100):
 
         # active learning with level-set ideas embedded.
         # first pseudocode algo in idea dump.
@@ -1877,6 +1851,12 @@ def testbed(problem_params, algo_params):
 
         vk_prev = v_k
         v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
+
+        if k == 0:
+            pass
+            # then we cannot classify the points as known
+            # or can we? we use the newly estimated v_k so all should be good
+            # still i have the feeling this is not perfectly correct
 
         if v_k < vk_prev and k > 0:
             print('warning; the level set is shrinking.\nprobably the NN is misbehaving again *rolls eyes*')
@@ -1980,8 +1960,6 @@ def testbed(problem_params, algo_params):
             pl.close('all')
         else:
             pl.show()
-
-        # ipdb.set_trace()
 
 
     pl.figure()

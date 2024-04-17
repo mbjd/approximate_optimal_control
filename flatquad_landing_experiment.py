@@ -879,12 +879,12 @@ if __name__ == '__main__':
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 16,
-        'nn_N_epochs': 512,
+        'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.001,
         'weight_decay': .001,
 
         'nn_ensemble_size': 8,
@@ -896,7 +896,7 @@ if __name__ == '__main__':
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': np.array([0.1, 10.]),
+        'nn_sobolev_weights': np.array([1., 10]),
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -939,8 +939,10 @@ if __name__ == '__main__':
         #  - softmax_uncertain
         'proposal_strategy': 'max_kernel',
 
-        # sigma max = sigma_target_abs + sigma_target_rel * v_mean
-        'sigma_max': lambda mu: 0.5 + 0.01 * mu,
+        # 'sigma_max': lambda mu: 0.5 + 0.01 * mu,
+
+        # tolerate some more error just to make the experiments run faster
+        'sigma_max': lambda mu: 0.5 + 0.05 * mu,
 
         # previous params:
         # 'sigma_target_abs': 0.5,
@@ -950,7 +952,7 @@ if __name__ == '__main__':
         # which are below the sigma target to qualify as "learned".
         'frac_certain_in_Vk': .99,
 
-        'savefigs': False,
+        'savefigs': True,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

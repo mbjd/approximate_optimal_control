@@ -5,6 +5,7 @@ in log.
 report.
 
 - write structure proposal. what goes where?
+  - look over examples sent.
 
 - think about baselines. as per meeting on 2024-04-12:
   - obvious one: uniform proposals vs max-sigma(ish) ones
@@ -27,6 +28,7 @@ theory.
 
 - frame it as "clean" active learning problem by separating acquisition
   function from sampling/optimisation method.
+  - grok that paper by holzmüller, see if our implementation is correct
 
 - think about whether measuring uncertainty only in terms of V (not vxx)
   makes sense.

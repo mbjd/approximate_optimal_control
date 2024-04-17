@@ -885,7 +885,7 @@ if __name__ == '__main__':
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.0001,
-        'weight_decay': .0001,
+        'weight_decay': .001,
 
         'nn_ensemble_size': 8,
         'nn_warm_start': True,
@@ -927,6 +927,7 @@ if __name__ == '__main__':
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
+        'initial_batchsize': 128,
         'active_learning_batchsize': 128,
 
         # proposal strategy ≅ acquisition function.
@@ -947,7 +948,9 @@ if __name__ == '__main__':
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".
-        'frac_certain_in_Vk': .99
+        'frac_certain_in_Vk': .99,
+
+        'savefigs': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

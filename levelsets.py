@@ -605,7 +605,7 @@ def testbed(problem_params, algo_params):
 
 
     # purely random ass points for initial batch of trajectories.
-    normal_pts = jax.random.normal(key, shape=(100, problem_params['nx']))
+    normal_pts = jax.random.normal(key, shape=(algo_params['initial_batchsize'], problem_params['nx']))
     unitsphere_pts = normal_pts / np.linalg.norm(normal_pts, axis=1)[:, None]
     xfs = jax.vmap(unitsphere_to_dXf)(unitsphere_pts)
 
@@ -616,7 +616,6 @@ def testbed(problem_params, algo_params):
     # this is not that precise in the manifold case.
     # nevertheless we continue and assume that for small enough V_f it will still kind of work :)
     # assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
-
 
     pl.rcParams['figure.figsize'] = (16, 10)
 
@@ -987,7 +986,7 @@ def testbed(problem_params, algo_params):
         # TODO make this configurable via algo_params
         # and get the time constant from problemparams...
         fastestpole_tau = .49  # from LQR solution.
-        T = 5 * fastestpole_tau
+        T = 10 * fastestpole_tau
 
         # use actual previous value level instead?
         min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
@@ -1832,10 +1831,7 @@ def testbed(problem_params, algo_params):
     pl.figure('training run')
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
 
-
-
     pl.show()
-    # ipdb.set_trace()
 
 
     def print_solver_stats(sols):
@@ -1918,7 +1914,8 @@ def testbed(problem_params, algo_params):
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
         # and here too...
-        pl.savefig(f'tmp/meanstds_{k:04d}.png')
+        if algo_params['savefigs']:
+            pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
         backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
@@ -1965,22 +1962,25 @@ def testbed(problem_params, algo_params):
         pl.figure(f'nn training iter {k}')
         plotting_utils.plot_nn_train_outputs(oups)
         pl.ylim([1e-4, 1e3])
-        pl.savefig(f'tmp/trainplot_{k:04d}.png')
+        if algo_params['savefigs']:
+            pl.savefig(f'tmp/trainplot_{k:04d}.png')
 
 
         pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-        pl.savefig(f'tmp/trajectory_{k:04d}.png')
+        if algo_params['savefigs']:
+            pl.savefig(f'tmp/trajectory_{k:04d}.png')
 
-        # all_ys is already flattened? -> no :(
         pl.figure(f'nn calibration, iter {k}')
         means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
-        pl.savefig(f'tmp/calibration_{k:04d}.png')
-        # pl.show()
 
-        # pl.show()
-        pl.close('all')
+        if algo_params['savefigs']:
+            pl.savefig(f'tmp/calibration_{k:04d}.png')
+            pl.close('all')
+        else:
+            pl.show()
+
         # ipdb.set_trace()
 
 

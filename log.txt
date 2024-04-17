@@ -3382,7 +3382,7 @@ unfortunate.
 
 
 
-2024-04-17
+2024-04-16
 
 
 made the manifold projection finally correct. project back before starting
@@ -3441,7 +3441,18 @@ maybe it is smarter to do this based on value, not time: whenever a
 solution has v(t) > vnn(x(t)) with high probability, then prune the part of
 the solution "above" vnn(x(t)). (mean? confidence band? think about that)
 
-for all these strategies,
+for all these strategies,... what
 
 
+dammit been tuning irrelevant params for half a day again. found that
+longer training (with lower final lr) lowers uncertainty inside Vk and
+makes extrapolation nicer too (more successful forward sims). not so
+surprising i guess.
+
+thought: if we are "only" adding about 1 or less than one datapoint per
+iteration to the known set along each trajectory, aren't we kind of
+completely invalidating the supposed benefit of doing the approximation
+only in larger steps? i guess only half becuase still the data does not
+switch between trajectory and function representation every time. but still
+something to think about.
 

@@ -1633,15 +1633,21 @@ def testbed(problem_params, algo_params):
 
 
 
-        # alternative: be relaxed about *a few* high-σ points being inside our set.
-        # ipdb.set_trace()
+        # alternative: be relaxed about *a few* high-σ points being inside our
+        # set.
 
-        # two main approaches: a) require that 95% of points in Vk have σ < threshold
-        # or b) require that all but k points in Vk have σ < threshold.
+        # two main approaches: a) require that 95% of points in Vk have σ <
+        # threshold or b) require that all but k points in Vk have σ <
+        # threshold.
 
-        # the second one could probably be implemented with top_k, but the first is probably smarter...
-        # first one could probably be implemented with some kind of bisection thing?
-        # do we first sort the whole array? -> yes we do :--)
+        # the second one could probably be implemented with top_k, but the
+        # first is probably smarter... first one could probably be implemented
+        # with some kind of bisection thing? do we first sort the whole array?
+        # -> yes we do :--)
+
+        # this is probably n log(n) (sorting algo certainly, then only linear
+        # stuff). the whole thing could be found directly by bisection which
+        # would also be nlogn
 
         idx = np.argsort(v_means)
 
@@ -1683,7 +1689,9 @@ def testbed(problem_params, algo_params):
         # small sigma AND probably in (higher) level set.
         # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)
 
-        test_pts_known = np.logical_or(test_pts_known, newly_known)
+        # only believe previous points if they are below Vk
+        prev_known = np.logical_and(test_pts_known, v_means + 2 * v_stds <= v_k)
+        test_pts_known = np.logical_or(prev_known, newly_known)
 
 
         print(f'estimated known value level: {v_k:.3f}')

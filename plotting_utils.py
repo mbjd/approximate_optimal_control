@@ -263,7 +263,7 @@ def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
 
     ax = pl.subplot(211)
 
-    interp_ts = np.linspace(sol.t0, sol.t1, 200)
+    interp_ts = np.linspace(sol.t0, sol.t1, 2000)
 
     xs = sol.ys['x']
     ts = sol.ys['t']

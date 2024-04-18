@@ -877,15 +877,15 @@ if __name__ == '__main__':
 
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
-        'nn_layerdims': (32, 32, 32),
-        'nn_batchsize': 16,
+        'nn_layerdims': (64, 64, 64),
+        'nn_batchsize': 4,
         'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.001,
-        'weight_decay': .001,
+        'weight_decay': .01,
 
         'nn_ensemble_size': 8,
         'nn_warm_start': True,
@@ -900,7 +900,7 @@ if __name__ == '__main__':
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
-        'vx_normal_regularisation': 0.001,
+        'vx_normal_regularisation': 0.0001,
 
         # this is not a proper "prior" in the bayesian sense, but rather just an additional weak
         # loss term that makes the value function large-ish at the problematic state of being upside
@@ -952,7 +952,7 @@ if __name__ == '__main__':
         # which are below the sigma target to qualify as "learned".
         'frac_certain_in_Vk': .99,
 
-        'savefigs': True,
+        'savefigs': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

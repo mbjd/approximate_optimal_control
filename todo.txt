@@ -90,8 +90,11 @@ implementation, mid/low importance.
   going above the sigma limit sometime.
   are they necessary? can we eliminate them and replace w/ something smarter?
   if not, at least make sure that they don't allow any wildly unexpected
-  behaviour by close monitoring. is there a nice way to simulate a tiny bit
-  further and use lower-sigma information if possible?
+  behaviour by close monitoring.
+
+- is there a nice way to simulate a tiny bit further and use lower-sigma
+  information if possible? because now we stop as soon as the sigma
+  threshold is reached which is still not very great.
 
 - more jit where possible.
 

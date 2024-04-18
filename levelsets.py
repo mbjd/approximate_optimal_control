@@ -1466,7 +1466,8 @@ def testbed(problem_params, algo_params):
         init_key, key = jax.random.split(key)
         params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
-        n_params = count_floats(params_init)
+        # only count each individual NN's params to assess under/overparameterisation
+        n_params = count_floats(params_init) / algo_params['nn_ensemble_size']
         n_data = count_floats(train_ys)
         print(f'params/data ratio = {n_params/n_data:.4f}')
 
@@ -1762,12 +1763,13 @@ def testbed(problem_params, algo_params):
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
 
-    '''
     # test loss fct to pdb with concrete values.
     sol = jtm(itemgetter(12), sols_orig)
     y = jtm(itemgetter(12), sol.ys)
     loss = v_nn.sobolev_loss(key, y, params_init, problem_params, algo_params)
-    '''
+    extent = np.array([20, 20, 0., 0., 20, 20, 10])
+    priorloss = v_nn.sobolev_loss_with_prior(key, y, params_init, None, extent, problem_params, algo_params)
+
 
     # to get a feel for over/underparameterisation.
     n_params = count_floats(params_init)
@@ -1804,6 +1806,10 @@ def testbed(problem_params, algo_params):
 
     pl.figure('training run')
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
+
+    pl.figure('nn calibration, initial run')
+    means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
+    plot_calibration(all_ys, means, stds)
 
     pl.show()
 

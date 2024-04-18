@@ -3521,3 +3521,15 @@ membership). Additionally
    prompeted the pruning.
 
 
+
+
+2024-04-18
+
+maybe the reason for training slowing down as the algo progresses is also
+not the (lack of a good) pruning function. could also be:
+ - errors creeping in, making data "contradictory" meaning that
+   interpolation is much less smooth and not achievable w small training
+   time
+ - data scaling issue after all. maybe fitting a very high value label just
+   need a lot more gradient steps? an actual log transform like thing might
+   help this.

@@ -233,40 +233,76 @@ class nn_wrapper():
 
         # evaluate the prior loss at a random point.
         # extent = np.array([20, 20, 0., 0., 20, 20, 20])  # TODO put in algo_params too?
-        # prior_x = algo_params['sample_state'](prior_key, extent)
 
 
-        # alternatively, impose the prior only at the point where otherwise we
-        # would get "wrong" values close to 0. This is more of a practical fix
-        # and less of a bayesian-inspired functional prior type story. but if
-        # it works who am I to judge (myself...)
-        # even outside of the manifold!
+        # impose *that* prior only at the point where otherwise we would
+        # get "wrong" values close to 0. This is more of a practical fix
+        # and less of a bayesian-inspired functional prior type story. but
+        # if it works who am I to judge (myself...) even outside of the
+        # manifold!
         v_prior = algo_params['v_prior']
-        prior_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
-
-        v_pred = self.nn.apply(params, prior_x)
-
-        prior_noise=False
-        if prior_noise:
-            # introduce a small amount of jitter in the prior to avoid
-            # "collapsing" too precisely to the prior mean. maybe SGD will see
-            # thorugh this and still fit a rather precise v = v_prior...
-            v_prior = v_prior * (1 + 0.1 * jax.random.normal(noise_key))
-
-
-        # same as usual loss function. but with "prior" label.
-        # prior_loss = (v_pred/v_prior - 1)**2
-        # v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
-
+        pushup_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
+        v_pred = self.nn.apply(params, pushup_x)
         # alternatively: only penalise too small v's, not too high.
         # v_prior - v_pred > 0 <=> v_prior > v_pred which is bad.
         # conversely if <0 (then the 0 is chosen instead) we overestimate which is good.
         # prior_loss = np.maximum(0, v_prior - v_pred)
         # smooth version for nicer plots hehehe
-        prior_loss = jax.nn.softplus(v_prior - v_pred)
+        pushup_loss = jax.nn.softplus(v_prior - v_pred)
+
+
+        '''
+        # second prior loss term to encourage smoothness.
+        # basically by making second derivative small.
+        # this one at essentially random points.
+        prior_key, left_direction_key, right_direction_key = jax.random.split(prior_key, 3)
+        smoothness_x = algo_params['sample_state'](prior_key, prior_extent)
+
+        left_direction = jax.random.normal(left_direction_key, shape=(self.input_dim,))
+        left_direction = left_direction / np.linalg.norm(left_direction)
+
+
+
+        # make the params look constant, here we want x derivatives
+        f = lambda x: self.nn.apply(params, x)
+
+        # https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#hessian-vector-products-with-grad-of-grad
+        # tbh i have no clue how this works
+        # Dx < Dx f, v2 >
+        # hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), left_direction ))(smoothness_x)
+        # smoothness_loss = 0.001 * np.sum(np.square(hvp_pred))
+
+        right_direction = jax.random.normal(right_direction_key, shape=(self.input_dim,))
+        right_direction = right_direction / np.linalg.norm(right_direction)
+
+        # instead, random vector-hessian-vector product with both vectors
+        # sampled from unit sphere. idea from sobolev paper. maybe more
+        # efficient?
+        # this is also where we could sample the vectors from a different
+        # distribution (eg. slow state coordinates only) to encode
+        # "approximate invariances" (= low feedback gain) in those
+        # directions
+        #   Dx < Dx <f, v1>, v2 >
+        # = Dx < <Dx f, v1>, v2 >
+        # = < Dx <Dx f, v1>, v2 >
+        # inner = lambda x, v: np.vdot(jax.grad(f)(x), v)
+        # vhvp_pred = np.vdot(jax.grad(inner, argnums=0)(y['x'], left_direction), right_direction)
+
+        # smoothness_loss = 0.01 * np.square(vhvp_pred)
+
+        # compare with with:
+        # hess = jax.hessian(f)(smoothness_x)
+        # vhvp_pred = left_direction.T @ hess @ right_direction
+        '''
+        smoothness_loss = 0
+
+
+        prior_loss = pushup_loss + smoothness_loss
 
         total_loss = original_loss + algo_params['prior_strength'] * prior_loss
-        loss_terms['prior'] = prior_loss
+        # loss_terms['smoothness_prior'] = smoothness_loss
+        loss_terms['pushup_prior'] = pushup_loss
+        # loss_terms['prior'] = prior_loss
 
         return total_loss, loss_terms
 
@@ -295,7 +331,7 @@ class nn_wrapper():
         # does the same if jacobian is replaced by grad, jacfwd, jacrev \o/
         # apparently jacobian = jacrev. grad is also reverse-mode.
         # jacfwd is definitely not smart here (n arguments, 1 output)
-        vx_pred = jax.jacobian(self.nn.apply, argnums=1)(params, y['x'])
+        vx_pred = jax.grad(self.nn.apply, argnums=1)(params, y['x'])
 
         # basic version. worked just fine
         v_loss  = (v_pred - y['v']) ** 2
@@ -314,14 +350,8 @@ class nn_wrapper():
         v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
         # v_loss =  (v_pred / y['v'] - 1)**2
 
-        # rmsle loss.
-        # ran into nan as expected \o/.
-        # v_loss = np.log((1 + y['v']) / (1 + v_pred))**2
-
-        # should we also normalise the vx loss in this style? like
-        # vx_loss = || (vx_pred - vx_label) ||^2 / || 1 + vx_label ||^2 ??
-
-        vx_loss = np.sum((vx_pred - y['vx']) ** 2)
+        # vx_loss = np.sum((vx_pred - y['vx']) ** 2)
+        # vx_loss = np.sum(((vx_pred - y['vx']) / (1 + np.linalg.norm(y['vx'] @ P_tangent))) ** 2)
 
         lossterms = dict()
         lossterms['v'] = v_loss
@@ -366,7 +396,6 @@ class nn_wrapper():
             # orthogonal projection to tangent space at current x
             P_tangent = np.eye(problem_params['nx']) - P_normal
 
-            # ipdb.set_trace()
             # we multiply these projections from the RIHGT. because the inner product we want to
             # describe is <vx, P vec> = vx.T P vec. Then we just penalise the whole linear operator
             # vx.T P instead of the inner product with some random ass vec.
@@ -379,13 +408,24 @@ class nn_wrapper():
             # = || vx_err ||_{P.T@P}^2
             vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
 
+            '''
+            # stochastic version. did not work, am leaving this alone atm.
+            # was slower than "naive" version somehow.
+            key, dirkey = jax.random.split(key)
+            v = P_tangent @ jax.random.normal(dirkey, shape=(problem_params['nx'],))
+            v = v / np.linalg.norm(v)
+            primal, tangent = jax.jvp(lambda x: self.nn.apply(params, x), (y['x'],), (v,))
+            vx_label_loss = problem_params['nx'] * (tangent - y['vx'] @ v)**2
+            '''
+
             # try this scaling similar to v.
             # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))
             # second one should be more "correct" but maybe only scaling by the sqrt of it
             # is somehow not bad too?
-            vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))**2
+            vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx'] @ P_tangent))**2
 
             vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
+            # vx_reg_loss = 0.
 
             vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss
 
@@ -551,7 +591,7 @@ class nn_wrapper():
 
         # update; don't use any of that
         v_prior = None
-        prior_extent = None
+        prior_extent = np.array([20, 20, 0., 0., 20, 20, 10])
 
 
 

@@ -878,7 +878,7 @@ if __name__ == '__main__':
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64, 64),
-        'nn_batchsize': 4,
+        'nn_batchsize': 32,
         'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
@@ -888,7 +888,7 @@ if __name__ == '__main__':
         'weight_decay': .01,
 
         'nn_ensemble_size': 8,
-        'nn_warm_start': True,
+        'nn_warm_start': False,
 
         # NN LOSS FUNCTION
         # relative importance of the losses for v, vx, vxx.
@@ -906,7 +906,6 @@ if __name__ == '__main__':
         # loss term that makes the value function large-ish at the problematic state of being upside
         # down but otherwise at equilibrium state.
         'prior_strength': 0.01,
-        'v_prior': 500.,
         # 'v_prior_factor': 100.,
         # 'prior_extent_factor': 8,
 

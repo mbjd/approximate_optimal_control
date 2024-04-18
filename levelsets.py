@@ -1628,13 +1628,7 @@ def testbed(problem_params, algo_params):
         v_k = v_means_infmasked.min()
 
 
-
-
-
-
-
-        # alternative: be relaxed about *a few* high-σ points being inside our
-        # set.
+        # be relaxed about *a few* high-σ points being inside our set.
 
         # two main approaches: a) require that 95% of points in Vk have σ <
         # threshold or b) require that all but k points in Vk have σ <
@@ -1690,8 +1684,8 @@ def testbed(problem_params, algo_params):
         # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)
 
         # only believe previous points if they are below Vk
-        prev_known = np.logical_and(test_pts_known, v_means + 2 * v_stds <= v_k)
-        test_pts_known = np.logical_or(prev_known, newly_known)
+        # prev_known = np.logical_and(test_pts_known, v_means + 2 * v_stds <= v_k)
+        test_pts_known = np.logical_or(test_pts_known, newly_known)
 
 
         print(f'estimated known value level: {v_k:.3f}')
@@ -1702,6 +1696,7 @@ def testbed(problem_params, algo_params):
 
         pl.loglog(v_means + (np.nan * test_pts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
         pl.loglog(v_means + (np.nan * ~test_pts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
+        pl.loglog(v_means + (np.nan * ~newly_known), v_stds, '. ', alpha=.1, c='red', label='newly known points')
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
 
         vmax = v_means.max()

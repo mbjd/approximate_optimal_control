@@ -682,7 +682,7 @@ class nn_wrapper():
             # this if is "compile time"
             if ys_test is not None:
 
-                k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
+                # k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
 
                 if algo_params['prior_strength'] > 0:
                     test_loss, test_loss_terms = self.sobolev_loss_with_prior_batch_mean(

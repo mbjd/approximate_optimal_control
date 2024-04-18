@@ -906,6 +906,7 @@ if __name__ == '__main__':
         # loss term that makes the value function large-ish at the problematic state of being upside
         # down but otherwise at equilibrium state.
         'prior_strength': 0.01,
+        'v_prior': 500.,
         # 'v_prior_factor': 100.,
         # 'prior_extent_factor': 8,
 

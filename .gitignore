@@ -10,3 +10,4 @@ animation*
 *.png
 tmp/
 tmp_euler/
+latex/

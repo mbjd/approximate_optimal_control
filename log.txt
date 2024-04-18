@@ -3533,3 +3533,115 @@ not the (lack of a good) pruning function. could also be:
  - data scaling issue after all. maybe fitting a very high value label just
    need a lot more gradient steps? an actual log transform like thing might
    help this.
+
+
+glossing over this: https://arxiv.org/pdf/1612.01474.pdf. they have some
+neat ideas about training nn ensembles using proper scoring rules. this I'm
+not very interested in, the basic vmapped ensemble should do just fine I
+feel like. The interesting idea is adversarial training. Almost exactly
+like the classic Szegedy paper, they perturb the training point in the
+direction in which the the loss is increasing the most ("fast gradient sign
+method"). In the context of uncertainty quantification, can this be
+replaced by the direction in which uncertainty increases most? also the
+natural way to do this in our case would probably be to adjust the value
+based on the costate (1st taylor expansion) and keep the costate constant.
+maybe this leads to smoother costate fits? although, I've now disabled
+warmstarting which seemed to greatly alleviate that problem.
+
+
+
+did a couple of experiments with (full) forward sims and meshcat after 5
+iterations, vk = 326. looks MUCH better than what you would expect from the
+trajectory plots! even initial state sweeps starting from 3x vk look pretty
+much perfect in meshcat. sweeping the angle around the whole manifold is
+also really promising, even though v mean is like 3000 at upside down
+position, the "watershed" is already really nicely unstable and the
+controller looks quite confident considering that it's only a pretty far
+fetched extrapolation. really excited about this! this means, i think, that
+my intuition about extrapolated decision boundaries are not too wrong.
+
+also looked at a scatterplot of v_std vs vx_std (mean across all states'
+individual ensemble "posterior" std). it looks like they are both about
+equal, but in the far extrapolated regime, v_std grows further while vx_std
+doesn't. But this is nice, could be justification for measuring uncertainty
+in terms of v when we really care more about vx. i suspect the version with
+v makes less problems around watersheds...
+
+looked also at backward optimal trajectories (in meshcat) after a couple
+iterations. this too confirmed my intuition: most trajectories start (in
+backward time) with a short section of "slow" value increase, corresponding
+to a stabilised fast subsystem and a "benign" trajectory on the slow
+manifold. After that it goes into the weird states where the fast system is
+fully active. This is nice :)
+
+Here the extrapolation becomes more visible which still shows a lot of
+"nonsmoothness", or at least unnecessary fast changes in vx. would be great
+if we found a nice way to regularise that, possibly the low ||vxx|| type
+prior is an idea to be pursued further after all.
+
+still suffering from writer's block/lack of motivation when it comes to
+even just a skeleton of the report.... here is a first guess based on feels
+and vibes and the three past examples given to me:
+
+- abstract
+  as per usual.
+
+- introduction
+  high level problem setting
+
+- related work
+  similar solutions to similar problems. go over:
+  - MPC: gradient based /zero order sampling
+  - learned trajectory optimisation: CACTO, Parag 2022, Köhler/Hertneck
+    2018, LQRTrees, Nakamura-Zimmerer, Izzo, early ideas by Atkeson, etc.
+  - previous practical usage of backward PMP integration for simple
+    problems & attempts to make it scale
+  - other approaches to model based, globally optimal nonlinear control:
+    - SoS
+    - Koopman type stuff? no idea about that
+  - explicit MPC
+  - approximate dynamic programming/neural fitted bellman iteration/etc.
+  - more general RL type stuff
+  (maybe this is already way too much and just an unnecessary flex)
+
+- fundamentals
+  - optimal control, HJB/PMP
+  - relationship w/ method of characteristics, rarefaction/shocks
+  - PMP from R^n to PMP on manifolds
+  - gradient-enabled/sobolev learning? or this only later
+
+- proposed optimal control solver
+  - central ideas at a high level
+    - level set dynamic programming
+    - pruning of suboptimal solutions
+    - active learning formulation
+  - implementation example specifics
+    - only here expose NN model.
+       - regularisation/"prior" trickery
+       - practicalities w/ loss scaling
+    - how do we make the active learning batched (or this one subsection
+      earlier?)
+    - 1000s of algorithmic tradeoffs
+    - hacks to circumvent "forgetting"
+
+- extensive section with very cool experimental results
+  - qualitative demo of strengths & weaknesses of proposed approach
+  - comparison w/ different "baselines" for specific problems
+
+- discussion
+  - qualitative reflection on pros & cons wrt different ways of "solving" optimal control
+    - such as: global optimality vs trajectory optimisation, less
+      model<->function approximator switching wrt DP, undiscounted problems
+      wrt usual RL formulations, tractable "one-step" optimisation compared
+      to anything discrete time
+    - and also the cons obviously
+  - include some "dead end results"?
+    - continuous time DDP
+    - backward PMP including vxx for local linear feedback
+    - *robust*, HJI version of the whole thing?
+  - thoughts on how to address challenges/improve in future work
+
+- conclusion
+  as per usual
+
+look at this ^^ tomorrow and decide if shit or lit. goodnight <3

@@ -741,15 +741,21 @@ def testbed(problem_params, algo_params):
 
     def vx_meanstd(x, vmap_params):
 
-        vxs_ensemble = jax.vmap(jax.jacobian(v_nn_unnormalised, argnums=1), in_axes=(0, None))(vmap_params, x)
+        # vmap for nn ensemble.
+        vx_fct = jax.jacobian(v_nn_unnormalised, argnums=1)
+        ensemble_vxs = jax.vmap(vx_fct, in_axes=(0, None))(vmap_params, x)
 
-        v_mean = vs_ensemble.mean()
-        v_std = vs_ensemble.std()
+        # now we have all_vxs.shape == (N_ensemble, nx)
+        # we want ensemble mean and std across axis 0.
+        # stds will be individual for each coordinate, sum/mean whatever later if you want.
+        vx_mean = ensemble_vxs.mean(axis=0)
+        vx_std = ensemble_vxs.std(axis=0)
 
-        return v_mean, v_std
+        return vx_mean, vx_std
 
 
     v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
+    vx_meanstds = jax.jit(jax.vmap(vx_meanstd, in_axes=(0, None)))
 
 
     def forward_sim_lqr(x0):
@@ -980,6 +986,8 @@ def testbed(problem_params, algo_params):
 
         # use actual previous value level instead?
         min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
+
+        print(f'min dv/dt = {min_l:.3f}, max dt/dv = {1/min_l:.3f}')
 
         # so min value step to ensure horizon <= T is T * smallest dv/dt
         # min l = min dv/dt
@@ -1978,11 +1986,17 @@ def testbed(problem_params, algo_params):
         means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
 
+        if k > 3:
+            pl.show()
+            ipdb.set_trace()
+
         if algo_params['savefigs']:
             pl.savefig(f'tmp/calibration_{k:04d}.png')
             pl.close('all')
         else:
-            pl.show()
+            pass
+            # pl.show()
+
 
 
     pl.figure()

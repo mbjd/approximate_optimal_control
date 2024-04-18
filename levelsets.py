@@ -1397,8 +1397,8 @@ def testbed(problem_params, algo_params):
 
         # exclude way past data.
         # but really this is the job of algo_params['thin_data'] and the code just below
-        # v_cutoff = v_lower / 10
-        # in_band = in_band & (v_cutoff <= all_ys['v'])
+        v_cutoff = v_lower / 100
+        in_band = in_band & (v_cutoff <= all_ys['v'])
 
 
         bool_train_idx = in_band & ~is_suboptimal
@@ -1678,14 +1678,18 @@ def testbed(problem_params, algo_params):
         # at least the prior won't mess this up if we always set v_prior = like 100 v_k
 
         # small sigma AND definitely in level set.
-        newly_known = np.logical_and(sigma_small_enough, v_means + 2 * v_stds <= v_k)
+        # completely independent of old points -- these entered the calculation
+        # of Vk already.
+        # multiplication = logical and
+        new_testpts_known = (sigma_small_enough * (v_means + 2 * v_stds <= v_k))
+
 
         # small sigma AND probably in (higher) level set.
         # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)
 
-        # only believe previous points if they are below Vk
         # prev_known = np.logical_and(test_pts_known, v_means + 2 * v_stds <= v_k)
-        test_pts_known = np.logical_or(test_pts_known, newly_known)
+        # test_pts_known = np.logical_or(test_pts_known, new_testpts_known)
+        test_pts_known = new_testpts_known
 
 
         print(f'estimated known value level: {v_k:.3f}')
@@ -1696,7 +1700,7 @@ def testbed(problem_params, algo_params):
 
         pl.loglog(v_means + (np.nan * test_pts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
         pl.loglog(v_means + (np.nan * ~test_pts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
-        pl.loglog(v_means + (np.nan * ~newly_known), v_stds, '. ', alpha=.1, c='red', label='newly known points')
+        # pl.loglog(v_means + (np.nan * ~newly_known), v_stds, '. ', alpha=.1, c='red', label='newly known points')
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
 
         vmax = v_means.max()
@@ -1706,6 +1710,13 @@ def testbed(problem_params, algo_params):
 
 
         print(f'test points known: {100*test_pts_known.mean():.2f}%')
+
+        # estimate actual state space volume with second half of test points.
+        # this only works if the sampling function actually puts the uniformly
+        # sampled subset there. specifically I think if log_min_scale > 0 the
+        # distribution of points will still be usable but with uniform points
+        # in first half. so avoid that.
+
         half = test_pts.shape[0] // 2
         print(f'state space volume known: {100*test_pts_known[half:].mean():.6f}%')
 

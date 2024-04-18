@@ -1683,6 +1683,9 @@ def testbed(problem_params, algo_params):
         # multiplication = logical and
         new_testpts_known = (sigma_small_enough * (v_means + 2 * v_stds <= v_k))
 
+        # include points that are uncertain but clearly in our level set.
+        new_testpts_known = np.logical_or(new_testpts_known, v_means + 10 * v_stds <= v_k)
+
 
         # small sigma AND probably in (higher) level set.
         # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)

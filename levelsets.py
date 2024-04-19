@@ -1401,7 +1401,7 @@ def testbed(problem_params, algo_params):
         # plot trajectory vs nn where is_suboptimal just to take a glance?
 
         # next step: build training data out of this pruned mess.
-        in_band = (0 <= all_ys['v']) & (all_ys['v'] <= v_upper)
+        in_band = (all_ys['v'] <= v_upper)
 
         # exclude way past data.
         # but really this is the job of algo_params['thin_data'] and the code just below
@@ -1625,61 +1625,65 @@ def testbed(problem_params, algo_params):
         sigma_small_enough = np.logical_or(test_pts_known, sigma_small_enough)
 
 
+        if algo_params['vk_estimator'] == 'strict':
 
+            # replace everything where sigma is small enough by infinity.
+            # then we can take the minimum to find the lowest-v point with
+            # sigma too high. This becomes our v_k.
 
+            # pretty sure this doesn't work at all if we do data thinning or
+            # wait, we did that logical or so sigma_small_enough is also True
+            # if sigma too large but v very low. this should be fine
+            # actually...?
 
-        # replace everything where sigma is small enough by infinity.
-        # then we can take the minimum to find the lowest-v point with
-        # sigma too high. This becomes our v_k.
+            v_means_infmasked = v_means + np.inf * sigma_small_enough
+            v_k = v_means_infmasked.min()
 
-        v_means_infmasked = v_means + np.inf * sigma_small_enough
-        v_k = v_means_infmasked.min()
+        elif algo_params['vk_estimator'] == 'relaxed':
 
+            # be relaxed about *a few* high-σ points being inside our set.
+            # particularly, find the highest v_k such that the fraction of
+            # uncertain (σ > σ_max(v)) points inside Vk is <= a threshold.
 
-        # be relaxed about *a few* high-σ points being inside our set.
+            # this is probably n log(n) (sorting algo certainly, then only linear
+            # stuff). the whole thing could be found directly by bisection which
+            # would also be nlogn
 
-        # two main approaches: a) require that 95% of points in Vk have σ <
-        # threshold or b) require that all but k points in Vk have σ <
-        # threshold.
+            idx = np.argsort(v_means)
 
-        # the second one could probably be implemented with top_k, but the
-        # first is probably smarter... first one could probably be implemented
-        # with some kind of bisection thing? do we first sort the whole array?
-        # -> yes we do :--)
+            v_means_sorted = v_means[idx]
+            v_stds_sorted = v_stds[idx]
+            sigma_small_enough_sorted = sigma_small_enough[idx]
 
-        # this is probably n log(n) (sorting algo certainly, then only linear
-        # stuff). the whole thing could be found directly by bisection which
-        # would also be nlogn
+            # for each k, this is the fraction
+            #
+            #      #(j: v[j] <= v[k] and σ[j] < threshold)
+            #      ―――――――――――――――――――――――――――――――――――――――
+            #                #(j: v[j] <= v[k])
 
-        idx = np.argsort(v_means)
+            # ...probably. i think there might be some sort of mistake in here
+            # frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / sigma_small_enough.shape[0]
 
-        v_means_sorted = v_means[idx]
-        v_stds_sorted = v_stds[idx]
-        sigma_small_enough_sorted = sigma_small_enough[idx]
+            # this is correct i think. we want to divide by the number of smaller vs which in the sorted version is just the index.
+            frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / (np.arange(test_pts.shape[0]) + .0001)
 
-        # for each k, this is the fraction
-        #
-        #      #(j: v[j] <= v[k] and σ[j] < threshold)
-        #      ―――――――――――――――――――――――――――――――――――――――
-        #                #(j: v[j] <= v[k])
+            # now, find the largest index k for which that fraction is above the threshold
+            threshold = algo_params['frac_certain_in_Vk']
 
-        # ...probably. i think there might be some sort of mistake in here
-        # frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / sigma_small_enough.shape[0]
+            # because the function is monotonously decreasing, we may equivalently find the
+            # SMALLEST frac_certain_inside that is still above the limit.
+            k_accept = np.argmin(frac_certain_inside + np.inf * (frac_certain_inside < threshold))
 
-        # this is correct i think. we want to divide by the number of smaller vs which in the sorted version is just the index.
-        frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / (np.arange(test_pts.shape[0]) + .0001)
+            v_k = v_means_sorted[k_accept]
 
-        # now, find the largest index k for which that fraction is above the threshold
-        threshold = algo_params['frac_certain_in_Vk']
-
-        # because the function is monotonously decreasing, we may equivalently find the
-        # SMALLEST frac_certain_inside that is still above the limit.
-        k_accept = np.argmin(frac_certain_inside + np.inf * (frac_certain_inside < threshold))
-
-        v_k = v_means_sorted[k_accept]
+        else:
+            est = algo_params['vk_estimator']
+            raise ValueError(f'v_k estimator "{est}" undefined!')
 
         # clip it to upper_v in case we estimate something higher...
         v_k = np.minimum(upper_v, v_k)
+
+
 
 
         # here we can sometimes include points far too high which obviously are
@@ -1986,16 +1990,18 @@ def testbed(problem_params, algo_params):
         means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
 
+        '''
         if k > 3:
             pl.show()
             ipdb.set_trace()
+        '''
 
         if algo_params['savefigs']:
             pl.savefig(f'tmp/calibration_{k:04d}.png')
             pl.close('all')
         else:
-            pass
-            # pl.show()
+            pl.show()
+            # pass
 
 
 

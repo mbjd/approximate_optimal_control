@@ -879,11 +879,11 @@ if __name__ == '__main__':
         # big question: should we aim for over- or underparameterisation?
         'nn_layerdims': (64, 64),
         'nn_batchsize': 32,
-        'nn_N_epochs': 256,
+        'nn_N_epochs': 512,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.05,
+        'lr_init': 0.1,
         'lr_final': 0.001,
         'weight_decay': .01,
 
@@ -939,14 +939,9 @@ if __name__ == '__main__':
         #  - softmax_uncertain
         'proposal_strategy': 'max_kernel',
 
-        # 'sigma_max': lambda mu: 0.5 + 0.01 * mu,
-
         # tolerate some more error just to make the experiments run faster
         'sigma_max': lambda mu: 0.5 + 0.05 * mu,
-
-        # previous params:
-        # 'sigma_target_abs': 0.5,
-        # 'sigma_target_rel': 0.01,
+        'vk_estimator': 'strict',
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".

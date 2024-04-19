@@ -258,9 +258,15 @@ class nn_wrapper():
         prior_key, left_direction_key, right_direction_key = jax.random.split(prior_key, 3)
         smoothness_x = algo_params['sample_state'](prior_key, prior_extent)
 
-        left_direction = jax.random.normal(left_direction_key, shape=(self.input_dim,))
-        left_direction = left_direction / np.linalg.norm(left_direction)
+        # penalise directions of slow states
+        # but also a bit in the other states
+        # essentially this P matrix, though not oan orthogonal projection
+        # anymore, just scales the different N(0, 1) gaussian entries
+        # before the whole vector is projected to the unit sphere.
+        P = np.diag(np.array([1, 1, .1, .1, .1, .1, .1]))
 
+        left_direction = P @ jax.random.normal(left_direction_key, shape=(self.input_dim,))
+        left_direction = left_direction / np.linalg.norm(left_direction)
 
 
         # make the params look constant, here we want x derivatives
@@ -272,7 +278,7 @@ class nn_wrapper():
         # hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), left_direction ))(smoothness_x)
         # smoothness_loss = 0.001 * np.sum(np.square(hvp_pred))
 
-        right_direction = jax.random.normal(right_direction_key, shape=(self.input_dim,))
+        right_direction = P @ jax.random.normal(right_direction_key, shape=(self.input_dim,))
         right_direction = right_direction / np.linalg.norm(right_direction)
 
         # instead, random vector-hessian-vector product with both vectors
@@ -285,10 +291,10 @@ class nn_wrapper():
         #   Dx < Dx <f, v1>, v2 >
         # = Dx < <Dx f, v1>, v2 >
         # = < Dx <Dx f, v1>, v2 >
-        # inner = lambda x, v: np.vdot(jax.grad(f)(x), v)
-        # vhvp_pred = np.vdot(jax.grad(inner, argnums=0)(y['x'], left_direction), right_direction)
+        inner = lambda x, v: np.vdot(jax.grad(f)(x), v)
+        vhvp_pred = np.vdot(jax.grad(inner, argnums=0)(smoothness_x, left_direction), right_direction)
 
-        # smoothness_loss = 0.01 * np.square(vhvp_pred)
+        smoothness_loss = np.square(vhvp_pred)
 
         # compare with with:
         # hess = jax.hessian(f)(smoothness_x)
@@ -300,8 +306,8 @@ class nn_wrapper():
         prior_loss = pushup_loss + smoothness_loss
 
         total_loss = original_loss + algo_params['prior_strength'] * prior_loss
-        # loss_terms['smoothness_prior'] = smoothness_loss
         loss_terms['pushup_prior'] = pushup_loss
+        # loss_terms['smoothness_prior'] = smoothness_loss
         # loss_terms['prior'] = prior_loss
 
         return total_loss, loss_terms
@@ -408,6 +414,19 @@ class nn_wrapper():
             # = || vx_err ||_{P.T@P}^2
             vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
 
+            # try this scaling similar to v.
+            # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))
+            # second one should be more "correct" but maybe only scaling by the sqrt of it
+            # is somehow not bad too?
+            # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx'] @ P_tangent))**2
+
+            # elementwise scaling instead?
+
+            proj_label = y['vx'] @ P_tangent
+            square_scalings = 1 + np.square(proj_label)
+
+            vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
+
             '''
             # stochastic version. did not work, am leaving this alone atm.
             # was slower than "naive" version somehow.
@@ -418,11 +437,6 @@ class nn_wrapper():
             vx_label_loss = problem_params['nx'] * (tangent - y['vx'] @ v)**2
             '''
 
-            # try this scaling similar to v.
-            # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))
-            # second one should be more "correct" but maybe only scaling by the sqrt of it
-            # is somehow not bad too?
-            vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx'] @ P_tangent))**2
 
             vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
             # vx_reg_loss = 0.

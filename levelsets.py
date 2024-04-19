@@ -1370,7 +1370,7 @@ def testbed(problem_params, algo_params):
 
         return backward_sols_new
 
-    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, warmstart=False):
+    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, algo_params, warmstart=False):
 
         # what if we first do a simpler version of this prune_and_train thing?
         # consisting of just one step instead of a loop with sub-valuesteps.
@@ -1966,6 +1966,7 @@ def testbed(problem_params, algo_params):
             params_sobolev_ens,
             all_ys,
             [v_k, v_next_target],
+            algo_params,
             warmstart=algo_params['nn_warm_start']
         )
 

@@ -877,13 +877,13 @@ if __name__ == '__main__':
 
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
-        'nn_layerdims': (64, 64, 64),
+        'nn_layerdims': (64, 64),
         'nn_batchsize': 32,
         'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.01,
+        'lr_init': 0.05,
         'lr_final': 0.001,
         'weight_decay': .01,
 

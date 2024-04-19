@@ -1612,7 +1612,7 @@ def testbed(problem_params, algo_params):
 
 
     # @jax.jit
-    def estimate_value_level(test_pts, test_pts_known, params_sobolev_ens):
+    def estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=np.inf):
 
         # this function could also try to detect learning failure...
 
@@ -1677,6 +1677,9 @@ def testbed(problem_params, algo_params):
         k_accept = np.argmin(frac_certain_inside + np.inf * (frac_certain_inside < threshold))
 
         v_k = v_means_sorted[k_accept]
+
+        # clip it to upper_v in case we estimate something higher...
+        v_k = np.minimum(upper_v, v_k)
 
 
         # here we can sometimes include points far too high which obviously are
@@ -1864,6 +1867,8 @@ def testbed(problem_params, algo_params):
     pl.rcParams['figure.figsize'] = (16, 9)
 
 
+    v_next_target = np.inf
+
     vks = []
 
     for k in range(100):
@@ -1881,13 +1886,7 @@ def testbed(problem_params, algo_params):
         # don't we just calculate the whole mean/std at test pts twice?
 
         vk_prev = v_k
-        v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens)
-
-        if k == 0:
-            pass
-            # then we cannot classify the points as known
-            # or can we? we use the newly estimated v_k so all should be good
-            # still i have the feeling this is not perfectly correct
+        v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=v_next_target)
 
         if v_k < vk_prev and k > 0:
             print('warning; the level set is shrinking.\nprobably the NN is misbehaving again *rolls eyes*')

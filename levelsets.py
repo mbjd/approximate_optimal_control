@@ -1631,12 +1631,23 @@ def testbed(problem_params, algo_params):
             # then we can take the minimum to find the lowest-v point with
             # sigma too high. This becomes our v_k.
 
-            # pretty sure this doesn't work at all if we do data thinning or
-            # wait, we did that logical or so sigma_small_enough is also True
-            # if sigma too large but v very low. this should be fine
-            # actually...?
+            # this still "profits" from the points being marked as known going
+            # into the infmask. So the value level *can* decrease from one
+            # iteration to the next, but probably not by much. let's see how it
+            # does.
 
             v_means_infmasked = v_means + np.inf * sigma_small_enough
+            v_k = v_means_infmasked.min()
+
+        elif algo_params['vk_estimator'] == 'k_exceptions':
+
+            k = 5
+
+            # same as 'strict' but ignores the first k uncertain points.
+            v_means_infmasked = v_means + np.inf * sigma_small_enough
+            _, smallest_k_idx = jax.lax.top_k(-v_means_infmasked, k)
+            v_means_infmasked = v_means_infmasked.at[smallest_k_idx].set(np.inf)
+
             v_k = v_means_infmasked.min()
 
         elif algo_params['vk_estimator'] == 'relaxed':
@@ -1686,28 +1697,15 @@ def testbed(problem_params, algo_params):
 
 
 
-        # here we can sometimes include points far too high which obviously are
-        # outside the known set but still have low sigma. for those we should
-        # NOT store permanently that we "know" them...
-        # so just as a heuristic, we only accept "known" points up to 2x the estimated value level.
-        # at least the prior won't mess this up if we always set v_prior = like 100 v_k
+        # the new "known points" buffer. We consider points known if:
 
-        # small sigma AND definitely in level set.
-        # completely independent of old points -- these entered the calculation
-        # of Vk already.
-        # multiplication = logical and
+        # a) they are below the sigma threshold, and clearly (2 sigma) within the currently estimated level set
         new_testpts_known = (sigma_small_enough * (v_means + 2 * v_stds <= v_k))
 
-        # include points that are uncertain but clearly in our level set.
+        # b) they are above the sigma threshold, and VERY clearly (2 sigma) within the currently estimated level set
         new_testpts_known = np.logical_or(new_testpts_known, v_means + 10 * v_stds <= v_k)
 
-
-        # small sigma AND probably in (higher) level set.
-        # newly_known = np.logical_and(sigma_small_enough, v_means <= 2 * v_k)
-
-        # prev_known = np.logical_and(test_pts_known, v_means + 2 * v_stds <= v_k)
-        # test_pts_known = np.logical_or(test_pts_known, new_testpts_known)
-        test_pts_known = new_testpts_known
+        new_testpts_known = new_testpts_known
 
 
         print(f'estimated known value level: {v_k:.3f}')
@@ -1716,8 +1714,8 @@ def testbed(problem_params, algo_params):
         pl.xlabel('v mean')
         pl.ylabel('v std')
 
-        pl.loglog(v_means + (np.nan * test_pts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
-        pl.loglog(v_means + (np.nan * ~test_pts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
+        pl.loglog(v_means + (np.nan * new_testpts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
+        pl.loglog(v_means + (np.nan * ~new_testpts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
         # pl.loglog(v_means + (np.nan * ~newly_known), v_stds, '. ', alpha=.1, c='red', label='newly known points')
         pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
 
@@ -1727,7 +1725,7 @@ def testbed(problem_params, algo_params):
         pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
 
 
-        print(f'test points known: {100*test_pts_known.mean():.2f}%')
+        print(f'test points known: {100*new_testpts_known.mean():.2f}%')
 
         # estimate actual state space volume with second half of test points.
         # this only works if the sampling function actually puts the uniformly
@@ -1736,9 +1734,9 @@ def testbed(problem_params, algo_params):
         # in first half. so avoid that.
 
         half = test_pts.shape[0] // 2
-        print(f'state space volume known: {100*test_pts_known[half:].mean():.6f}%')
+        print(f'state space volume known: {100*new_testpts_known[half:].mean():.6f}%')
 
-        return v_k, sigma_small_enough
+        return v_k, new_testpts_known
 
 
 
@@ -1807,6 +1805,7 @@ def testbed(problem_params, algo_params):
     n_params = count_floats(params_init)
     n_data = count_floats(train_ys)
     print(f'params/data ratio = {n_params/n_data:.4f}')
+    print(f'nn params: {n_params}')
 
     train_key, key = jax.random.split(key)
 

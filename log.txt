@@ -3645,3 +3645,27 @@ and vibes and the three past examples given to me:
   as per usual
 
 look at this ^^ tomorrow and decide if shit or lit. goodnight <3
+
+
+
+2024-04-19
+
+put template in overleaf, made that skeleton from yesterday in there with
+some small adaptations.
+
+falling into the tuning rabbit hole again. noticed that often v is
+underestimated especially at high values. this makes sense given that SGD
+has a finite "distance" it can cover in finite iterations (with exponential
+lr schedule even in infinite iters...). Tried adapting the loss scaling so
+that we care a bit more again about higher values. Previously we had:
+    loss = (error / (1 + v))**2
+corresponding to noisy labels with std of 1+v in the bayesian situation.
+changed this to
+    loss = (error / (1 + v)**.5)**2 = error**2 / 1+v
+
+secondly, randomly changed NN from (64, 64) to (1024, 16). Training takes a
+similar amount of time, but the trajectory plot looks nicer with smoother
+costate function, it seems easier to achieve low uncertainty and also the
+extrapolation looks more well behaved. is this a fluke? Is the fact that
+universal approximation is shown most naturally for wide networks at all
+relevant here?

@@ -354,6 +354,28 @@ class nn_wrapper():
         # replace the 1 with the smallest order of magnitude we want to be
         # accurate at.
         v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
+
+        # this looks really fucked up, i know. basically the problems
+        # previously are these:
+        #  - if the loss is just based on a constant-scaled squared error,
+        #    the high v's dominate everything and mess up relative accuracy
+        #    at lower values. this is akin to specifying constant noise std
+        #    in the bayesian analogy.
+        #  - if the error is scaled down by a factor of v (>0), then we
+        #    have the same "relative" loss everywhere, i.e. noise std
+        #    proportional to v. This gives better fits, BUT once high
+        #    values come into play we tend to underestimate them.
+        #    Intuitively, gradient descent has to make the function
+        #    traverse a long path from 0-ish to a high v, based on a
+        #    relatively weak loss gradient.
+
+        # therefore, here we put a *tiny bit* more emphasis on higher
+        # values again. In the bayesian analogy, assume that noise
+        # amplitude is not proportional to v but proportional to v**0.75.
+        v_loss  = ((v_pred - y['v']) / (1 + y['v'])**0.75 ) ** 2
+        # or proportional to sqrt(v), looks even nicer
+        v_loss  = (v_pred - y['v'])**2 / (1 + y['v'])
+
         # v_loss =  (v_pred / y['v'] - 1)**2
 
         # vx_loss = np.sum((vx_pred - y['vx']) ** 2)
@@ -418,13 +440,12 @@ class nn_wrapper():
             # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))
             # second one should be more "correct" but maybe only scaling by the sqrt of it
             # is somehow not bad too?
-            # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx'] @ P_tangent))**2
+            vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx'] @ P_tangent))**2
 
             # elementwise scaling instead?
 
             proj_label = y['vx'] @ P_tangent
             square_scalings = 1 + np.square(proj_label)
-
             vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
 
             '''

@@ -883,11 +883,11 @@ if __name__ == '__main__':
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.1,
+        'lr_init': 0.02,
         'lr_final': 0.001,
-        'weight_decay': .01,
+        'weight_decay': .001,
 
-        'nn_ensemble_size': 8,
+        'nn_ensemble_size': 4,
         'nn_warm_start': False,
 
         # NN LOSS FUNCTION
@@ -941,7 +941,7 @@ if __name__ == '__main__':
 
         # tolerate some more error just to make the experiments run faster
         'sigma_max': lambda mu: 0.5 + 0.05 * mu,
-        'vk_estimator': 'strict',
+        'vk_estimator': 'k_exceptions',
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".

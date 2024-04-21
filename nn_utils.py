@@ -150,11 +150,33 @@ class my_nn_flax(nn.Module):
 
         # return x.reshape()  # finally get rid of all those shitty (.., 1) shapes
 
+        # these sorts of tricks are probably equivalent to transforming the
+        # training data with a (smooth invertible) function and then training
+        # with the accordingly modified loss function. but this is much cooler,
+        # we just have to change a single line, not do any manual gradient
+        # magic and in the end we have our full model already.
+
         # roughly: x if x<0, x+x^2 if x>0, with smooth interpolation around 0
         # so instead of the NN actually outputting huge values it only needs the sqrt of them.
         # return (x + ((np.sqrt(1 + x**2) + x) / 2)**2).squeeze()
 
-        return (x + nn.softplus(x)**2).squeeze()
+        # can we just choose a power here?
+        # return (x + nn.softplus(x)**2).squeeze()
+        return (x + nn.softplus(x)**3).squeeze()
+
+        # or even without adding x? this might run into gradient issues close
+        # to 0. if nn initially outputs like -10, the full model will output a
+        # tiny number which will barely change as the nn output changes. thus a
+        # classic vanishing gradient problem.
+        # return (nn.softplus(x)**3).squeeze()
+
+        # an actual log transform could be mimicked by returning exp(x) or
+        # x+exp(x) here. but I feel like basic powers suffer fewer issues with
+        # v going to infinity suddenly.
+        # return (x + jax.exp(x)).squeeze()
+
+
+
 
         # return x.squeeze()  # finally get rid of all those shitty (.., 1) shapes
 
@@ -379,7 +401,7 @@ class nn_wrapper():
         # therefore, here we put a *tiny bit* more emphasis on higher
         # values again. In the bayesian analogy, assume that noise
         # amplitude is not proportional to v but proportional to v**0.75.
-        v_loss  = ((v_pred - y['v']) / (1 + y['v'])**0.75 ) ** 2
+        # v_loss  = ((v_pred - y['v']) / (1 + y['v'])**0.75 ) ** 2
         # or proportional to sqrt(v), looks even nicer
         v_loss  = (v_pred - y['v'])**2 / (1 + y['v'])
 

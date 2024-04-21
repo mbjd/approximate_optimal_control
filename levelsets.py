@@ -57,7 +57,6 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 
 
 
-
 def plot_distributions(ys_n):
 
     pl.figure()
@@ -757,29 +756,42 @@ def testbed(problem_params, algo_params):
     v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
     vx_meanstds = jax.jit(jax.vmap(vx_meanstd, in_axes=(0, None)))
 
+    def plot_manifold(v_nn, vmap_params, problem_params):
 
-    def forward_sim_lqr(x0):
+        # visualise the value function when just changing the angle, leaving
+        # the rest ("cartesian" states) fixed.
 
-        def forwardsim_rhs(t, x, args):
+        thetas = np.linspace(-np.pi, np.pi, 300)
 
-            lam_x = P_lqr @ x  # <- for lqr instead
-            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-            return problem_params['f'](x, u)
+        xs = jax.vmap(lambda theta: np.array([0, 0, np.sin(theta), np.cos(theta), 0, 0, 0]))(thetas)
+
+        mus, sigmas = v_meanstds(xs, vmap_params)
+
+        pl.figure()
+        ax = pl.subplot(211)
+        pl.plot(thetas, mus, label='value mean')
+        pl.fill_between(thetas, mus - sigmas, mus + sigmas, color='C0', alpha=.2, label=f'value 1σ confidence')
+        pl.legend()
+
+        vx_mu, vx_sigma = vx_meanstds(xs, vmap_params)
+
+        pl.subplot(212, sharex=ax)
+        pl.plot(thetas, vx_mu, label=problem_params['state_names'])
+
+        pl.gca().set_prop_cycle(None)
+
+        for j in range(7):
+            pl.fill_between(thetas, vx_mu[:, j] - vx_sigma[:, j], vx_mu[:, j] + vx_sigma[:, j], alpha=.2)
+
+        pl.legend()
 
 
-        term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
-        # simulate for pretty damn long
-        forward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.1, y0=x0,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'],
-            throw=algo_params['throw'],
-        )
 
-        return forward_sol
+
+
+
+
 
     def forward_sim_nn(x0, params, vmap=False):
 
@@ -960,7 +972,6 @@ def testbed(problem_params, algo_params):
     # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
     # sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
     # sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
-    # sols_lqr = jax.vmap(forward_sim_lqr)(x0s)
 
     # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
     # visualiser.plot_trajectories_meshcat(sols_sobolev)
@@ -1475,7 +1486,7 @@ def testbed(problem_params, algo_params):
         params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
         # only count each individual NN's params to assess under/overparameterisation
-        n_params = count_floats(params_init) / algo_params['nn_ensemble_size']
+        n_params = count_floats(params_init)
         n_data = count_floats(train_ys)
         print(f'params/data ratio = {n_params/n_data:.4f}')
 
@@ -1842,6 +1853,9 @@ def testbed(problem_params, algo_params):
     means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
     plot_calibration(all_ys, means, stds)
 
+    pl.figure('manifold')
+    plot_manifold(v_nn, params_sobolev_ens, problem_params)
+
     pl.show()
 
 
@@ -1988,6 +2002,9 @@ def testbed(problem_params, algo_params):
         pl.figure(f'nn calibration, iter {k}')
         means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
+
+        pl.figure('manifold')
+        plot_manifold(v_nn, params_sobolev_ens, problem_params)
 
         '''
         if k > 3:

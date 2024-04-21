@@ -3669,3 +3669,33 @@ costate function, it seems easier to achieve low uncertainty and also the
 extrapolation looks more well behaved. is this a fluke? Is the fact that
 universal approximation is shown most naturally for wide networks at all
 relevant here?
+
+
+
+
+
+
+2024-04-21
+
+got the inexplicable urge to try some parameter fiddling on this snowy
+sunday. tried the idea with appending the data transformation directly to
+the nn again, so the NN itself doesn't have to output very large values.
+seems to improve underestimation problem! very nice.
+
+felt emboldened to change the v loss scaling back to the first attempt
+(assuming noise std proportional to v). This too looks nice from the
+trajectory plots but the training v loss actually increases in the end
+again. what is the interpretation here? that vx loss is being decreased at
+the expense of v loss? but if vx loss is satisfied then v loss should also
+be 0 if the NN is a precise HJB solution. But it's not so maybe the
+increasing v loss may be explainable as the NN stretching and bending to
+make vx more accurate and somehow messing up v (slightly).
+
+fundamentally: should we somehow incorporate a test set into the whole
+thing? evaluating accuracy on a test set would seem like a better approach
+than just going by NN ensemble std deviation, and even if just for
+monitoring and NN tuning purposes it should be better than not doing it.
+
+seeing weird bumps in that one trajectory vs nn plot we are always
+watching. is this the pruning already (half?) working? this is definitely
+where we should focus next...

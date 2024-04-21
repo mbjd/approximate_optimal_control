@@ -149,7 +149,14 @@ class my_nn_flax(nn.Module):
             x = nn.Dense(features=self.output_dim)(x)
 
         # return x.reshape()  # finally get rid of all those shitty (.., 1) shapes
-        return x.squeeze()  # finally get rid of all those shitty (.., 1) shapes
+
+        # roughly: x if x<0, x+x^2 if x>0, with smooth interpolation around 0
+        # so instead of the NN actually outputting huge values it only needs the sqrt of them.
+        # return (x + ((np.sqrt(1 + x**2) + x) / 2)**2).squeeze()
+
+        return (x + nn.softplus(x)**2).squeeze()
+
+        # return x.squeeze()  # finally get rid of all those shitty (.., 1) shapes
 
 
 class nn_wrapper():

@@ -2005,6 +2005,7 @@ def testbed(problem_params, algo_params):
     # all_ys = flat_sol_ys(sols_orig)
 
     all_ys = sols_orig.ys
+    is_suboptimal = np.ones_like(all_ys['v']).astype(bool)
 
 
     # more detailed plots w/ savefig.

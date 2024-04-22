@@ -33,6 +33,7 @@ theory.
 - think about whether measuring uncertainty only in terms of V (not vxx)
   makes sense.
 
+- address the pruning with a bit more rigor & respect. see log 2024-04-22.
 
 
 

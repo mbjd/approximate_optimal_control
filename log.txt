@@ -3774,3 +3774,33 @@ happen, just remove the points that cause problems (high loss or sth
 similar)
 
 
+
+
+
+okay, what's implemented now is basically this:
+ - different tuning (smaller batchsize, smaller value steps)
+ - warmstarting NN and only repeating last "fraction" of training, fewer
+   epochs and lower initial lr.
+ - propose pts from 5 second equivalent value band but only learn for a
+   smaller step than that
+ - prune any point that is definitely suboptimal (based on knowing a better
+   solution < vk when the point has v > vk), and the whole trajectory
+   segment "around" any such point as long as it is > vk (so as to not
+   delete older trajectories that only just "became" suboptimal)
+ - store a buffer of pruned points and never use them again.
+
+initially it works nicely. it looks like it gets stuck around 250-300
+though. don't know the reason, probably pruning is still either incorrect
+or not working in the context of the many other approximations.
+
+this pruning stuff is still a major weak point. this was supposed to be the
+whole reason why learning in level sets is better than just learning with
+arbitrary "propagation speed". I feel like there must be a solution that
+gets this working as I imagined it initially but somehow I can't put my
+finger on it.
+
+TODO tomorrow: put my finger on it
+
+though there are other weak points still, like: active learning batching
+implementation & theory still the absolute bare minimum. nn trainig still
+shaky.

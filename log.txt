@@ -3744,6 +3744,11 @@ value steps but in turn gaining the ability to warmstart and use fewer
 epochs? would be much more elegant than this two-level kind of situation we
 are imagining here. are we coming full circle?
 
+if we go that route (small value steps, profit from warm starting) one
+implementation trick to try could be sampling the newly added data with
+higher probability at minibatch selection. this is basically the same as
+weighting theiry loss function more strongly.
+
 the pathological case always is the one where two fronts meet but are
 moving into the same general direction. then neither of the trajectories
 can be pruned because they never enter the known sublevel set of the other
@@ -3767,3 +3772,5 @@ local minimum in this case.
 other alternative: just accept that collisions will happen. after they do
 happen, just remove the points that cause problems (high loss or sth
 similar)
+
+

@@ -1039,7 +1039,7 @@ def testbed(problem_params, algo_params):
         # TODO make this configurable via algo_params
         # and get the time constant from problemparams...
         fastestpole_tau = .49  # from LQR solution.
-        T = 10 * fastestpole_tau
+        T = 5 * fastestpole_tau
 
         # use actual previous value level instead?
         min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
@@ -1444,58 +1444,68 @@ def testbed(problem_params, algo_params):
         # now without the extra dim the vmap we already did is sufficient
         # v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
 
-        trajectory_outside_levelset = v_lower < all_ys['v']
 
-        # be conservative: only prune trajectories that definitely (with high prob)
-        # are outside of value level set
-        nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+        if algo_params['pruning_strategy'] == 'conservative':
 
-        is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
-        print(f'pruning {is_suboptimal.sum():.3f} = {is_suboptimal.mean():.3f}% points before cumsum')
+            # be conservative: only prune POINTS (not trajectories) that
+            # definitely (with high prob) are outside of value level set
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
 
-        # mark the rest of every trajectory that at some point is suboptimal as
-        # also suboptimal. follows from dynamic programming principle, this is
-        # not (yet) the approximation!
+            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
-        # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
-        # cumsum marks as suboptimal the PRECEDING points in physical time even
-        # though in array indices they are the subsequent ones. all correct.
-        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+        elif algo_params['pruning_strategy'] == 'conservative_future':
 
-        print(f'pruning {is_suboptimal.sum():.3f} = {is_suboptimal.mean():.3f}% points after cumsum')
+            # same as conservative, BUT also mark points as suboptimal that
+            # "lead" to a suboptimal trajectory segment in the future. this
+            # should be strictly better than 'conservative'.
 
-        # to NEVER run into collisions, one strategy could be to remove the
-        # whole subsequent trajectory segment too so long as it is in the value
-        # interval currently being learned.
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
 
+            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
-
-
-        # # alternatively, just blindly rely on the "bayesian" posterior.
-        # is_suboptimal_bayesian = all_ys['v'] > v_nn_means + 3 * v_nn_stds
-        # print(f'would have pruned {is_suboptimal_bayesian.sum():.3f} = {is_suboptimal_bayesian.mean():.3f}% points if bayesian')
-
-        # is_suboptimal_both = np.logical_or(is_suboptimal, is_suboptimal_bayesian)
-        # print(f'would have pruned {is_suboptimal_both.sum():.3f} = {is_suboptimal_both.mean():.3f}% points if bayesian OR previous')
+            # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
+            # cumsum marks as suboptimal the PRECEDING points in physical time even
+            # though in array indices they are the subsequent ones. all correct.
+            is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
 
-        # or, even delete the whole thing once a point is "clearly" suboptimal?
-        # this still would not catch all cases though... if the "collision" is
-        # between two new trajectories then we are pretty much out of luck, as
-        # neither of them can be marked suboptimal in advance. we need a better
-        # strategy for that.
+        elif algo_params['pruning_strategy'] == 'generous':
 
-        # one possible way: detect "conflicts" by NN training not going as well
-        # as it should (necessitating another classification thingy with its
-        # own manual tuning). When that happens, redo a smaller value step.
+            # start with pointwise pruning mask from conservative strategy.
+            # delete not only the points preceding any suboptimal point, but
+            # also the ones after it, as long as they are above the currently
+            # known value level.
 
-        # or, can we somehow "link" the value step with a distance in state
-        # space? we anyway want to maintain some strip of empty data around
-        # watersheds/decision boundaries. can this be achieved by relatiely
-        # simple, generous pruning? say we have a range [l_min, l_max] where we
-        # know that the currently relevant l(x, u) fall in. because dv/dt =
-        # -l(x, u)
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
 
+            point_is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+            # clear out everything above the lower value level if there is a suboptimal point in the trajectory.
+
+            '''
+            def suboptimality_mask(ys, is_suboptimal):
+
+                # for ys and pointwise "suboptimality mask", mark all points
+                # above v_lower as suboptimal IF the trajectory contains any
+                # suboptimal points.
+
+                # is_suboptimal.shape = (N_timesteps_per_traj,)
+                has_suboptimal_pt = is_suboptimal.any()
+
+                return (ys['v'] >= v_lower) * has_suboptimal_pt
+
+            is_suboptimal_alt = jax.vmap(suboptimality_mask, in_axes=(0, 0))(all_ys, point_is_suboptimal)
+            '''
+
+            # confirmed: this is the same as the previous one but in one line
+            is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
+
+
+        print(f'pruning {is_suboptimal.sum():.3f} = {100 * is_suboptimal.mean():.3f}% points')
+
+        print(f'  = {100 * frac:.3f}% of non-nan/non-inf points')
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
 
@@ -2012,7 +2022,6 @@ def testbed(problem_params, algo_params):
         print('\n\n\n')
         print(f' ~~~~ active learning iteration {k} ~~~~')
 
-
         # why did we split up estimate_value_level and propose_pts?
         # don't we just calculate the whole mean/std at test pts twice?
 
@@ -2020,31 +2029,9 @@ def testbed(problem_params, algo_params):
         v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=v_next_target)
 
         if v_k < vk_prev and k > 0:
-            print('warning; the level set is shrinking.\nprobably the NN is misbehaving again *rolls eyes*')
+            print('warning: level set shrinking.')
 
         vks.append(v_k)
-
-        # additional 0-th step: continue all solutions that currently end at some
-        # value between v_k and v_next, so that they go above v_next? and more interestingly,
-        # decide which ones to keep? as for that "higher level" question I see a couple paths:
-
-        # - try to treat them the same as the rest of the active learning. maybe *do* extend all
-        #   of them, then add their coordinates as "test points" and from there on give it to
-        #   the AL logic which is blind to this (or maybe give it a slight bias to prefer
-        #   existing sols?)
-        # - extend&add them all. easy bruteforce solution, but will probably run into growing
-        #   number of trajectories.
-        # - some heuristic logic in between. extend if large-ish sigma? extend and then throw
-        #   away if small sigma, maybe just lower half? basically replicate the whole loop, first
-        #   do an AL step selecting existing solutions, then an AL step with forward/backward
-        #   shooting? that's already more of an implementation concern...
-        # - continue & include them all until the train step, then throw away the ones with
-        #   lowest posterior uncertainty? although maybe we then lose that uncertainty..
-
-        # basically I see these options where to implement that:
-        # - at the start of the loop, do another train/prune step with the data we already have.
-        #   still unsure if this messes up the pruning of suboptimal sols or not.
-        # - at the end of the loop, include it in the previous train/prune step already.
 
         # set next value target :)
         v_next_target = set_value_target(all_ys, v_k)
@@ -2052,6 +2039,9 @@ def testbed(problem_params, algo_params):
         key = jax.random.PRNGKey(k)
 
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
+
+        # try this random move. propose points with higher level set, but only learn with smaller step
+        v_next_target = v_k + (v_next_target - v_k)*0.2
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
         # and here too...

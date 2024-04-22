@@ -811,9 +811,9 @@ class nn_wrapper():
 
         # adjust algoparams for warmstart situation. do this in a neater way if it works.
         algo_params_warmstart = algo_params.copy()
-        portion = 0.5   # repeat the last "portion" of the usual training loop.
-        # algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
-        # algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
+        portion = 0.2   # repeat the last "portion" of the usual training loop.
+        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
+        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
         # algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
 
         # seemed to make it worse :(

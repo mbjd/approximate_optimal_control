@@ -885,7 +885,7 @@ if __name__ == '__main__':
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
-        'lr_final': 0.00002,
+        'lr_final': 0.0002,
         'weight_decay': .01,
 
         'nn_ensemble_size': 4,
@@ -940,6 +940,8 @@ if __name__ == '__main__':
         #  - softmax_uncertain
         'proposal_strategy': 'max_kernel',
 
+        'pruning_strategy': 'generous',
+
         # tolerate some more error just to make the experiments run faster
         'sigma_max': lambda mu: 0.5 + 0.05 * mu,
         'vk_estimator': 'k_exceptions',
@@ -948,7 +950,7 @@ if __name__ == '__main__':
         # which are below the sigma target to qualify as "learned".
         'frac_certain_in_Vk': .99,
 
-        'savefigs': False,
+        'savefigs': True,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

@@ -1508,7 +1508,6 @@ def testbed(problem_params, algo_params):
 
         print(f'pruning {is_suboptimal.sum():.3f} = {100 * is_suboptimal.mean():.3f}% points')
 
-        print(f'  = {100 * frac:.3f}% of non-nan/non-inf points')
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
 
@@ -2005,7 +2004,7 @@ def testbed(problem_params, algo_params):
     # all_ys = flat_sol_ys(sols_orig)
 
     all_ys = sols_orig.ys
-    is_suboptimal = np.ones_like(all_ys['v']).astype(bool)
+    is_suboptimal = np.zeros_like(all_ys['v']).astype(bool)
 
 
     # more detailed plots w/ savefig.
@@ -2091,7 +2090,8 @@ def testbed(problem_params, algo_params):
         new_ys = backward_sols_new.ys
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
 
-        is_suboptimal = np.concatenate(is_suboptimal, np.ones_like(new_ys['v']).astype(bool))
+        # ipdb.set_trace()
+        is_suboptimal = np.concatenate([is_suboptimal, np.zeros_like(new_ys['v']).astype(bool)], axis=0)
 
 
         train_key = key  # yolo

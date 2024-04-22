@@ -403,10 +403,10 @@ def plot_nn_train_outputs(outputs, subsample=256):
     if has_test:
         ax = pl.subplot(211)
 
-    pl.loglog(outputs['iters'], outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.5)
+    pl.semilogy(outputs['iters'], outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.5)
 
     for k in outputs['train_loss_terms']:
-        pl.loglog(outputs['iters'], outputs['train_loss_terms'][k], alpha=.3, label=f'train {k}')
+        pl.semilogy(outputs['iters'], outputs['train_loss_terms'][k], alpha=.3, label=f'train {k}')
     pl.legend()
     pl.grid('on')
     pl.ylim([1e-5, 1e3])
@@ -414,7 +414,7 @@ def plot_nn_train_outputs(outputs, subsample=256):
     if has_test:
         pl.subplot(212, sharex=ax, sharey=ax)
         for k in outputs['test_loss_terms']:
-            pl.loglog(outputs['iters'], outputs['test_loss_terms'][k], alpha=.3, label=f'test {k}')
+            pl.semilogy(outputs['iters'], outputs['test_loss_terms'][k], alpha=.3, label=f'test {k}')
 
         pl.legend()
         pl.grid('on')

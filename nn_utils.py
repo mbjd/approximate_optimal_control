@@ -161,8 +161,8 @@ class my_nn_flax(nn.Module):
         # return (x + ((np.sqrt(1 + x**2) + x) / 2)**2).squeeze()
 
         # can we just choose a power here?
-        # return (x + nn.softplus(x)**2).squeeze()
-        return (x + nn.softplus(x)**3).squeeze()
+        return (x + nn.softplus(x)**2).squeeze()
+        # return (x + nn.softplus(x)**3).squeeze()
 
         # or even without adding x? this might run into gradient issues close
         # to 0. if nn initially outputs like -10, the full model will output a
@@ -173,7 +173,7 @@ class my_nn_flax(nn.Module):
         # an actual log transform could be mimicked by returning exp(x) or
         # x+exp(x) here. but I feel like basic powers suffer fewer issues with
         # v going to infinity suddenly.
-        # return (x + jax.exp(x)).squeeze()
+        # return (x + np.exp(x)).squeeze()
 
 
 
@@ -368,15 +368,10 @@ class nn_wrapper():
         # jacfwd is definitely not smart here (n arguments, 1 output)
         vx_pred = jax.grad(self.nn.apply, argnums=1)(params, y['x'])
 
-        # basic version. worked just fine
+        # basic version. worked just fine for easy cases but issues arise
+        # when data are covering multiple magnitudes. then the relative error
+        # is very high for low v
         v_loss  = (v_pred - y['v']) ** 2
-
-        # all of these should have effects similar to a log transform
-        # man why am I jiggling around the bottom cards of the card house?
-
-        # linear log approx = cheap scaling?
-        # v_loss =  (v_pred / y['v'] - 1)**2
-        # -> did not work
 
         # adapted to not "stregthen" loss too much for tiny labels
         # 1 + x = smoothed max(1, x)
@@ -669,6 +664,9 @@ class nn_wrapper():
 
         # we want: total_iters * batchsize == N_epochs * N_datapts. therefore:
         total_iters = (N_epochs * N_datapts) // batchsize
+
+        if total_iters < 2000:
+            total_iters = 2000
 
         # exponential decay. this will go down from lr_init to lr_final over
         # the whole training duration.

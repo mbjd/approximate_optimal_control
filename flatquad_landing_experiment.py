@@ -885,11 +885,11 @@ if __name__ == '__main__':
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
-        'lr_final': 0.0002,
+        'lr_final': 0.00002,
         'weight_decay': .01,
 
         'nn_ensemble_size': 4,
-        'nn_warm_start': False,
+        'nn_warm_start': True,
 
         # NN LOSS FUNCTION
         # relative importance of the losses for v, vx, vxx.
@@ -922,9 +922,9 @@ if __name__ == '__main__':
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
-        'thin_data': False,
-        'N_band': 4096,
-        'N_lower': 4096,
+        'thin_data': True,
+        # 'N_band': 4096,
+        # 'N_lower': 4096,
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM

@@ -3699,3 +3699,71 @@ monitoring and NN tuning purposes it should be better than not doing it.
 seeing weird bumps in that one trajectory vs nn plot we are always
 watching. is this the pruning already (half?) working? this is definitely
 where we should focus next...
+
+
+
+pruning strategy thoughts. it really depends on the type of collision.
+If a new trajectory (v > vk) "collides" with old ones (v < vk) then it is
+really easy, we just remove the new trajectory from consideration before
+doing any NN training. we might even be generous and remove not only the
+part proven to be suboptimal, but also some part before that which we only
+suspect might be suboptimal. implementing this is a matter of a couple
+software engineering tricks.
+
+if new and new trajectories collide it is more complicated, because we
+can't really tell in advance whether or not that will happen. So, basic
+idea: We detect when the NN training doens't go so well (= fails to achieve
+low training and/or test loss) Whenever that happens we assume it to be
+because of a collision between two "fronts" of new data. In that case we
+can do something about it "after the fact":
+ - retrain with smaller value increase, maybe repeat until it looks good.
+   THEN do the usual pruning step, maybe generously.
+ - still go for some asymmetric loss type magic but i kind of don't feel
+   like it
+ - try do detect which trajectories are causing the loss to not decrease.
+   remove those and retrain. maybe we can even write down some theory about
+   probability of being suboptimal under some bayesian posterior or sth.
+
+
+
+2024-04-22
+
+trying those pruning strategies. quickly devolved into just re-implementing
+the substeps based strategy. it is an attractive idea because we decrease
+the distance over which we have to anticipate the merging of level sets. so
+we can actually just prune the solutions very likely to be suboptimal
+(which are in the level set but with higher value) and a tiny bit before
+them, and be fine.
+
+it seems to run okay-ish even with warmstarting and only few epochs per
+substep (otherwise this would pretty much be infeasible...)
+
+what's stopping us from just treating the substeps as full steps and also
+generating new data in between though? from only ever targeting small-ish
+value steps but in turn gaining the ability to warmstart and use fewer
+epochs? would be much more elegant than this two-level kind of situation we
+are imagining here. are we coming full circle?
+
+the pathological case always is the one where two fronts meet but are
+moving into the same general direction. then neither of the trajectories
+can be pruned because they never enter the known sublevel set of the other
+front. this is very sad indeed.
+
+the alternative always is messing with asymmetric loss functions and the
+like again. i suspect complications will arise when also trying to use vx.
+intuitively, it only makes sense to use the gradient label if the value
+label is already correct -- otherwise the "wrong" gradient label will make
+the function completely wrong even though our "basic" asymmetric loss has
+made sure that only the correct values are matched. therefore we need at
+the very least something which attenuates the vx loss if the v label is far
+from correct. and already this is probably a loss function which is
+nonconvex in the function V. In any case everything is nonconvex due to NN
+weights, but that is pretty well studied and works in practice. Introducing
+this entirely different kind of nonconvexity though is probably a different
+beast -- at the very best we can hope that our NN approximates gradient
+flow in function space well enough, but even that could go to the wrong
+local minimum in this case.
+
+other alternative: just accept that collisions will happen. after they do
+happen, just remove the points that cause problems (high loss or sth
+similar)

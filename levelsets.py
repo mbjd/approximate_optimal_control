@@ -550,7 +550,6 @@ def debug_nan_sol(sols_orig, problem_params, algo_params):
 
 
 
-
 def main(problem_params, algo_params):
     pass
 
@@ -758,6 +757,37 @@ def testbed(problem_params, algo_params):
 
     v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
     vx_meanstds = jax.jit(jax.vmap(vx_meanstd, in_axes=(0, None)))
+
+
+    def plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_k):
+
+        # choose random pairs of points in the currently "known" set.
+        # plot v along their connecting line.
+
+        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
+        # select points from a thin value band.
+        usable = (v_means + 2*v_stds <= v_k) & (v_means - 2*v_stds >= v_k / 2)
+        ps = usable / usable.sum()
+
+        for j in range(20):
+
+            # select two points
+            pts = jax.random.choice(jax.random.PRNGKey(j), test_pts, shape=(2,), replace=False, p=ps)
+
+            # find the line connecting them
+            N = 201
+            xs = np.linspace(pts[0], pts[1], N)
+            xs = jax.vmap(problem_params['project_M'])(xs)
+            ts = np.linspace(0, 1, N)
+
+            # evaluate the value function along the line
+            line_ms, line_stds = v_meanstds(xs, params_sobolev_ens)
+
+            pl.plot(ts, line_ms, alpha=.1, c='C0')
+            pl.fill_between(ts, line_ms - line_stds, line_ms + line_stds, color='C0', alpha=.1)
+
+
+
 
     def plot_manifold(v_nn, vmap_params, problem_params):
 
@@ -1421,30 +1451,62 @@ def testbed(problem_params, algo_params):
         nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
 
         is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+        print(f'pruning {is_suboptimal.sum():.3f} = {is_suboptimal.mean():.3f}% points before cumsum')
 
-        # alternatively, rely only on bnn posterior sigma, not level set.
-        # is_suboptimal = v_nn_means + 3 * v_nn_stds < all_ys['v']
+        # mark the rest of every trajectory that at some point is suboptimal as
+        # also suboptimal. follows from dynamic programming principle, this is
+        # not (yet) the approximation!
 
-        # plot trajectory vs nn where is_suboptimal just to take a glance?
+        # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
+        # cumsum marks as suboptimal the PRECEDING points in physical time even
+        # though in array indices they are the subsequent ones. all correct.
+        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+
+        print(f'pruning {is_suboptimal.sum():.3f} = {is_suboptimal.mean():.3f}% points after cumsum')
+
+        # to NEVER run into collisions, one strategy could be to remove the
+        # whole subsequent trajectory segment too so long as it is in the value
+        # interval currently being learned.
+
+
+
+
+        # # alternatively, just blindly rely on the "bayesian" posterior.
+        # is_suboptimal_bayesian = all_ys['v'] > v_nn_means + 3 * v_nn_stds
+        # print(f'would have pruned {is_suboptimal_bayesian.sum():.3f} = {is_suboptimal_bayesian.mean():.3f}% points if bayesian')
+
+        # is_suboptimal_both = np.logical_or(is_suboptimal, is_suboptimal_bayesian)
+        # print(f'would have pruned {is_suboptimal_both.sum():.3f} = {is_suboptimal_both.mean():.3f}% points if bayesian OR previous')
+
+
+        # or, even delete the whole thing once a point is "clearly" suboptimal?
+        # this still would not catch all cases though... if the "collision" is
+        # between two new trajectories then we are pretty much out of luck, as
+        # neither of them can be marked suboptimal in advance. we need a better
+        # strategy for that.
+
+        # one possible way: detect "conflicts" by NN training not going as well
+        # as it should (necessitating another classification thingy with its
+        # own manual tuning). When that happens, redo a smaller value step.
+
+        # or, can we somehow "link" the value step with a distance in state
+        # space? we anyway want to maintain some strip of empty data around
+        # watersheds/decision boundaries. can this be achieved by relatiely
+        # simple, generous pruning? say we have a range [l_min, l_max] where we
+        # know that the currently relevant l(x, u) fall in. because dv/dt =
+        # -l(x, u)
 
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
 
-        # exclude way past data.
-        # but really this is the job of algo_params['thin_data'] and the code just below
-        v_cutoff = v_lower / 100
-        in_band = in_band & (v_cutoff <= all_ys['v'])
-
-
-        bool_train_idx = in_band & ~is_suboptimal
-
-        # b) train the NN again, while ignoring data marked as suboptimal.
-        # easiest thing to do here: extract training data like in mockup, make new array.
-        # surely we can optimise this and keep fixed shapes for jit.
-        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
-
 
         if algo_params['thin_data']:
+
+            # much simpler strategy: just exclude way past data.
+            v_cutoff = v_lower / 100
+            in_band = in_band & (v_cutoff <= all_ys['v'])
+
+            '''
             # test strategy: take fixed number of highest value points (leading to
             # upper, densely sampled value band) & fixed number subsample of lower
             # points.
@@ -1486,6 +1548,17 @@ def testbed(problem_params, algo_params):
                 all_idx = np.concatenate([top_idx, bot_subsample_idx])
 
                 usable_ys = jtm(lambda node: node[all_idx], usable_ys)
+            '''
+
+
+
+        bool_train_idx = in_band & ~is_suboptimal
+
+        # b) train the NN again, while ignoring data marked as suboptimal.
+        # easiest thing to do here: extract training data like in mockup, make new array.
+        # surely we can optimise this and keep fixed shapes for jit.
+        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
+
 
         print(f'total data points: {usable_ys["v"].shape[0]}')
 
@@ -1506,6 +1579,7 @@ def testbed(problem_params, algo_params):
         n_data = count_floats(train_ys)
         print(f'params/data ratio = {n_params/n_data:.4f}')
 
+        params_old = params_sobolev_ens
 
         if warmstart:
             # continue from previous params, only last portion of training.
@@ -1518,9 +1592,29 @@ def testbed(problem_params, algo_params):
                 train_key, train_ys, problem_params, algo_params
             )
 
-        # report some form of test/train loss comparison in the end?
 
-        return params_sobolev_ens, oups_sobolev_ens
+        '''
+        # so, here we could maybe detect if collisions made training worse.
+        # might we also identify the particular datapoints where it occured?
+        # basically the ones with maximum loss...
+
+        # but that will be such a huge mess...
+
+        # i think the key doesn't enter unless we have prior and/or stochastic vxx hvp approximation
+        key, batchloss_key = jax.random.split(key)
+        # evaluate this again too because when training we also include the prior
+
+        train_lossmeans, train_terms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(
+            batchloss_key, params_sobolev_ens, train_ys, problem_params, algo_params
+        )
+
+        test_lossmeans, test_terms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(
+            batchloss_key, params_sobolev_ens, test_ys, problem_params, algo_params
+        )
+        '''
+
+
+        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal
 
 
 
@@ -1999,7 +2093,7 @@ def testbed(problem_params, algo_params):
 
 
         train_key = key  # yolo
-        params_sobolev_ens, oups = prune_and_train_simple(
+        params_sobolev_ens, oups, is_pruned = prune_and_train_simple(
             train_key,
             params_sobolev_ens,
             all_ys,
@@ -2007,10 +2101,54 @@ def testbed(problem_params, algo_params):
             algo_params,
             warmstart=algo_params['nn_warm_start']
         )
+        all_oups = oups
+
+        '''
+        algo_params_prune = algo_params.copy()
+        algo_params_prune['nn_N_epochs'] = 64  # a bit less.
+        algo_params_prune['lr_init'] = algo_params['lr_init'] / 4
+
+        all_oups = None
+
+        # store somewhere which solutions we've pruned already?
+
+        # or just "blindly":
+        for i, vnext in enumerate(np.linspace(v_k, v_next_target, 10)):
+            print(f' ~~~~ prune&train substep {i}, vnext = {vnext:.3f} ~~~~')
+            params_sobolev_ens, oups, is_suboptimal = prune_and_train_simple(
+                train_key,
+                params_sobolev_ens,
+                all_ys,
+                [v_k, vnext],
+                algo_params_prune,
+                warmstart=True
+            )
+
+            # remove pruned points. once marked suboptimal we definitely won't need it again.
+            all_ys = jtm(lambda node: node.at[is_suboptimal].set(np.inf), all_ys)
+
+            v_k = vnext  # blindly accept? we need that to prune in the next substep...
+
+            if all_oups is None:
+                all_oups = oups
+            else:
+                # these shapes are (N_ensemble, N_trainsteps) apparently so axis=1
+                all_oups = jtm(lambda a, b: np.concatenate([a, b], axis=1), all_oups, oups)
+
+        '''
+
+        # here:
+        # if NN training went like shit:
+        #     repeat prune&train with smaller v_next_target.
+
+        # or even better:
+        # while oups['train_loss'] > threshold:
+        #     v_next_target = v_k + (v_next_target - v_k) / 2
+        #     repeat prune_and_train_simple, starting from PREVIOUS params if warmstart bc current ones are messed up
 
 
         pl.figure(f'nn training iter {k}')
-        plotting_utils.plot_nn_train_outputs(oups)
+        plotting_utils.plot_nn_train_outputs(all_oups, subsample=8)
         pl.ylim([1e-4, 1e3])
         if algo_params['savefigs']:
             pl.savefig(f'tmp/trainplot_{k:04d}.png')
@@ -2027,6 +2165,9 @@ def testbed(problem_params, algo_params):
         pl.figure(f'nn calibration, iter {k}')
         means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
+
+        pl.figure(f'value lines, iter {k}')
+        plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
 
 
         if k % 20 == 0:

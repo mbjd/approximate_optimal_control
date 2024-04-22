@@ -43,7 +43,10 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 
     # the error between predicted and label, scaled by the std dev.
     # if model is well calibrated, this should be normally distributed.
-    normalised_predictions = (pred_v_means - all_ys['v']) / pred_v_stds
+    normalised_predictions = (pred_v_means.flatten() - all_ys['v'].flatten()) / pred_v_stds.flatten()
+
+    where_usable = ~np.isnan(normalised_predictions)
+    normalised_predictions = normalised_predictions[where_usable]
 
     observed_fractions = np.mean(normalised_predictions[:, None] < sigmas, axis=0)
 
@@ -664,14 +667,14 @@ def testbed(problem_params, algo_params):
             return problem_params['l'](x, u)
 
         # double vmap because we have N_trajectories x N_timesteps ys
-        # all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
+        all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
 
-        # single vmap because guess what, we don't anymore, now just N_pts
-        all_ls = jax.vmap(l_of_y)(ys)
+        # single vmap in case we store it flattened again (N_pts,) or (N_pts, nx)
+        # all_ls = jax.vmap(l_of_y)(ys)
 
         # add NaN to every x with v(x) > v_k
         is_outside_valueband = ~np.logical_and(v_lower <= ys['v'], ys['v'] <= v_upper)
-        all_ls_masked = all_ls + (is_outside_valueband * np.nan)
+        all_ls_masked = all_ls + (is_outside_valueband * np.inf)
 
         min_l = np.nanmin(all_ls_masked)
         return min_l
@@ -767,7 +770,6 @@ def testbed(problem_params, algo_params):
 
         mus, sigmas = v_meanstds(xs, vmap_params)
 
-        pl.figure()
         ax = pl.subplot(211)
         pl.plot(thetas, mus, label='value mean')
         pl.fill_between(thetas, mus - sigmas, mus + sigmas, color='C0', alpha=.2, label=f'value 1σ confidence')
@@ -825,6 +827,20 @@ def testbed(problem_params, algo_params):
         )
 
         return forward_sol
+
+
+    def meshcat_forward_sims(x0s, nn_params):
+
+        # just a couple of steps I find myself doing in pdb all the time
+        trajs = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, nn_params, True)
+
+        # convert to old (theta) repr. ugly hardcoded i know
+        ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
+
+        solsdict = {'t': trajs.ts, 'x': ys}
+
+        visutils.plot_trajectories(solsdict)
+
 
 
     def forward_sim_nn_until_value(x0, params, v_k, vmap=False):
@@ -1024,7 +1040,7 @@ def testbed(problem_params, algo_params):
 
         # we want that many points inside the value band, from which we
         # can then select the proposals.
-        N_pts_desired = 8 * algo_params['active_learning_batchsize']
+        N_pts_desired = 128 * algo_params['active_learning_batchsize']
 
         # here just use testpts? or another similar but constant set?
         # with log_min_scale getting enough samples should be easy enough.
@@ -1393,10 +1409,10 @@ def testbed(problem_params, algo_params):
 
         v_lower, v_upper = v_interval
 
-        # v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+        v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
 
         # now without the extra dim the vmap we already did is sufficient
-        v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
+        # v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
 
         trajectory_outside_levelset = v_lower < all_ys['v']
 
@@ -1850,8 +1866,8 @@ def testbed(problem_params, algo_params):
     plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
 
     pl.figure('nn calibration, initial run')
-    means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
-    plot_calibration(all_ys, means, stds)
+    means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(sols_orig.ys['x'], params_sobolev_ens)
+    plot_calibration(sols_orig.ys, means, stds)
 
     pl.figure('manifold')
     plot_manifold(v_nn, params_sobolev_ens, problem_params)
@@ -1877,7 +1893,11 @@ def testbed(problem_params, algo_params):
         flat_ys = jtm(lambda node: node[where_usable], sols.ys)
         return flat_ys
 
-    all_ys = flat_sol_ys(sols_orig)
+
+
+    # all_ys = flat_sol_ys(sols_orig)
+
+    all_ys = sols_orig.ys
 
 
     # more detailed plots w/ savefig.
@@ -1972,7 +1992,9 @@ def testbed(problem_params, algo_params):
 
         print_solver_stats(backward_sols_new)
 
-        new_ys = flat_sol_ys(backward_sols_new)
+        # new_ys = flat_sol_ys(backward_sols_new)
+
+        new_ys = backward_sols_new.ys
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
 
 
@@ -1999,18 +2021,17 @@ def testbed(problem_params, algo_params):
         if algo_params['savefigs']:
             pl.savefig(f'tmp/trajectory_{k:04d}.png')
 
-        pl.figure(f'nn calibration, iter {k}')
-        means, stds = v_meanstds(all_ys['x'], params_sobolev_ens)
-        plot_calibration(all_ys, means, stds)
-
         pl.figure('manifold')
         plot_manifold(v_nn, params_sobolev_ens, problem_params)
 
-        '''
-        if k > 3:
-            pl.show()
+        pl.figure(f'nn calibration, iter {k}')
+        means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+        plot_calibration(all_ys, means, stds)
+
+
+        if k % 20 == 0:
             ipdb.set_trace()
-        '''
+
 
         if algo_params['savefigs']:
             pl.savefig(f'tmp/calibration_{k:04d}.png')

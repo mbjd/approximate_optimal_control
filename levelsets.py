@@ -862,7 +862,7 @@ def testbed(problem_params, algo_params):
     def meshcat_forward_sims(x0s, nn_params):
 
         # just a couple of steps I find myself doing in pdb all the time
-        trajs = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, nn_params, True)
+        trajs = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, nn_params, True)
 
         # convert to old (theta) repr. ugly hardcoded i know
         ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
@@ -1427,7 +1427,7 @@ def testbed(problem_params, algo_params):
 
         return backward_sols_new
 
-    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, algo_params, warmstart=False):
+    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
 
         # what if we first do a simpler version of this prune_and_train thing?
         # consisting of just one step instead of a loop with sub-valuesteps.
@@ -1501,6 +1501,9 @@ def testbed(problem_params, algo_params):
 
             # confirmed: this is the same as the previous one but in one line
             is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
+
+        # keep suboptimal points marked suboptimal
+        is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
 
 
         print(f'pruning {is_suboptimal.sum():.3f} = {100 * is_suboptimal.mean():.3f}% points')
@@ -2040,7 +2043,13 @@ def testbed(problem_params, algo_params):
 
         proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
-        # try this random move. propose points with higher level set, but only learn with smaller step
+        # try this random move. propose points with higher level set, but only
+        # learn with smaller step.
+
+        # this actually seems to work alright (or the general settings right
+        # now seem to work alright). counterintuitively we give less info to
+        # the extrapolated, 'half-learned' regime. but maybe that's the price
+        # we pay for actual pruning of suboptimal solutions.
         v_next_target = v_k + (v_next_target - v_k)*0.2
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
@@ -2081,13 +2090,16 @@ def testbed(problem_params, algo_params):
         new_ys = backward_sols_new.ys
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
 
+        is_suboptimal = np.concatenate(is_suboptimal, np.ones_like(new_ys['v']).astype(bool))
+
 
         train_key = key  # yolo
-        params_sobolev_ens, oups, is_pruned = prune_and_train_simple(
+        params_sobolev_ens, oups, is_suboptimal = prune_and_train_simple(
             train_key,
             params_sobolev_ens,
             all_ys,
             [v_k, v_next_target],
+            is_suboptimal,
             algo_params,
             warmstart=algo_params['nn_warm_start']
         )

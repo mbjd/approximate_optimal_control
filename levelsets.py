@@ -644,7 +644,7 @@ def testbed(problem_params, algo_params):
             vxx_f = P_lqr
             state_f['vxx'] = vxx_f
 
-        return solve_backward(state_f, v_upper=500)
+        return solve_backward(state_f, v_upper=10. * algo_params['v_init'])
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
@@ -683,7 +683,9 @@ def testbed(problem_params, algo_params):
 
     def select_train_pts(value_interval, sols):
 
-        # ideas for additional functionality:
+        # this is basically repeated in prune_and_train_simple, should we always just use that one?
+
+        # (old) ideas for additional functionality:
         # - include not only strictly the value interval, but at least n_min pts from each trajectory.
         #   so that if no points happen to be within the value band we include a couple (lower) ones
         #   to still hopefully improve the fit.
@@ -785,6 +787,33 @@ def testbed(problem_params, algo_params):
 
             pl.plot(ts, line_ms, alpha=.1, c='C0')
             pl.fill_between(ts, line_ms - line_stds, line_ms + line_stds, color='C0', alpha=.1)
+
+
+    def lipschtz_plot(all_ys):
+
+        # try to assess empirically whether assuming a lipschitz constant is in any way reasonable.
+        # lipschitz constants on this plot = line with slope L, such that everywhere y <= L x
+
+        usable_idx = all_ys['v'] < np.inf
+
+        all_xs = all_ys['x'][usable_idx]
+        all_vxs = all_ys['vx'][usable_idx]
+
+        N_pts = all_xs.shape[0]
+
+        key = jax.random.PRNGKey(666)
+        idx_pairs = jax.random.choice(key, all_vxs.shape[0], shape=(10000, 2))
+
+        # these are shaped (N_pairs, 2, nx)
+        x_pairs = all_xs[idx_pairs]
+        vx_pairs = all_vxs[idx_pairs]
+
+        x_diffnorms = np.linalg.norm(x_pairs[:, 0] - x_pairs[:, 1], axis=1)
+        vx_diffnorms = np.linalg.norm(vx_pairs[:, 0] - x_pairs[:, 1], axis=1)
+
+        pl.plot(x_diffnorms, vx_diffnorms, '. ', alpha=.1)
+        pl.xlabel('||x1 - x2||')
+        pl.ylabel('||vx1 - vx2||')
 
 
 
@@ -1509,12 +1538,20 @@ def testbed(problem_params, algo_params):
 
             is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v'])
 
+            # but only trust the nn posterior up until v_upper, above that level it is purely an extrapolation
+            is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v']) & (all_ys['v'] < v_upper)
+
             # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
             # cumsum marks as suboptimal the PRECEDING points in physical time even
             # though in array indices they are the subsequent ones. all correct.
             is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
-            #
+
+        elif algo_params['pruning_strategy'] == 'lipschitz':
+
+            raise NotImplementedError('see log 2024-04-23')
+
+
 
         # keep suboptimal points marked suboptimal
         is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
@@ -1852,7 +1889,7 @@ def testbed(problem_params, algo_params):
         # b) they are above the sigma threshold, and VERY clearly (2 sigma) within the currently estimated level set
         new_testpts_known = np.logical_or(new_testpts_known, v_means + 10 * v_stds <= v_k)
 
-        new_testpts_known = new_testpts_known
+        new_testpts_known = np.logical_or(test_pts_known, new_testpts_known)
 
 
         print(f'estimated known value level: {v_k:.3f}')
@@ -1892,7 +1929,7 @@ def testbed(problem_params, algo_params):
     # rapidly fill that sublevel set instead of being careful about
     # collisions... but no way to verify the assumption besides praying
 
-    v_k = 50
+    v_k = algo_params['v_init']
 
     # to get a feel for when the linearisation stops being accurate.
     # important: this is only valid when we have a good covering of the
@@ -2028,6 +2065,11 @@ def testbed(problem_params, algo_params):
     v_next_target = np.inf
 
     vks = []
+
+    # triple vmap to evaluate sobolev ensemble losses at all data points:
+    #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
+
+
 
     for k in range(100):
 
@@ -2191,12 +2233,15 @@ def testbed(problem_params, algo_params):
         pl.figure('manifold')
         plot_manifold(v_nn, params_sobolev_ens, problem_params)
 
+        pl.figure(f'value lines, iter {k}')
+        plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
+
+        pl.figure(f'lipschitz plot, iter {k}')
+        lipschtz_plot(all_ys)
+
         pl.figure(f'nn calibration, iter {k}')
         means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
-
-        pl.figure(f'value lines, iter {k}')
-        plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
 
 
         if k % 20 == 0:

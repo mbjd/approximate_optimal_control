@@ -926,6 +926,10 @@ if __name__ == '__main__':
         # 'N_band': 4096,
         # 'N_lower': 4096,
 
+
+        # the value level we include in the initial learning round.
+        'v_init': 50,
+
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 128,
@@ -950,7 +954,7 @@ if __name__ == '__main__':
         # which are below the sigma target to qualify as "learned".
         'frac_certain_in_Vk': .99,
 
-        'savefigs': True,
+        'savefigs': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

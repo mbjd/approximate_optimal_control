@@ -3818,6 +3818,11 @@ list of literally all possible, smart and dumb pruning strategies.
   inner product
 - train with all data, then detect after the fact which ones caused
   problems, remove those & repeat
+- train as before, use a decrease in estimated known value level as a
+  signal that training didn't go as we hoped. assume the reason are
+  conflicts, repeat from previous params with smaller value step.
+  hope the conflict can be "pruned" away (with one of the other
+  strategies)... in the next iteration.
 - asymmetric loss function idea from way back (followed by actual pruning
   of the ones considered suboptimal)
   - obvious issues with vx. do two runs, one with asymmetric loss and only
@@ -3840,3 +3845,42 @@ list of literally all possible, smart and dumb pruning strategies.
   posterior (and then in the next training round the NN will fit the
   remaining low, good solution) but this too seems quite shaky, not so sure
   how to implement...
+
+
+feeling again not particularly motivated in light of all these
+difficulties. just spending the day doing some random tweaks, with low
+chance of success, and plotting whatever data i feel like looking at.
+
+
+more on that lipschitz pruning variant. let us assume a lipschitz constant
+L for the vx function:
+
+    ∀ x1, x2: || vx(x1) - vx(x2) || <= L || x1 - x2 ||.
+
+this means that the costate is not allowed to change very quickly. in
+reality it is discontinuous at "watershed" points, however, excluding a
+couple more points is something we should probably do anyway.
+
+this lipschitz constant gives us a conical "exclusion zone" for each data
+point -- all other points that violate the lipschitz condition could be
+removed. or actually BOTH points? need to think about this, let's try not
+to delete all of our data. but maybe this is indeed the right thing to
+do... maybe this is where we try to "prefer" optimal data again: if two
+points violate lipschitz condition, remove both if their values are
+similar-ish, but remove only the higher-value one if the difference is
+large enough (along with preceding segment as always).
+
+do we do this only for new data? or for all data? lots of question marks.
+also i feel like lipschitzness is something that does not perfectly reflect
+the intuitive idea behind different local solution "branches"... it is not
+even guaranteed that standard 2-norm in state space is of any use. but
+still i feel like out of all the pruning ideas this is not the dumbest one.
+
+maybe assuming lipschitz-ness of v is smarter after all? because we can not
+only estimate a tight-ish local lipschitz constant from vx, but even more
+nicely some sort of polytope in which we want the gradient to be, kind of a
+"direction-dependent" lipschitz constant. probably if we do go that route
+it is a nicer option to use v rather than vx. BUT, still, I fail to see how
+that solves the hard case of two "fronts" moving in almost the same
+direction while merging slowly. TODO think tomorrow about that.
+

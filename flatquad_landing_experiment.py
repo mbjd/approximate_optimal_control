@@ -940,7 +940,7 @@ if __name__ == '__main__':
         #  - softmax_uncertain
         'proposal_strategy': 'max_kernel',
 
-        'pruning_strategy': 'generous',
+        'pruning_strategy': 'bayesian',
 
         # tolerate some more error just to make the experiments run faster
         'sigma_max': lambda mu: 0.5 + 0.05 * mu,

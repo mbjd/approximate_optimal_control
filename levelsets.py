@@ -1470,6 +1470,16 @@ def testbed(problem_params, algo_params):
             # though in array indices they are the subsequent ones. all correct.
             is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
+        elif algo_params['pruning_strategy'] == 'conservative_bidirectional':
+
+            # same as conservative_future BUT also remove trajectory segments that in the close past have been suboptimal
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
+
+            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+            is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+
+
 
         elif algo_params['pruning_strategy'] == 'generous':
 
@@ -1482,25 +1492,29 @@ def testbed(problem_params, algo_params):
             trajectory_outside_levelset = v_lower < all_ys['v']
 
             point_is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+
             # clear out everything above the lower value level if there is a suboptimal point in the trajectory.
-
-            '''
-            def suboptimality_mask(ys, is_suboptimal):
-
-                # for ys and pointwise "suboptimality mask", mark all points
-                # above v_lower as suboptimal IF the trajectory contains any
-                # suboptimal points.
-
-                # is_suboptimal.shape = (N_timesteps_per_traj,)
-                has_suboptimal_pt = is_suboptimal.any()
-
-                return (ys['v'] >= v_lower) * has_suboptimal_pt
-
-            is_suboptimal_alt = jax.vmap(suboptimality_mask, in_axes=(0, 0))(all_ys, point_is_suboptimal)
-            '''
-
-            # confirmed: this is the same as the previous one but in one line
             is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
+
+
+        elif algo_params['pruning_strategy'] == 'bayesian':
+
+            # same inequality as above but without the vk sandwiched in. this
+            # means we prune a strict superset of the points pruned with the
+            # 'bayesian_future' strategy. in fact, the condition there is:
+
+            # (v_nn_means + 3 * v_nn_stds < v_lower) & (v_lower < all_ys['v'])
+
+            # which is equivalent to is_suboptimal (below) &
+
+            is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v'])
+
+            # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
+            # cumsum marks as suboptimal the PRECEDING points in physical time even
+            # though in array indices they are the subsequent ones. all correct.
+            is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+
+            #
 
         # keep suboptimal points marked suboptimal
         is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
@@ -2093,6 +2107,7 @@ def testbed(problem_params, algo_params):
         # ipdb.set_trace()
         is_suboptimal = np.concatenate([is_suboptimal, np.zeros_like(new_ys['v']).astype(bool)], axis=0)
 
+        prev_params_sobolev_ens = params_sobolev_ens
 
         train_key = key  # yolo
         params_sobolev_ens, oups, is_suboptimal = prune_and_train_simple(
@@ -2107,38 +2122,49 @@ def testbed(problem_params, algo_params):
         all_oups = oups
 
         '''
-        algo_params_prune = algo_params.copy()
-        algo_params_prune['nn_N_epochs'] = 64  # a bit less.
-        algo_params_prune['lr_init'] = algo_params['lr_init'] / 4
+        else:
+            all_oups = None
 
-        all_oups = None
+            # store somewhere which solutions we've pruned already?
 
-        # store somewhere which solutions we've pruned already?
+            # or just "blindly":
+            n_pruned = []
+            v_next_list = np.linspace(v_k, v_next_target, 20)
+            for i, vnext in enumerate(v_next_list):
 
-        # or just "blindly":
-        for i, vnext in enumerate(np.linspace(v_k, v_next_target, 10)):
-            print(f' ~~~~ prune&train substep {i}, vnext = {vnext:.3f} ~~~~')
-            params_sobolev_ens, oups, is_suboptimal = prune_and_train_simple(
-                train_key,
-                params_sobolev_ens,
-                all_ys,
-                [v_k, vnext],
-                algo_params_prune,
-                warmstart=True
-            )
+                print(f' ~~~~ prune&train substep {i}, vnext = {vnext:.3f} ~~~~')
+                params_sobolev_ens, oups, is_suboptimal_new = prune_and_train_simple(
+                    train_key,
+                    params_sobolev_ens,
+                    all_ys,
+                    [v_k, vnext],
+                    is_suboptimal,
+                    algo_params,
+                    warmstart=True
+                )
 
-            # remove pruned points. once marked suboptimal we definitely won't need it again.
-            all_ys = jtm(lambda node: node.at[is_suboptimal].set(np.inf), all_ys)
+                n_pruned.append(is_suboptimal_new.sum())
 
-            v_k = vnext  # blindly accept? we need that to prune in the next substep...
+                # remove pruned points. once marked suboptimal we definitely won't need it again.
+                all_ys = jtm(lambda node: node.at[is_suboptimal].set(np.inf), all_ys)
 
-            if all_oups is None:
-                all_oups = oups
-            else:
-                # these shapes are (N_ensemble, N_trainsteps) apparently so axis=1
-                all_oups = jtm(lambda a, b: np.concatenate([a, b], axis=1), all_oups, oups)
+                v_k = vnext  # blindly accept? we need that to prune in the next substep...
 
+                if all_oups is None:
+                    all_oups = oups
+                else:
+                    # these shapes are (N_ensemble, N_trainsteps) apparently so axis=1
+                    all_oups = jtm(lambda a, b: np.concatenate([a, b], axis=1), all_oups, oups)
+
+                pl.figure(f'n pruned, iter {k}')
+                pl.plot(n_pruned)
+                if algo_params['savefigs']:
+                    pl.savefig(f'tmp/n_pruned_{k:04d}.png')
         '''
+
+
+
+
 
         # here:
         # if NN training went like shit:

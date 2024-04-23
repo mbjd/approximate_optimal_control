@@ -3804,3 +3804,39 @@ TODO tomorrow: put my finger on it
 though there are other weak points still, like: active learning batching
 implementation & theory still the absolute bare minimum. nn trainig still
 shaky.
+
+
+
+2024-04-23
+
+list of literally all possible, smart and dumb pruning strategies.
+
+- do only small value steps, every time prune only solutions proven to be
+  suboptimal (= v > vk but v_nn <= vk, and preceding segment) and a small
+  subsequent segment
+  -> will still miss suboptimal trajectories if their RHS's have positive
+  inner product
+- train with all data, then detect after the fact which ones caused
+  problems, remove those & repeat
+- asymmetric loss function idea from way back (followed by actual pruning
+  of the ones considered suboptimal)
+  - obvious issues with vx. do two runs, one with asymmetric loss and only
+    v, a problem which should be convex in the function being represented,
+    then prune according to that nn, then train with vx but now everything?
+- already while training try to mark the data points that lead to high loss
+  & exclude?
+- continuously sweep the training domain upwards? combined w/ idea of
+  removing data
+- assume Lipschitz-ness of V or Vx and prune somehow based on that, a bit
+  like Otsu/Maruta/Fujimoto, before doing any NN fitting? (could estimate
+  lipschitz constant from previous nn fit....)
+- somehow make use of the extrapolation for pruning directly? if a solution
+  is far above the extrapolation consider it suboptimal? but this too runs
+  into many cases where it just doesn't work... maybe only use the
+  extrapolation in the domain where we still have *some* data? intuitively,
+  if the NN is pulled up by a bad solution (which it underestimates) and
+  pulled down by a good one (which it overestimates) then we could do well
+  with just throwing away the solutions that look suboptimal given the NN
+  posterior (and then in the next training round the NN will fit the
+  remaining low, good solution) but this too seems quite shaky, not so sure
+  how to implement...

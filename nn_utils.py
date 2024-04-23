@@ -130,6 +130,43 @@ class data_normaliser(object):
         return oup
 
 
+class my_nn_dropout(nn.Module):
+
+    # not worth spending effort on for maybe better maybe worse uncertainty
+    # estimates. leaving here for history books. also see:
+    # https://flax.readthedocs.io/en/latest/guides/training_techniques/dropout.html
+
+    # in contrast to deterministic NN:
+    # initialise params with:
+    #   dnn = nn_utils.my_nn_dropout(features=algo_params['nn_layerdims'], output_dim=1)
+    #   variables = dnn.init(rngs={'dropout': key, 'params': key}, x=np.zeros((7,)))
+    #   params = variables['params']  # no clue why this
+
+    # inference (still with dropout!)
+    #    y = dnn.apply(params, np.zeros((7,)), rngs={'dropout': key})
+
+    # training.
+    #    ....
+
+    features: Sequence[int]
+    output_dim: Optional[int]
+
+    @nn.compact
+    def __call__(self, x):
+        for feat in self.features:
+            x = nn.Dense(features=feat)(x)
+
+            # we also want dropout at inference time for "bayesian" NN.
+            x = nn.Dropout(0.2, deterministic=False)(x)
+
+            x = nn.softplus(x)
+
+        if self.output_dim is not None:
+            x = nn.Dense(features=self.output_dim)(x)
+
+        return (x + nn.softplus(x)**2).squeeze()
+
+
 
 class my_nn_flax(nn.Module):
 
@@ -163,6 +200,7 @@ class my_nn_flax(nn.Module):
         # can we just choose a power here?
         return (x + nn.softplus(x)**2).squeeze()
         # return (x + nn.softplus(x)**3).squeeze()
+        # return (x + nn.softplus(x)**4).squeeze()
 
         # or even without adding x? this might run into gradient issues close
         # to 0. if nn initially outputs like -10, the full model will output a
@@ -178,7 +216,7 @@ class my_nn_flax(nn.Module):
 
 
 
-        # return x.squeeze()  # finally get rid of all those shitty (.., 1) shapes
+        return x.squeeze()
 
 
 class nn_wrapper():

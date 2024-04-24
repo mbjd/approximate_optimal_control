@@ -3884,3 +3884,34 @@ it is a nicer option to use v rather than vx. BUT, still, I fail to see how
 that solves the hard case of two "fronts" moving in almost the same
 direction while merging slowly. TODO think tomorrow about that.
 
+
+
+2024-04-24
+
+more on that lipschitz pruning idea. comparing every possible pair of
+points is really the least we could expect to do, after all we do have to
+decide if one is better than the other one or if they look like conflicting
+data. the big upside is that due to the level-set idea, the amount of
+points we have to do this with shrinks greatly, we don't have to treat the
+entire dataset but just a thin band sandwiched between two level sets (or
+the whole "superlevel set" of data in the yet unknown region.
+
+(rest moved to idea dump, "what is actually implemented"/pruning section)
+
+
+wrote a bit in idea dump, and made fist implementation draft, at
+    elif algo_params['pruning_strategy'] == 'lipschitz_both':
+in levelsets.py/testbed/prune_and_train_simple.
+
+prunes points based on V lipschitz condition. this is probably alright.
+then also prunes pairs of points which violate vx lipschitzness. this i am
+a bit less sure about. and if it works at all then comes certainly some
+amount of algo tuning. but i think if implemented properly this should be
+relatively decent version of the pruning strategy.
+
+currenlty only v lipschitz, not v bounded gradient. the latter in
+combination with local, neighbor-based estimation is probably much nicer
+still. i actually think that k-means type separation of different local
+solutions based on just their x/v/vx combination *could* be a viable
+strategy too if we manage to implement it half-efficiently. but let's not
+get ahead of ourselves.

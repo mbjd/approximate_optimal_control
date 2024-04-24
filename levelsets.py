@@ -801,6 +801,8 @@ def testbed(problem_params, algo_params):
 
         N_pts = all_xs.shape[0]
 
+        # only do a small-ish subsample of possible pairs.
+        # could do ALL pairs but then quadratic complexity wrt the whole dataset...
         key = jax.random.PRNGKey(666)
         idx_pairs = jax.random.choice(key, all_vxs.shape[0], shape=(10000, 2))
 
@@ -1535,7 +1537,6 @@ def testbed(problem_params, algo_params):
             # (v_nn_means + 3 * v_nn_stds < v_lower) & (v_lower < all_ys['v'])
 
             # which is equivalent to is_suboptimal (below) &
-
             is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v'])
 
             # but only trust the nn posterior up until v_upper, above that level it is purely an extrapolation
@@ -1545,17 +1546,156 @@ def testbed(problem_params, algo_params):
             # cumsum marks as suboptimal the PRECEDING points in physical time even
             # though in array indices they are the subsequent ones. all correct.
             is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+            ipdb.set_trace()
 
 
         elif algo_params['pruning_strategy'] == 'lipschitz':
 
+            # lipschitz pruning based on V being L-lipschitz.
+
             raise NotImplementedError('see log 2024-04-23')
+
+
+        elif algo_params['pruning_strategy'] == 'lipschitz_both':
+
+            raise NotImplementedError()
+
+            # Pruning based both on both V and Vx being Lipschitz, or similar.
+            # for more see log 2024-04-24, or idea dump, PruneAndTrain.
+
+            # 1. prune according to conservative_future. this eliminates all
+            # points we know to be suboptimal due to the already known value
+            # level set.
+
+            # 2. prune according to value lipschitz / value local bounded
+            # gradient condition. This eliminates points that are known to be
+            # suboptimal because another "close" solution plus the
+            # lipschitz/bounded gradient upper bound imply that a better
+            # solution exists.
+
+            # 3. prune according to vx lipschitz condition. This also need some
+            # further thought before implementation. But the idea is: assume
+            # Lipschitz constant for vx, then eliminate data inconsistent with
+            # that assumption. This *should* lead to removal of points "too"
+            # close to our celebrated watersheds, making NN fitting easier. I
+            # dunno, maybe we can also drop this step though.
+
+            # pruning based on already knowing a better solution.
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
+            is_suboptimal_Vk = trajectory_outside_levelset & nn_v_likely_in_levelset
+            is_suboptimal_Vk = np.cumsum(is_suboptimal_Vk, axis=1) > 0
+
+            # lipschitz constants.
+
+            # to find a better number for L_v, we can locally around each data
+            # point look at the values of vx and take the largest norm.
+            L_v = 10
+            # or better than lipschitz altogether, assume gradient-boundedness according to the closest couple vx's...
+
+            # make a new array with only the remaining points, because now
+            # comes the O(n^2) (or even O(n^3)?!??!!?) part.
+
+            # remaining = np.logical_and(~is_suboptimal_Vk, all_ys['v'] < np.inf)
+            # remaining = np.logical_and(remaining, all_ys['v'] > v_lower)
+            # remaining = np.logical_and(remaining, all_ys['v'] < v_upper )
+
+            # or just this (inf condition implied by v < v_upper)
+            remaining = (~is_suboptimal_Vk) & (all_ys['v'] > v_lower) & (all_ys['v'] < v_upper)
+
+            print(f'remaining points for O(n^2) pruning: {remaining.sum()}')
+
+            all_ys_remaining = jtm(lambda node: node[remaining], all_ys)
+
+            # Now, we first do the value-based lipschitz pruning, meaning
+            # concretely that for any pair x1, x2, we remove x1 if:
+            #     v(x1) > v(x2) + L_v * ||x1 - x2||
+            #     v(x1) - v(x2) > L_v * ||x1 - x2||
+            # not doing the abs conveniently only flags suboptimal solutions,
+            # not the "super-optimal" solution when the same variables appear
+            # in reverse order.
+
+            # wtf man I typed "lhs/rhs =" and and copilot knew what to do!!!
+            # x1 -> [:, None], x2 -> [None, :]
+            lhs = all_ys_remaining['v'][:, None] - all_ys_remaining['v'][None, :]
+            x_normdiffs = np.linalg.norm(all_ys_remaining['x'][:, None] - all_ys_remaining['x'][None, :], axis=-1)
+            rhs = L_v * x_normdiffs
+
+            # tiny epsilon to avoid float errors messing up the diagonal (where the two sides are equal)
+            should_prune_x1 = lhs > rhs + 0.00001
+
+            # is this axis correct? think about this even harder sometime.
+            should_prune_remaining_V_lipschitz = should_prune_x1.any(axis=1)
+
+
+
+            # second, vx lipschitz pruning. this is a bit more complicated.
+            # again we construct our matrix, this time of vx norm differences.
+
+            # will this be more of a tuning parameter specifying the size of
+            # the exclusion zone around watersheds?
+            # for the particular dataset here, we have:
+            #     np.nanmax(vx_normdiffs / x_normdiffs) = 99.865
+            L_vx = 50
+
+
+            # should we take into account the "unnecessary" costate pointing in
+            # normal direction here? or "sanitise" the whole dataset right
+            # after simulation anyway? by projecting x onto M and vx onto
+            # T*M... for the moment we just act like everything is euclidean.
+
+
+            # remove the points we have already pruned from consideration.
+            # TODO make sure this NaN will not mess up subsequent calculations.
+            vx_remaining = all_ys_remaining['vx'] + np.nan * should_prune_remaining_V_lipschitz
+            vx_normdiffs = np.linalg.norm(vx_remaining[:, None] - vx_remaining[None, :], axis=-1)
+
+            # if these watersheds turn out to cause high posterior uncertainty,
+            # a "simple" way to deal with it might be to mark all close test
+            # points as irrelevant for each point we remove here.
+
+            # each pair of points that fails to satisfy
+            #     || vx(x_i) - vx(x_j) || <= L_vx || x_i - x_j ||
+            # makes it impossible to find an interpolation with lipschitz
+            # gradient, thus we'd like to remove those points, but not more.
+
+            lhs = vx_normdiffs
+            rhs = L_vx * x_normdiffs
+
+            # symmetric bc equation is symmetric.
+            vx_lipschitz = lhs <= rhs
+
+            # now, big question:
+            #  a) remove all points that are part of a "violating pair" at once?
+            #  b) remove the "worst" violating pair, recompute, repeat?
+
+            # a) is easy.
+            should_prune_vx_lipschitz = (~vx_lipschitz).any(axis=0)
+            # but do we run the risk of pruning away too many points like this?
+            # not sure what option b) would look like.
+
+
+
+
+            # how do we ultimately bring this back to the original array?
+            # monumental if substantiated
+            should_prune_remaining = should_prune_remaining_V_lipschitz | should_prune_vx_lipschitz
+            pruned_idx_original = np.zeros_like(all_ys['v'], dtype=bool).at[remaining].set(should_prune_remaining)
+            # and then OR with the ones we already have, and mark the preceding segments suboptimal too.
+
+
+
+
+
+
+
+
+
 
 
 
         # keep suboptimal points marked suboptimal
         is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
-
 
         print(f'pruning {is_suboptimal.sum():.3f} = {100 * is_suboptimal.mean():.3f}% points')
 

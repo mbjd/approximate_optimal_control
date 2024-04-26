@@ -7,9 +7,7 @@ import equinox
 import nn_utils
 import plotting_utils
 import pontryagin_utils
-import ddp_optimizer
 import visualiser
-import ct_basics
 from misc import *
 
 import matplotlib

@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as pl
-import rrt_sampler
 
 import pontryagin_utils
 

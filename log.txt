@@ -3915,3 +3915,104 @@ still. i actually think that k-means type separation of different local
 solutions based on just their x/v/vx combination *could* be a viable
 strategy too if we manage to implement it half-efficiently. but let's not
 get ahead of ourselves.
+
+
+
+
+2024-04-24
+
+
+meeting traktanden
+
+daily business
+ - report structure feedback
+ - pruning strategy headaches
+   - many shit ideas, now: lipschitz/bounded gradient assumptions leading
+     to pruning rules. maybe not shit \o/
+
+questions
+ - difficulty with time management. mindless parameter twiddling > actual
+   progress. any general advice? esp in light of only 2 months left so
+   corners will have to be cut one way or another
+ - switch to simpler examples again for the moment? like 2D/3D things?
+ - experiment tracking (wandb/aim/etc): worth it?
+ - euler gpu nodes: available and worth it?
+
+
+
+notes
+
+report:
+    safe -> constrained active learning
+    proof of correctness
+    GP-UCB, SafeOpt -> BO and active learning proofs
+    simpler 2d/3d system. manipulator?
+
+ideas about handling decision boundary/pruning business
+    smoothness priors
+    explicit modelling of aleatoric uncertainty + proposals based on ratio
+    epistemic/aleatoric
+    mu sigma output & nll training
+    just never simulate backwards further than the proposed point? (in
+    terms of value or some kind of distance check)
+        -> but then we lose "long trajectory" upsides. can we still reconcile
+        this somehow?
+
+endless parameter tuning advice
+    no brainer: use euler w/ gpu
+    use launch script, set gpu=1
+    see if queue says gpu (squeue)
+    dependencies: gpu jax tutorial
+
+
+
+thoughts on pruning / avoiding contradictory training data altogether.
+
+
+stopping the simulation at V_nn(proposed_x) is certainly worth a try. but
+at the very least it requires rethinking some central design decisions.
+namely, we now have to generate ALL data with proposals, rather than
+relying for the most part on already existing simulations. we could still
+use the existing simulations, *if* the active learning proposal step is
+somehow reconciled with selecting those, as opposed to blindly continuing
+them all. this is something I've wanted to do for a while anyway.
+
+still doing this does not guarantee no collisions, mostly because we're
+really not very certain about the extrapolated value function, and because
+the backward trajectory can really go just about anywhere if the dynamics
+model is not *very* nice. drawing an example with two fronts merging while
+going in a similar direction makes this point clear -- still the backward
+trajectories can cross each other. maybe we add some extra "safety margin"
+and stop earlier? although, parameter tuning hell emerges once again.
+
+
+
+then again the lipschitz ideas while certainly workable for simple examples
+might also prove to be not "the right" assumptions for the interesting,
+medium or high-dimensional case. but really I don't see anything else
+besides just living with a tiny timestep and basically rendering the
+advantages of continuous time formulation meaningless.
+
+
+
+
+2024-04-26
+
+
+goal today:
+ - get jax + gpu running on euler
+ - use fancy launch script just for a first spin
+ - (if time) make it use the arguments
+
+
+installation w/ gpu seems to work. there is a warning about some version
+mismatch causing slower compile times. should I take care that the nn
+training scan function is not re-jitted everytime? some options:
+ - always give the whole batched training functions equally shaped data,
+   by repeating or subsampling, so they can stay jitted once
+ - define the scan function outside the train function so the train
+   function can re-use the jitted scan function
+but it doesn't seem to be very slow atm. NN training is a fair bit faster
+than before.
+
+

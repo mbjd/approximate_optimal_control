@@ -6,9 +6,7 @@ import diffrax
 import nn_utils
 import plotting_utils
 import pontryagin_utils
-import ddp_optimizer
 import visualiser
-import ct_basics
 
 import matplotlib
 import matplotlib.pyplot as pl
@@ -39,20 +37,20 @@ def count_floats(pytree):
 
 def find_max_l_bisection(sols, v_k, problem_params):
 
-	# this function is unnecessary (aimed towards a misguided goal). but it has 
-	# a working implementation of bisection across time axis. come here if we need 
-	# this again anytime. 
+	# this function is unnecessary (aimed towards a misguided goal). but it has
+	# a working implementation of bisection across time axis. come here if we need
+	# this again anytime.
 
 	def state_at_vk_bisection(sol):
 
 		# find the state at which v = v_k by bisection on the time axis.
-		# everything using the interpolated solution. 
+		# everything using the interpolated solution.
 
 		# how many do we need? log2(time interval / final t tolerance)
 		# this here = log2(5 / 5e-6)
 		iters = 20
 
-		# initially we assume left > v_k, right < v_k 
+		# initially we assume left > v_k, right < v_k
 		# (v monotonously decreasing.)
 
 		def f_scan(time_interval, input):
@@ -60,16 +58,16 @@ def find_max_l_bisection(sols, v_k, problem_params):
 			# time_interval needs to be np.array of shape (2,) for jax.lax.select to work.
 			left, right = time_interval
 
-			# does it work even if we take another convex combination here? 
-			# to account for "skewedness" of the v(t) function? 
-			# probably not worth the marginal gains. regula falsi exists too 
+			# does it work even if we take another convex combination here?
+			# to account for "skewedness" of the v(t) function?
+			# probably not worth the marginal gains. regula falsi exists too
 			# but plain bisection is good enough.
 			mid = time_interval.mean()
 
 			vmid = sol.evaluate(mid)['v']
 
 			# if vmid is lower, mid becomes right
-			# if higher, mid becomes left. 
+			# if higher, mid becomes left.
 			next_time_interval = jax.lax.select(
 				vmid < v_k,
 				np.array([left, mid]),  # on_true
@@ -77,7 +75,7 @@ def find_max_l_bisection(sols, v_k, problem_params):
 			)
 
 			return next_time_interval, vmid
-		
+
 		init_time_interval = np.array([sol.t1, sol.t0])
 
 		# if v_k is not in this interval, the bisection result is meaningless.
@@ -87,14 +85,14 @@ def find_max_l_bisection(sols, v_k, problem_params):
 
 		ts_final, vmids = jax.lax.scan(f_scan, init_time_interval, None, length=100)
 
-		# if v_k not in interval replace the result by NaN :) 
+		# if v_k not in interval replace the result by NaN :)
 		ts_final = ts_final + (np.nan * ~result_usable)
 		state = sol.evaluate(ts_final.mean())
 
 		return state
 
-	# TODO consider case where the solution does not intersect the value level. 
-	
+	# TODO consider case where the solution does not intersect the value level.
+
 	# sol0 = jtm(itemgetter(0), sols)
 	# state = state_at_vk_bisection(sol0)
 	# ipdb.set_trace()
@@ -110,6 +108,6 @@ def find_max_l_bisection(sols, v_k, problem_params):
 	all_ls = jax.vmap(l_of_y)(ys)
 
 	ipdb.set_trace()
-	max_l = np.nanmax(all_ls)	
+	max_l = np.nanmax(all_ls)
 	return max_l
 

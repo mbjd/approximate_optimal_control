@@ -583,7 +583,7 @@ def lqr(A, B, Q, R):
 
     # this will not run on GPU.
     # thus:
-    gpu_device = jax.devices('gpu')[0]
+    # gpu_device = jax.devices('gpu')[0]
     cpu_device = jax.devices('cpu')[0]
 
     with jax.default_device(cpu_device):

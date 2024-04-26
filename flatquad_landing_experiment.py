@@ -5,11 +5,8 @@ import jax.numpy as np
 import diffrax
 
 import levelsets
-import rrt_sampler
 import pontryagin_utils
-import ddp_optimizer
 import visualiser
-import ct_basics
 from misc import *
 
 import matplotlib.pyplot as pl
@@ -21,6 +18,7 @@ import ipdb
 import time
 import numpy as onp
 import tqdm
+import argparse
 from operator import itemgetter
 
 # from jax import config
@@ -734,7 +732,7 @@ def manifold_testing(problem_params, algo_params):
 #     return problem_params, algo_params
 
 
-if __name__ == '__main__':
+def define_problem_params():
 
     # classic 2D quad type thing. 6D` state.
     # update, 6D manifold embedded in R^7.
@@ -844,6 +842,11 @@ if __name__ == '__main__':
         'x_eq': x_eq.astype(float),
     }
 
+    return problem_params
+
+
+
+def base_algo_params():
 
     algo_params = {
 
@@ -1033,16 +1036,39 @@ if __name__ == '__main__':
     algo_params['sample_state'] = sample_state
     algo_params['sample_states_batched'] = sample_states_batched
 
+    return algo_params
 
-    # lqr_sanitycheck(problem_params, algo_params)
-    # current_weird_experiment(problem_params, algo_params)
-    # u_star_debugging(problem_params, algo_params)
 
-    # manifold_testing(problem_params, algo_params)
+if __name__ == '__main__':
+
+    problem_params = define_problem_params()
+    algo_params = base_algo_params()
+
+
+    # argparser based on the algo_params dict.
+    parser = argparse.ArgumentParser()
+
+    arg_types = (bool, int, float, str)
+
+    for k in algo_params:
+        if type(algo_params[k]) in arg_types:
+            parser.add_argument(f'--{k}', type=type(algo_params[k]), default=algo_params[k])
+
+    commandline_args = parser.parse_args()
+
+    # now, put the arguments back into the algo_params dict
+    for k in algo_params:
+
+        if type(algo_params[k]) in arg_types:
+            new_arg = getattr(commandline_args, k)
+            old_arg = algo_params[k]
+
+            if type(new_arg) != type(old_arg):
+                raise ValueError(f'argument {k} has type {type(new_arg)} but should have type {type(old_arg)}')
+
+            algo_params[k] = new_arg
 
     levelsets.testbed(problem_params, algo_params)
-
-    ipdb.set_trace()
 
 
 

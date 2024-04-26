@@ -436,7 +436,7 @@ class nn_wrapper():
         # amplitude is not proportional to v but proportional to v**0.75.
         # v_loss  = ((v_pred - y['v']) / (1 + y['v'])**0.75 ) ** 2
         # or proportional to sqrt(v), looks even nicer
-        v_loss  = (v_pred - y['v'])**2 / (1 + y['v'])
+        # v_loss  = (v_pred - y['v'])**2 / (1 + y['v'])
 
         # v_loss =  (v_pred / y['v'] - 1)**2
 

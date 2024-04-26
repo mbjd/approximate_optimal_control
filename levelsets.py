@@ -4,6 +4,8 @@ import numpy as onp
 import diffrax
 import equinox
 
+import aim
+
 import nn_utils
 import plotting_utils
 import pontryagin_utils
@@ -1387,12 +1389,17 @@ def testbed(problem_params, algo_params):
         # is properly designed. still here just in case :)jk
         proposals = jax.vmap(problem_params['project_M'])(proposals)
 
+        metrics = dict()
+
         forward_sols = jax.vmap(forward_sim_nn_until_value, in_axes=(0, None, None, None))(
             proposals,
             vmap_nn_params,
             v_k,
             True
         )
+
+        all_ms = jax.vmap(jax.vmap(problem_params['m']))(forward_sols.ys)
+        metrics['oracle_forward_max_m'] = np.abs(all_ms * (all_ms < np.inf)).max()
 
         xfs = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(forward_sols)
 
@@ -1408,12 +1415,17 @@ def testbed(problem_params, algo_params):
 
 
         sig_maxs = algo_params['sigma_max_abs'] + mus * algo_params['sigma_max_rel']
-        is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= sig_maxs)
+
+        # is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= sig_maxs)
 
         # this assertion never failed since the last change of making
         # sigma_max a function specified in algo_params. should we still
         # somehow try to do it? is chex the tool for this?
         # assert (stopped_bc_terminatingevent == is_usable).all(), 'shit happened'
+
+        is_usable = stopped_bc_terminatingevent
+
+        metrics['oracle_frac_usable'] = is_usable.mean()
 
 
         # if we have a different amount every time, we cannot jit the simulation.
@@ -1424,44 +1436,30 @@ def testbed(problem_params, algo_params):
         # turns out that was itself not jittable. this should work:
         usable_xfs = np.where(is_usable[:, None], xfs, np.nan * xfs)
 
-        # as we kind of would expect, is_usable correlates clearly (negatively) with the amount of
-        # solver steps. so the most effort is spent calculating solutions which we're never going to use.
-        # could we somehow avoid this? maybe stop after 3/4 of solutions have terminated? probably but
-        # then the implementation becomes messier, because plain vmap doesn't allow cross communication.
-        # more simply: just set a rather low step limit and be fine with a couple more solutions being
-        # thrown out.
-
-        # or just don't care, forward sim is cheaper than backward anyway. (is
-        # it? with vmapped nn ensemble maybe not..., certainly not if backward sim
-        # is without vxx.)
-
-
         # generous upper bound for value we're interested in rn.
         # integration of trajectories stops once we pass this threshold.
         v_upper = v_next + 10 * (v_next - v_k)
 
-        # TODO jit this.
-        backward_sols_new = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None, None))(
+        backward_sols = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None, None))(
             usable_xfs, vmap_nn_params, v_upper, problem_params, algo_params
         )
 
+        all_ms = jax.vmap(jax.vmap(problem_params['m']))(backward_sols.ys['x'])
+        metrics['oracle_backward_max_m'] = np.abs(all_ms * (all_ms < np.inf)).max()
 
+        # find out how close we got.
+        # ys['x'].shape == (N_proposals, N_steps, nx)
+        # proposals.shape == (N_proposals, nx)
+        # so to broadcast along the time axis, None in the middle.
+        pointwise_dists_to_proposal = np.linalg.norm(backward_sols.ys['x'] - proposals[:, None, :], axis=-1)
+        dists = np.min(pointwise_dists_to_proposal, axis=1)
+        is_finite = dists < np.inf
+        # worst dist is unaffected by changing inf to 0.
+        metrics['oracle_worst_dist'] = np.nanmax(dists * is_finite)
+        # mean has to be adjusted.
+        metrics['oracle_mean_dist'] = np.nanmean(dists * is_finite) / np.nanmean(is_finite)
 
-        # TODO global switch for plot+show/plot+savefig/no plot
-        plot=False
-        if plot:
-            # plot 0th forward and backward sol in same plot.
-            pl.figure()
-            sol0 = solve_backward_nn_ens(usable_xfs[0], vmap_nn_params, v_upper, problem_params, algo_params)
-            sol0_fwd = jtm(itemgetter(0), forward_sols)
-            fwd_ts_adjusted = sol0_fwd.ts - sol0_fwd.ts[sol0_fwd.stats['num_accepted_steps']]
-
-            pl.subplot(221)
-            pl.plot(fwd_ts_adjusted, sol0_fwd.ys)
-            pl.gca().set_prop_cycle(None)
-            plotting_utils.plot_sol(sol0, problem_params)
-
-        return backward_sols_new
+        return backward_sols, metrics
 
     def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
 
@@ -2036,7 +2034,6 @@ def testbed(problem_params, algo_params):
         new_testpts_known = np.logical_or(test_pts_known, new_testpts_known)
 
 
-        print(f'estimated known value level: {v_k:.3f}')
         pl.figure()
 
         pl.xlabel('v mean')
@@ -2054,6 +2051,8 @@ def testbed(problem_params, algo_params):
 
 
         print(f'test points known: {100*new_testpts_known.mean():.2f}%')
+        metrics = dict()
+        metrics['frac_testpts_known'] = new_testpts_known.mean()
 
         # estimate actual state space volume with second half of test points.
         # this only works if the sampling function actually puts the uniformly
@@ -2063,8 +2062,9 @@ def testbed(problem_params, algo_params):
 
         half = test_pts.shape[0] // 2
         print(f'state space volume known: {100*new_testpts_known[half:].mean():.6f}%')
+        metrics['frac_volume_known'] = new_testpts_known[half:].mean()
 
-        return v_k, new_testpts_known
+        return v_k, new_testpts_known, metrics
 
 
 
@@ -2214,7 +2214,6 @@ def testbed(problem_params, algo_params):
     #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
-    import aim
     run = aim.Run()
 
     # algo_params_for_aim = just the algoparams that are not weird types like
@@ -2223,6 +2222,8 @@ def testbed(problem_params, algo_params):
     algo_params_for_aim = {k: v for k, v in algo_params.items() if not callable(v)}
 
     run['hparams'] = algo_params_for_aim
+
+    start_t = time.time()
 
     for k in range(100):
 
@@ -2238,17 +2239,16 @@ def testbed(problem_params, algo_params):
         # don't we just calculate the whole mean/std at test pts twice?
 
         vk_prev = v_k
-        v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=v_next_target)
+        v_k, test_pts_known, estimator_metrics = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=v_next_target)
 
-        run.track(v_k, name='vk')
+        for metric_key in estimator_metrics:
+            run.track(estimator_metrics[metric_key], step=k, name=metric_key)
 
-        if v_k < vk_prev and k > 0:
-            print('warning: level set shrinking.')
-
-        vks.append(v_k)
+        run.track(time.time() - start_t, step=k, name='wall_t')
 
         # set next value target :)
         v_next_target = set_value_target(all_ys, v_k)
+        run.track(v_next_target, step=k, name='v_next_target')
 
         key = jax.random.PRNGKey(k)
 
@@ -2269,39 +2269,13 @@ def testbed(problem_params, algo_params):
             pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
-        backward_sols_new = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
+        backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
 
-        # is_usable = ~np.isnan(jax.vmap(lambda sol: sol.ys['v'][sol.stats['num_accepted_steps']])(backward_sols_new))
-        # simpler way:
-        is_usable = backward_sols_new.stats['num_accepted_steps'] > 0
-        print(f'{100*is_usable.mean():.2f}% of forward simulations reached lower value level set AND low sigma.')
-
-        '''
-        # find out how close we got.
-        # this depends on the specific timesteps too...
-        sol_min_dist = lambda x, sol: np.min(np.linalg.norm(sol.ys['x'] - x[None, :], axis=1))
-        sol_dists = lambda x, sol: np.linalg.norm(sol.ys['x'] - x[None, :], axis=1)
-
-        min_dists = jax.vmap(sol_min_dist, in_axes=(0, 0))(proposed_pts, backward_sols_new)
-        dists = jax.vmap(sol_dists, in_axes=(0, 0))(proposed_pts, backward_sols_new)
-        ipdb.set_trace()
-        '''
-
-        # append new data to main data set, now in flattened shape. would it be
-        # smarter to keep this in some sort of dict to avoid reallocation?
-        # -> probably marginal gains
-
-        # truly unhinged idea: keep the big dataset sorted by ys['v'], so we can
-        # do binary search to find the relevant value ranges?
-
-        print_solver_stats(backward_sols_new)
-
-        # new_ys = flat_sol_ys(backward_sols_new)
+        for metric_key in oracle_metrics:
+            run.track(oracle_metrics[metric_key], step=k, name=metric_key)
 
         new_ys = backward_sols_new.ys
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
-
-        # ipdb.set_trace()
         is_suboptimal = np.concatenate([is_suboptimal, np.zeros_like(new_ys['v']).astype(bool)], axis=0)
 
         prev_params_sobolev_ens = params_sobolev_ens
@@ -2318,51 +2292,6 @@ def testbed(problem_params, algo_params):
         )
         all_oups = oups
 
-        '''
-        else:
-            all_oups = None
-
-            # store somewhere which solutions we've pruned already?
-
-            # or just "blindly":
-            n_pruned = []
-            v_next_list = np.linspace(v_k, v_next_target, 20)
-            for i, vnext in enumerate(v_next_list):
-
-                print(f' ~~~~ prune&train substep {i}, vnext = {vnext:.3f} ~~~~')
-                params_sobolev_ens, oups, is_suboptimal_new = prune_and_train_simple(
-                    train_key,
-                    params_sobolev_ens,
-                    all_ys,
-                    [v_k, vnext],
-                    is_suboptimal,
-                    algo_params,
-                    warmstart=True
-                )
-
-                n_pruned.append(is_suboptimal_new.sum())
-
-                # remove pruned points. once marked suboptimal we definitely won't need it again.
-                all_ys = jtm(lambda node: node.at[is_suboptimal].set(np.inf), all_ys)
-
-                v_k = vnext  # blindly accept? we need that to prune in the next substep...
-
-                if all_oups is None:
-                    all_oups = oups
-                else:
-                    # these shapes are (N_ensemble, N_trainsteps) apparently so axis=1
-                    all_oups = jtm(lambda a, b: np.concatenate([a, b], axis=1), all_oups, oups)
-
-                pl.figure(f'n pruned, iter {k}')
-                pl.plot(n_pruned)
-                if algo_params['savefigs']:
-                    pl.savefig(f'tmp/n_pruned_{k:04d}.png')
-        '''
-
-
-
-
-
         # here:
         # if NN training went like shit:
         #     repeat prune&train with smaller v_next_target.
@@ -2372,6 +2301,7 @@ def testbed(problem_params, algo_params):
         #     v_next_target = v_k + (v_next_target - v_k) / 2
         #     repeat prune_and_train_simple, starting from PREVIOUS params if warmstart bc current ones are messed up
 
+        run.track(v_k, step=k, name='vk')
 
         pl.figure(f'nn training iter {k}')
         plotting_utils.plot_nn_train_outputs(all_oups, subsample=8)
@@ -2413,10 +2343,6 @@ def testbed(problem_params, algo_params):
             # pass
 
 
-
-    pl.figure()
-    pl.plot(vks, label='known value level')
-    pl.legend()
 
     pl.figure('off manifold straying m(x)')
     pl.plot(jax.vmap(problem_params['m'])(all_ys['x'].reshape(-1, 7)))

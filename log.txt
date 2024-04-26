@@ -4015,4 +4015,15 @@ training scan function is not re-jitted everytime? some options:
 but it doesn't seem to be very slow atm. NN training is a fair bit faster
 than before.
 
+okay, got the launcher script working as well (i think). because now I
+don't specify an output file anymore, it just makes new files like
+slurm-56541825.out in the current directory.
 
+next step would definitely be proper experiment tracking.
+
+trying out aim at the moment. very cool at first glance. we give it the
+entire algoparams dict (except functions), give it values to track and it
+does everything neatly. apparently it can also track matplotlib figures?
+
+next step: get aim working on euler.
+https://aimstack.readthedocs.io/en/latest/using/remote_tracking.html

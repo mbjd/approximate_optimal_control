@@ -4,6 +4,8 @@ import jax
 import jax.numpy as np
 import diffrax
 
+import aim
+
 import levelsets
 import pontryagin_utils
 import visualiser
@@ -900,7 +902,7 @@ def base_algo_params():
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': np.array([1., 10]),
+        'nn_sobolev_weights': [1., 10],
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -913,11 +915,6 @@ def base_algo_params():
         'v_prior': 500.,
         # 'v_prior_factor': 100.,
         # 'prior_extent_factor': 8,
-
-        # tells the data normaliser to not normalise those states
-        # y-axis (v) is still scaled and with it vx.
-        # 'normalise_states': np.array([True, True, False, False, True, True, True]),
-        'normalise_states': np.array([False, False, False, False, False, False, False]),
 
         'nn_progressbar': True,
 
@@ -950,7 +947,11 @@ def base_algo_params():
         'pruning_strategy': 'bayesian',
 
         # tolerate some more error just to make the experiments run faster
-        'sigma_max': lambda mu: 0.5 + 0.05 * mu,
+        # this is nicer but aim doesn't like it.
+        # 'sigma_max': lambda mu: 0.5 + 0.05 * mu,
+        'sigma_max_abs': 0.5,
+        'sigma_max_rel': 0.05,
+
         'vk_estimator': 'k_exceptions',
 
         # the sublevel set Vk must contain at least this fraction of test points
@@ -1067,6 +1068,7 @@ if __name__ == '__main__':
                 raise ValueError(f'argument {k} has type {type(new_arg)} but should have type {type(old_arg)}')
 
             algo_params[k] = new_arg
+
 
     levelsets.testbed(problem_params, algo_params)
 

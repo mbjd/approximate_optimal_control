@@ -447,9 +447,11 @@ class nn_wrapper():
         lossterms['v'] = v_loss
         # lossterms['vx'] = vx_loss
 
+        nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
+
         if problem_params['m'] is not None:
 
-            assert algo_params['nn_sobolev_weights'].shape == (2,), 'vxx not implemented with manifold state space'
+            assert nn_sobolev_weights.shape == (2,), 'vxx not implemented with manifold state space'
 
             # in this case the state space is a submanifold of R^n:
             #     M = {x in R^n: m(x) = 0}.
@@ -538,7 +540,7 @@ class nn_wrapper():
             lossterms['vx'] = vx_loss
 
         # if there are three weights they are for (v, vx, vxx). if only two, (v, vx).
-        if algo_params['nn_sobolev_weights'].shape == (3,):
+        if nn_sobolev_weights.shape == (3,):
 
             raise NotImplementedError()
             # this code is stale at this point.
@@ -585,20 +587,22 @@ class nn_wrapper():
             # make convex combination by normalising weights.
             # multiplying this by a constant is the same as adjusting the learning rate so
             # we might as well take that degree of freedom away.
-            weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
+
+            normalised_weights = nn_sobolev_weights / np.sum(nn_sobolev_weights)
+
             sobolev_losses = np.array([v_loss, vx_loss, vxx_loss])
 
             # we can have two outputs, the first of which is the one being differentiated if we use
             # jax.value_and_grad(..., has_aux=True) later.
-            return weights @ sobolev_losses, sobolev_losses
+            return normalised_weights @ sobolev_losses, sobolev_losses
 
 
-        elif algo_params['nn_sobolev_weights'].shape == (2,):
+        elif nn_sobolev_weights.shape == (2,):
 
-            weights = algo_params['nn_sobolev_weights'] / np.sum(algo_params['nn_sobolev_weights'])
+            normalised_weights = nn_sobolev_weights / np.sum(nn_sobolev_weights)
             sobolev_losses = np.array([v_loss, vx_loss])
 
-            loss = weights @ sobolev_losses
+            loss = normalised_weights @ sobolev_losses
 
             return loss, lossterms
 

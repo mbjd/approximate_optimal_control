@@ -949,7 +949,7 @@ def testbed(problem_params, algo_params):
             # return (v_mean + 2 * v_std <= v_k).item()   # if meanstd returns arrays of shape (), not floats
             is_very_likely_in_Vk = v_mean + 2 * v_std <= v_k
 
-            sigma_max = algo_params['sigma_max'](v_mean)
+            sigma_max = algo_params['sigma_max_abs'] + v_mean * algo_params['sigma_max_rel']
 
             has_low_sigma = v_std <= sigma_max
 
@@ -1175,7 +1175,8 @@ def testbed(problem_params, algo_params):
         # forget this for now maybe its even a good thing.
 
         v_means, v_stds = v_meanstds(all_valueband_pts, vmap_nn_params)
-        sigma_maxs = jax.vmap(algo_params['sigma_max'])(v_means)
+
+        sigma_maxs = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
 
 
         N_proposals = algo_params['active_learning_batchsize']
@@ -1403,7 +1404,10 @@ def testbed(problem_params, algo_params):
         # conditions as well. *maybe* there is some edge case where the condition is True at the
         # last step and the solver quits anyway, so it doesn't report quitting "due to" the event?
         mus, sigs = v_meanstds(xfs, vmap_nn_params)
-        sig_maxs = algo_params['sigma_max'](mus)
+
+
+
+        sig_maxs = algo_params['sigma_max_abs'] + mus * algo_params['sigma_max_rel']
         is_usable = np.logical_and(mus + 2 * sigs <= v_k, sigs <= sig_maxs)
 
         # this assertion never failed since the last change of making
@@ -1943,7 +1947,7 @@ def testbed(problem_params, algo_params):
         # estimate "known" value level based on finite test points set.
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
 
-        sigma_maxs = jax.vmap(algo_params['sigma_max'])(v_means)
+        sigma_maxs = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
         sigma_small_enough = v_stds <= sigma_maxs
 
         sigma_small_enough = np.logical_or(test_pts_known, sigma_small_enough)
@@ -2045,7 +2049,7 @@ def testbed(problem_params, algo_params):
 
         vmax = v_means.max()
         plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
-        plot_sig_maxs = jax.vmap(algo_params['sigma_max'])(plot_vs)
+        plot_sig_maxs = algo_params['sigma_max_abs'] + plot_vs * algo_params['sigma_max_rel']
         pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
 
 
@@ -2210,6 +2214,15 @@ def testbed(problem_params, algo_params):
     #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
+    import aim
+    run = aim.Run()
+
+    # algo_params_for_aim = just the algoparams that are not weird types like
+    # functions. the only functions we have are the sample_state ones and they
+    # are not really relevant here.
+    algo_params_for_aim = {k: v for k, v in algo_params.items() if not callable(v)}
+
+    run['hparams'] = algo_params_for_aim
 
     for k in range(100):
 
@@ -2226,6 +2239,8 @@ def testbed(problem_params, algo_params):
 
         vk_prev = v_k
         v_k, test_pts_known = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=v_next_target)
+
+        run.track(v_k, name='vk')
 
         if v_k < vk_prev and k > 0:
             print('warning: level set shrinking.')

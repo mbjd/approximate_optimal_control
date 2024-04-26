@@ -121,7 +121,7 @@ pontryagin_solver = pontryagin_utils.make_pontryagin_solver_reparam(problem_para
 
 
 thetas = np.linspace(0, 2 * np.pi, 128)[:-1]
-circle_xs = np.row_stack([np.sin(thetas), np.cos(thetas)])
+circle_xs = np.vstack([np.sin(thetas), np.cos(thetas)])
 x0s = 0.1 * np.linalg.inv(scipy.linalg.sqrtm(P0_inf)) @ circle_xs + xf[:, None]  # sqrtm "covariance" maps circle to ellipse.
 
 

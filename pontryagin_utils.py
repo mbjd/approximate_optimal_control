@@ -85,7 +85,8 @@ def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
     # call with vmap for each pair of adjacent vertices.
     boundary_candidates = jax.vmap(ustar_over_line_segment, in_axes=(0, 0))(cvx_hull, np.roll(cvx_hull, 1, 0))
 
-    all_candidates = np.row_stack([u_star_unconstrained, boundary_candidates])
+    all_candidates = np.vstack([u_star_unconstrained, boundary_candidates])
+    ipdb.set_trace()
 
     all_Hs = jax.vmap(H_fct)(all_candidates)
 

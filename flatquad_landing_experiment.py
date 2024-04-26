@@ -954,7 +954,7 @@ if __name__ == '__main__':
         # which are below the sigma target to qualify as "learned".
         'frac_certain_in_Vk': .99,
 
-        'savefigs': False,
+        'savefigs': True,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

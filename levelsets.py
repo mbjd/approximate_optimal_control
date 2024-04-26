@@ -555,6 +555,9 @@ def main(problem_params, algo_params):
 
 def testbed(problem_params, algo_params):
 
+
+    print(f'jax default backend = {jax.default_backend()}')
+
     # possibly cleaner implementation of this.
     # idea: learn V(x) for some level set V(x) <= v_k.
     # once we have that, increase v_k.
@@ -1546,7 +1549,6 @@ def testbed(problem_params, algo_params):
             # cumsum marks as suboptimal the PRECEDING points in physical time even
             # though in array indices they are the subsequent ones. all correct.
             is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
-            ipdb.set_trace()
 
 
         elif algo_params['pruning_strategy'] == 'lipschitz':
@@ -2384,8 +2386,10 @@ def testbed(problem_params, algo_params):
         plot_calibration(all_ys, means, stds)
 
 
+        '''
         if k % 20 == 0:
             ipdb.set_trace()
+        '''
 
 
         if algo_params['savefigs']:

@@ -1761,7 +1761,14 @@ def testbed(problem_params, algo_params):
                 train_key, train_ys, problem_params, algo_params
             )
 
-        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal
+        # mean of the last couple iterations.
+        final_trainloss = oups_sobolev_ens['train_loss_terms']['total_loss'].mean(axis=0)[-100:].mean()
+
+        # and loss over test set.
+        test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
+        final_testloss = np.mean(test_losses)
+
+        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, final_trainloss, final_testloss
 
 
 
@@ -1879,7 +1886,7 @@ def testbed(problem_params, algo_params):
     test_pts_known = np.zeros((N_testpts,)).astype(bool)
 
 
-    # @jax.jit
+    @jax.jit
     def estimate_value_level(v_means, v_stds, test_pts_known, upper_v=np.inf):
 
         # this function could also try to detect learning failure...
@@ -1969,15 +1976,15 @@ def testbed(problem_params, algo_params):
         # a) they are below the sigma threshold, and clearly (2 sigma) within the currently estimated level set
         new_testpts_known = (sigma_small_enough * (v_means + 2 * v_stds <= v_k))
 
-        # b) they are above the sigma threshold, and VERY clearly (2 sigma) within the currently estimated level set
+        # b) they are above the sigma threshold, and VERY clearly (10 sigma) within the currently estimated level set
         new_testpts_known = np.logical_or(new_testpts_known, v_means + 10 * v_stds <= v_k)
 
+        # c) they were known in the previous iteration.
         new_testpts_known = np.logical_or(test_pts_known, new_testpts_known)
 
 
 
 
-        print(f'test points known: {100*new_testpts_known.mean():.2f}%')
         metrics = dict()
         metrics['frac_testpts_known'] = new_testpts_known.mean()
 
@@ -1988,7 +1995,6 @@ def testbed(problem_params, algo_params):
         # in first half. so avoid that.
 
         half = test_pts_known.shape[0] // 2
-        print(f'state space volume known: {100*new_testpts_known[half:].mean():.6f}%')
         metrics['frac_volume_known'] = new_testpts_known[half:].mean()
 
         return v_k, new_testpts_known, metrics
@@ -2013,23 +2019,8 @@ def testbed(problem_params, algo_params):
     pl.loglog(lqr_vs, solution_vs, '. ', alpha=.2)
     '''
 
-    all_ys = select_train_pts([v_k/1000, v_k], sols_orig)
-
-    # what if instead we don't really constrain this initial data set to a
-    # low-ish value level, and just let the v_k estimator figure out up to
-    # which level it worked? -> value level is the same but extrapolation seems
-    # to improve which makes sense. equivalently we can just set v_k a bit
-    # higher initially
-    # all_ys = select_train_pts([0.001, 500], sols_orig)
-
+    all_ys = select_train_pts([0., v_k], sols_orig)
     # split into train/test set.
-
-    # put in the lqr solution hehehe (for v_k like 5 it is practically the same...)
-    # fake_ys = all_ys.copy()
-    # fake_ys['v'] = jax.vmap(V_f)(all_ys['x'])
-    # fake_ys['vx'] = jax.vmap(jax.jacobian(V_f))(all_ys['x'])
-    # train_ys, test_ys = nn_utils.train_test_split(fake_ys, train_frac=algo_params['nn_train_fraction'])
-
     train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
 
 
@@ -2039,10 +2030,6 @@ def testbed(problem_params, algo_params):
         output_dim=1
     )
 
-
-    # normaliser = nn_utils.data_normaliser(train_ys, problem_params, algo_params)
-    # ys_n = normaliser.normalise_all_dict(train_ys)
-    # test_ys_n = normaliser.normalise_all_dict(test_ys)
 
     init_key, key = jax.random.split(key)
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
@@ -2183,7 +2170,7 @@ def testbed(problem_params, algo_params):
         # prune suboptimal data & train NN
         prev_params_sobolev_ens = params_sobolev_ens
         train_key, key = jax.random.split(key)
-        params_sobolev_ens, oups, is_suboptimal = prune_and_train_simple(
+        params_sobolev_ens, oups, is_suboptimal, final_trainloss, final_testloss = prune_and_train_simple(
             train_key,
             params_sobolev_ens,
             all_ys,
@@ -2197,12 +2184,12 @@ def testbed(problem_params, algo_params):
 
 
 
-
-
         # metric tracking :)
         run.track(time.time() - start_t, step=k, name='wall_t')
         run.track(v_k, step=k, name='vk')
         run.track(v_next_target, step=k, name='v_next_target')
+        run.track(final_trainloss, step=k, name='final_trainloss')
+        run.track(final_testloss, step=k, name='final_testloss')
 
         for metric_key in estimator_metrics:
             run.track(estimator_metrics[metric_key], step=k, name=metric_key)
@@ -2218,7 +2205,7 @@ def testbed(problem_params, algo_params):
             pl.savefig(f'tmp/meanstds_{k:04d}.png')
         if algo_params['aimfigs']:
             aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='trainplot')
+            run.track(aimfig, step=k, name='proposals')
 
         fig = pl.figure(f'nn training iter {k}')
         plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)

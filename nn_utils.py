@@ -599,6 +599,8 @@ class nn_wrapper():
 
             loss = normalised_weights @ sobolev_losses
 
+            lossterms['total_loss'] = loss
+
             return loss, lossterms
 
         else:

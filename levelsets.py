@@ -1646,7 +1646,14 @@ def testbed(problem_params, algo_params):
     #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
-    run = aim.Run()
+    if os.getlogin() == 'dbalduin':
+        # we are on euler
+        repo_file = '/cluster/home/dbalduin/approximate_optimal_control/aim_repo.txt'
+        repo = open(repo_file, 'r').read().strip()
+        run = aim.Run(repo=repo)
+    else:
+        # locally
+        run = aim.Run()
 
     # algo_params_for_aim = just the algoparams that are not weird types like
     # functions. the only functions we have are the sample_state ones and they

@@ -935,6 +935,10 @@ def base_algo_params():
         'initial_batchsize': 128,
         'active_learning_batchsize': 128,
 
+        # the max. time horizon by which we aim to grow the known level set
+        # in one iteration.
+        'T_value_target': 1.,
+
         # proposal strategy ≅ acquisition function.
         # implemented:
         #  - max_sigma
@@ -956,9 +960,15 @@ def base_algo_params():
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".
+        # only applies for 'vk_estimator' == 'relaxed'.
         'frac_certain_in_Vk': .99,
 
-        'savefigs': True,
+        # save figures on filesystem.
+        'savefigs': False,
+        # track figures with aim.
+        'aimfigs': True,
+        # show figures in UI (blocking!)
+        'showfigs': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

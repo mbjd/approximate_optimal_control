@@ -185,8 +185,6 @@ class my_nn_flax(nn.Module):
         if self.output_dim is not None:
             x = nn.Dense(features=self.output_dim)(x)
 
-        # return x.reshape()  # finally get rid of all those shitty (.., 1) shapes
-
         # these sorts of tricks are probably equivalent to transforming the
         # training data with a (smooth invertible) function and then training
         # with the accordingly modified loss function. but this is much cooler,
@@ -198,7 +196,7 @@ class my_nn_flax(nn.Module):
         # return (x + ((np.sqrt(1 + x**2) + x) / 2)**2).squeeze()
 
         # can we just choose a power here?
-        return (x + nn.softplus(x)**2).squeeze()
+        # return (x + nn.softplus(x)**2).squeeze()
         # return (x + nn.softplus(x)**3).squeeze()
         # return (x + nn.softplus(x)**4).squeeze()
 
@@ -212,9 +210,6 @@ class my_nn_flax(nn.Module):
         # x+exp(x) here. but I feel like basic powers suffer fewer issues with
         # v going to infinity suddenly.
         # return (x + np.exp(x)).squeeze()
-
-
-
 
         return x.squeeze()
 
@@ -853,7 +848,7 @@ class nn_wrapper():
 
         # adjust algoparams for warmstart situation. do this in a neater way if it works.
         algo_params_warmstart = algo_params.copy()
-        portion = 0.1   # repeat the last "portion" of the usual training loop.
+        portion = 1/3.   # repeat the last "portion" of the usual training loop.
         algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
         algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
         # algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion

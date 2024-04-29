@@ -1072,8 +1072,10 @@ def testbed(problem_params, algo_params):
         # instead calculate a more educated guess like this:
         # TODO make this configurable via algo_params
         # and get the time constant from problemparams...
-        fastestpole_tau = .49  # from LQR solution.
-        T = 5 * fastestpole_tau
+        # fastestpole_tau = .49  # from LQR solution.
+        # T = 2 * fastestpole_tau
+
+        T = algo_params['T_value_target']
 
         # use actual previous value level instead?
         min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
@@ -1094,7 +1096,7 @@ def testbed(problem_params, algo_params):
 
         value_interval = [v_k, v_next]
 
-        # ~~~ b) find uniformly sampled points from value band w/ rejection sampling ~~~
+        # ~~~  find uniformly sampled points from value band w/ rejection sampling ~~~
 
         # to "approximate" all kinds of global optimisation & sampling
         # operations over that set. this is a bit ugly and certainly not
@@ -1165,9 +1167,12 @@ def testbed(problem_params, algo_params):
         all_valueband_pts = all_valueband_pts[0:N_pts_desired, :]
         assert all_valueband_pts.shape == (N_pts_desired, problem_params['nx'])
 
-        # ~~~ c) find a sensible subset of that points to use as proposals ~~~
-        # now we have 1000 points that satisfy the first requirement (be inside of the value band).
-        # as a first attempt we just sample without replacement according to acquisition function style weights.
+        # ~~~ find a sensible subset of those points to use as proposals ~~~
+
+        # now we have 1000 points that satisfy the first requirement (be
+        # inside of the value band). as a first attempt we just sample
+        # without replacement according to acquisition function style
+        # weights.
 
         # things to consider afterwards:
         # - ensure the samples are not very close (some literature about this "batched active learning", max kernel distance etc.)
@@ -1200,11 +1205,12 @@ def testbed(problem_params, algo_params):
 
         if proposal_strategy == 'max_kernel':
 
-            # very experimental implementation. we choose the max sigma point,
-            # then mark all points in a given radius as unusable. maybe this is
+            # very experimental implementation. we choose the max sigma
+            # point, then assume that close sigmas decrease based on that
+            # according to some kernel function.
+
             # not maxkernel at all but should ensure that we can propose
             # high-sigma points without them all being in the same region.
-
 
             def scan_fct(sigmas, inp):
 
@@ -1513,6 +1519,10 @@ def testbed(problem_params, algo_params):
             is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
             is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
+            # TODO set some time or value interval, mark the subsequent
+            # points suboptimal as well.
+            raise NotImplementedError('this is the same as \'conservative\' right now...')
+
 
 
         elif algo_params['pruning_strategy'] == 'generous':
@@ -1544,6 +1554,8 @@ def testbed(problem_params, algo_params):
 
             # but only trust the nn posterior up until v_upper, above that level it is purely an extrapolation
             is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v']) & (all_ys['v'] < v_upper)
+
+            # in fact after all these changes I doubt this is worth much at all.
 
             # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
             # cumsum marks as suboptimal the PRECEDING points in physical time even
@@ -2261,7 +2273,7 @@ def testbed(problem_params, algo_params):
         # now seem to work alright). counterintuitively we give less info to
         # the extrapolated, 'half-learned' regime. but maybe that's the price
         # we pay for actual pruning of suboptimal solutions.
-        v_next_target = v_k + (v_next_target - v_k)*0.2
+        # v_next_target = v_k + (v_next_target - v_k)*0.2
 
         # this figure is opened in estimate_value_level and further written to in propose_pts...
         # and here too...
@@ -2303,30 +2315,50 @@ def testbed(problem_params, algo_params):
 
         run.track(v_k, step=k, name='vk')
 
-        pl.figure(f'nn training iter {k}')
-        plotting_utils.plot_nn_train_outputs(all_oups, subsample=8)
+        fig = pl.figure(f'nn training iter {k}')
+        plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)
         pl.ylim([1e-4, 1e3])
         if algo_params['savefigs']:
             pl.savefig(f'tmp/trainplot_{k:04d}.png')
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='trainplot')
 
 
-        pl.figure(f'random trajectory, iter {k}')
+        fig = pl.figure(f'random trajectory, iter {k}')
         plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
         if algo_params['savefigs']:
             pl.savefig(f'tmp/trajectory_{k:04d}.png')
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='trajectory')
 
-        pl.figure('manifold')
+        fig = pl.figure('manifold')
         plot_manifold(v_nn, params_sobolev_ens, problem_params)
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='manifold')
 
-        pl.figure(f'value lines, iter {k}')
+        fig = pl.figure(f'value lines, iter {k}')
         plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='value_lines')
 
-        pl.figure(f'lipschitz plot, iter {k}')
+        fig = pl.figure(f'lipschitz plot, iter {k}')
         lipschtz_plot(all_ys)
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='lipschitz')
 
-        pl.figure(f'nn calibration, iter {k}')
+        fig = pl.figure(f'nn calibration, iter {k}')
         means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
         plot_calibration(all_ys, means, stds)
+        if algo_params['savefigs']:
+            pl.savefig(f'tmp/calibration_{k:04d}.png')
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='calibration')
 
 
         '''
@@ -2335,13 +2367,10 @@ def testbed(problem_params, algo_params):
         '''
 
 
-        if algo_params['savefigs']:
-            pl.savefig(f'tmp/calibration_{k:04d}.png')
-            pl.close('all')
-        else:
+        if algo_params['showfigs']:
             pl.show()
-            # pass
 
+        pl.close('all')
 
 
     pl.figure('off manifold straying m(x)')

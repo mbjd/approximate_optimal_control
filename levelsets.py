@@ -404,12 +404,13 @@ def testbed(problem_params, algo_params):
         x0 = np.array([ 2.398837  ,  0.06769013,  0.        , -1.        , -1.166603  , 3.3332477 , -5.1929855 ], dtype=float)
         x1 = x0 * np.array([-1, 1, -1, 1, -1, 1, -1])
 
-        ts = np.linspace(-1, 1, 0)
+        ts = np.linspace(-1, 1, 200)
         xs = np.linspace(x0, x1, 200)
 
         mus, sigmas = v_meanstds(xs, vmap_params)
 
         ax = pl.subplot(211)
+
         pl.plot(ts, mus, label='value mean')
         pl.fill_between(ts, mus - sigmas, mus + sigmas, color='C0', alpha=.2, label=f'value 1σ confidence')
         pl.legend()

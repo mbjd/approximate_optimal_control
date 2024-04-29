@@ -896,56 +896,49 @@ def base_algo_params():
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
 
+        'nn_progressbar': True,
+
         # NN LOSS FUNCTION
         # relative importance of the losses for v, vx, vxx.
         # mostly we care about representing vx with great accuracy,
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': [1., 10],
+        'nn_sobolev_weights': [1., 10.],
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
-        'vx_normal_regularisation': 0.0001,
+        'vx_normal_regularisation': 0.001,
 
-        # this is not a proper "prior" in the bayesian sense, but rather just an additional weak
-        # loss term that makes the value function large-ish at the problematic state of being upside
-        # down but otherwise at equilibrium state.
+        # this is not a proper "prior" in the bayesian sense, but rather
+        # just an additional weak loss term that makes the value function
+        # large-ish at the problematic state of being upside down but
+        # otherwise at equilibrium.
         'prior_strength': 0.01,
         'v_prior': 500.,
         # 'v_prior_factor': 100.,
         # 'prior_extent_factor': 8,
-
-        'nn_progressbar': True,
 
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
         'thin_data': True,
-        # 'N_band': 4096,
-        # 'N_lower': 4096,
 
 
         # the value level we include in the initial learning round.
         'v_init': 50,
+        'initial_shooting': 'lqr',
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'initial_batchsize': 128,
-        'active_learning_batchsize': 128,
+        'initial_batchsize': 256,
+        'active_learning_batchsize': 256,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
         'T_value_target': 1.,
 
-        # proposal strategy ≅ acquisition function.
-        # implemented:
-        #  - max_sigma
-        #  - lowest_v_uncertain
-        #  - uniform_uncertain
-        #  - softmax
-        #  - softmax_uncertain
         'proposal_strategy': 'max_kernel',
 
         'pruning_strategy': 'conservative_past',

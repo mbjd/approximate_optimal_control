@@ -32,10 +32,20 @@ def train_test_split(ys, train_frac=0.9):
 
     assert 0. < train_frac <= 1., '<gordon ramsey voice> this "training fraction" is not even a fraction you donkey'
 
-    split_idx = int(train_frac * ys['x'].shape[0])
+    N_train = int(train_frac * ys['x'].shape[0])
 
-    train_ys = jax.tree_util.tree_map(lambda n: n[:split_idx], ys)
-    test_ys  = jax.tree_util.tree_map(lambda n: n[split_idx:], ys)
+    # deterministic -- always last data as test set. dumb idea.
+    # train_ys = jax.tree_util.tree_map(lambda n: n[:N_train], ys)
+    # test_ys  = jax.tree_util.tree_map(lambda n: n[N_train:], ys)
+
+    train_idx = jax.random.choice(jax.random.PRNGKey(0), ys['x'].shape[0], (N_train,), replace=False)
+    # but this as a boolean mask:
+    train_mask = np.zeros(ys['x'].shape[0], dtype=bool).at[train_idx].set(True)
+    test_mask = ~train_mask
+
+
+    train_ys = jax.tree_util.tree_map(lambda n: n[train_mask], ys)
+    test_ys  = jax.tree_util.tree_map(lambda n: n[test_mask], ys)
 
     return train_ys, test_ys
 

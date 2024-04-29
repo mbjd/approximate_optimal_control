@@ -41,6 +41,8 @@ theory.
 
 implementation, most important.
 
+- get aim experiment tracking working properly on euler.
+
 - spend some time thinking about prune&train function and try to see it
   working with some appropriately selected test case. make sure it works
   both from a theory standpoint and in practice at least for easy cases.
@@ -103,6 +105,11 @@ implementation, mid/low importance.
   to old repr should work just fine)
 
 - system state as dict too? probably not worth the effort though.
+
+- instead of uniform backward shooting for initialisation, try to get a
+  better trajectory distribution by forward simulating with the LQR
+  solution, starting from uniformly distributed points inside some LQR
+  value level set (= ellipsoid), and then backward shooting from there.
 
 
 

@@ -4027,3 +4027,25 @@ does everything neatly. apparently it can also track matplotlib figures?
 
 next step: get aim working on euler.
 https://aimstack.readthedocs.io/en/latest/using/remote_tracking.html
+
+
+
+2024-04-29
+
+put even more tracking data into aim. figures as images. refactored a bit,
+separated tracking/plotting from main functionality (relatively) neatly.
+
+started evaluating train/test loss after each prune/train step. noticed
+test loss being above train loss by a large margin. feared overfitting.
+however I think the explanation is simpler: our train/test split function
+just chooses the first 90% of the data as train and the rest as test. this
+happens to coincide with old/new data respectively. so we are reserving a
+large part of our new data for the test set! this should clearly be
+randomised, changing rn.
+
+this might have actually been the WHOLE reason for the plateau at 250-300
+value -- there must be some point where the new data is less than the test
+fraction, and so is not used at all. will see after lunch if the change
+affects this as much as this would suggest.
+
+project for afternoon: intermingle aim & euler.

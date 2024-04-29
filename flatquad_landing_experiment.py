@@ -948,7 +948,7 @@ def base_algo_params():
         #  - softmax_uncertain
         'proposal_strategy': 'max_kernel',
 
-        'pruning_strategy': 'bayesian',
+        'pruning_strategy': 'conservative_past',
 
         # tolerate some more error just to make the experiments run faster
         # this is nicer but aim doesn't like it.

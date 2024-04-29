@@ -196,7 +196,7 @@ class my_nn_flax(nn.Module):
         # return (x + ((np.sqrt(1 + x**2) + x) / 2)**2).squeeze()
 
         # can we just choose a power here?
-        # return (x + nn.softplus(x)**2).squeeze()
+        return (x + nn.softplus(x)**2).squeeze()
         # return (x + nn.softplus(x)**3).squeeze()
         # return (x + nn.softplus(x)**4).squeeze()
 
@@ -209,7 +209,7 @@ class my_nn_flax(nn.Module):
         # an actual log transform could be mimicked by returning exp(x) or
         # x+exp(x) here. but I feel like basic powers suffer fewer issues with
         # v going to infinity suddenly.
-        # return (x + np.exp(x)).squeeze()
+        # return (x + np.exp(x/10)).squeeze()
 
         return x.squeeze()
 

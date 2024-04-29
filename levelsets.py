@@ -1364,21 +1364,10 @@ def testbed(problem_params, algo_params):
         if do_replace:
             print('warning -- had too few points to sammple, resorting to choice(replace=True)')
 
-        # make some global --loglevel style algoparam to decide what to plot?
-        # and/or switching between savefig and show? especially useful for euler...
-        plot=True
-        if plot:
-            # pl.plot(v_means, v_stds, '. ', label='candidates')
-            pl.plot(v_means[proposal_idxs], v_stds[proposal_idxs], '. ', label='proposals', alpha=.2, color='green')
-            pl.legend()
-
-            pl.xlim([1e-1, 1e4])
-            pl.ylim([1e-2, 1e3])
-
 
         proposed_states = all_valueband_pts[proposal_idxs]
 
-        return proposed_states
+        return proposed_states, v_means[proposal_idxs], v_stds[proposal_idxs]
 
 
 
@@ -1494,10 +1483,11 @@ def testbed(problem_params, algo_params):
 
             is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
-        elif algo_params['pruning_strategy'] == 'conservative_future':
+        elif algo_params['pruning_strategy'] == 'conservative_past':
 
             # same as conservative, BUT also mark points as suboptimal that
-            # "lead" to a suboptimal trajectory segment in the future. this
+            # "lead" to a suboptimal trajectory segment in the future, i.e.
+            # that are in the past w.r.t. the definitely suboptimal point.
             # should be strictly better than 'conservative'.
 
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
@@ -1512,16 +1502,22 @@ def testbed(problem_params, algo_params):
 
         elif algo_params['pruning_strategy'] == 'conservative_bidirectional':
 
-            # same as conservative_future BUT also remove trajectory segments that in the close past have been suboptimal
+            # same as conservative_past, but also remove points that are a
+            # bit in the future wrt the suboptimal points.
+
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
             trajectory_outside_levelset = v_lower < all_ys['v']
 
             is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
             is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
-            # TODO set some time or value interval, mark the subsequent
-            # points suboptimal as well.
-            raise NotImplementedError('this is the same as \'conservative\' right now...')
+            T_future = 0.5
+
+            raise NotImplementedError('untested & probably does the wrong thing')
+            # [np.inf if no point is suboptimal in trajectory, else time of first suboptimal point for trajectory in trajectories]
+            t_suboptimal = np.where(is_suboptimal, all_ys['t'], np.inf)
+
+            # TODO finish
 
 
 
@@ -1723,50 +1719,6 @@ def testbed(problem_params, algo_params):
             v_cutoff = v_lower / 100
             in_band = in_band & (v_cutoff <= all_ys['v'])
 
-            '''
-            # test strategy: take fixed number of highest value points (leading to
-            # upper, densely sampled value band) & fixed number subsample of lower
-            # points.
-
-            N_band = algo_params['N_band']
-            N_lower = algo_params['N_lower']
-
-            if usable_ys['v'].shape[0] >= N_band + N_lower:
-
-                # thin out the data, if we have more data than N_band + N_lower
-
-                # should we not instead of the top k values take the ones just
-                # above the known level set? or close above&below? with the
-                # current way we might sample less densely in the region we
-                # need to learn first
-
-                arr, top_idx = jax.lax.top_k(usable_ys['v'], N_band)
-                print('thinning out data')
-                print(f'densely sampled value interval = [{arr.min()}, {arr.max()}]')
-
-                if arr.min() >= v_interval[0]:
-                    print('warning: densely sampled interval smaller than value interval')
-
-                # nicer to work with boolean indices.
-                bot_bool_idx = np.ones_like(usable_ys['v'], dtype=bool).at[top_idx].set(False)
-                top_bool_idx = ~bot_bool_idx
-
-                # this should hold based on the if above. if not, documentation says that choice
-                # without replacements is undefined.
-                assert bot_bool_idx.sum() >= N_lower, 'not enough datapoints'
-
-                # we take a random subsample. bool indices serve as probabilities -> choose only from bottom subset.
-                # we return the indices, so we can choose those elements from each dict member, thus the int (-> arange).
-                key, sample_key = jax.random.split(key)
-                bot_subsample_idx = jax.random.choice(
-                        sample_key, usable_ys['v'].shape[0], shape=(N_lower,), replace=False, p=bot_bool_idx.astype(float)
-                )
-
-                all_idx = np.concatenate([top_idx, bot_subsample_idx])
-
-                usable_ys = jtm(lambda node: node[all_idx], usable_ys)
-            '''
-
 
 
         bool_train_idx = in_band & ~is_suboptimal
@@ -1808,28 +1760,6 @@ def testbed(problem_params, algo_params):
             params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
                 train_key, train_ys, problem_params, algo_params
             )
-
-
-        '''
-        # so, here we could maybe detect if collisions made training worse.
-        # might we also identify the particular datapoints where it occured?
-        # basically the ones with maximum loss...
-
-        # but that will be such a huge mess...
-
-        # i think the key doesn't enter unless we have prior and/or stochastic vxx hvp approximation
-        key, batchloss_key = jax.random.split(key)
-        # evaluate this again too because when training we also include the prior
-
-        train_lossmeans, train_terms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(
-            batchloss_key, params_sobolev_ens, train_ys, problem_params, algo_params
-        )
-
-        test_lossmeans, test_terms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(
-            batchloss_key, params_sobolev_ens, test_ys, problem_params, algo_params
-        )
-        '''
-
 
         return params_sobolev_ens, oups_sobolev_ens, is_suboptimal
 
@@ -1950,12 +1880,11 @@ def testbed(problem_params, algo_params):
 
 
     # @jax.jit
-    def estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=np.inf):
+    def estimate_value_level(v_means, v_stds, test_pts_known, upper_v=np.inf):
 
         # this function could also try to detect learning failure...
 
         # estimate "known" value level based on finite test points set.
-        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
 
         sigma_maxs = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
         sigma_small_enough = v_stds <= sigma_maxs
@@ -2014,7 +1943,7 @@ def testbed(problem_params, algo_params):
             # frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / sigma_small_enough.shape[0]
 
             # this is correct i think. we want to divide by the number of smaller vs which in the sorted version is just the index.
-            frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / (np.arange(test_pts.shape[0]) + .0001)
+            frac_certain_inside = 1 - np.cumsum(1 - sigma_small_enough[idx]) / (np.arange(test_pts_known.shape[0]) + .0001)
 
             # now, find the largest index k for which that fraction is above the threshold
             threshold = algo_params['frac_certain_in_Vk']
@@ -2046,20 +1975,6 @@ def testbed(problem_params, algo_params):
         new_testpts_known = np.logical_or(test_pts_known, new_testpts_known)
 
 
-        pl.figure()
-
-        pl.xlabel('v mean')
-        pl.ylabel('v std')
-
-        pl.loglog(v_means + (np.nan * new_testpts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
-        pl.loglog(v_means + (np.nan * ~new_testpts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
-        # pl.loglog(v_means + (np.nan * ~newly_known), v_stds, '. ', alpha=.1, c='red', label='newly known points')
-        pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
-
-        vmax = v_means.max()
-        plot_vs = np.logspace(-4, np.log10(vmax+1), 200)
-        plot_sig_maxs = algo_params['sigma_max_abs'] + plot_vs * algo_params['sigma_max_rel']
-        pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
 
 
         print(f'test points known: {100*new_testpts_known.mean():.2f}%')
@@ -2072,7 +1987,7 @@ def testbed(problem_params, algo_params):
         # distribution of points will still be usable but with uniform points
         # in first half. so avoid that.
 
-        half = test_pts.shape[0] // 2
+        half = test_pts_known.shape[0] // 2
         print(f'state space volume known: {100*new_testpts_known[half:].mean():.6f}%')
         metrics['frac_volume_known'] = new_testpts_known[half:].mean()
 
@@ -2237,62 +2152,37 @@ def testbed(problem_params, algo_params):
 
     start_t = time.time()
 
+    key = jax.random.PRNGKey(0)
+
     for k in range(100):
 
-        # active learning with level-set ideas embedded.
-        # first pseudocode algo in idea dump.
-        # seems to finally work alright!!! (after fixing mostly nn training issues)
+        print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')
 
-        # this has got to be a bit fancy
-        print('\n\n\n')
-        print(f' ~~~~ active learning iteration {k} ~~~~')
-
-        # why did we split up estimate_value_level and propose_pts?
-        # don't we just calculate the whole mean/std at test pts twice?
-
+        # estimate known value level
         vk_prev = v_k
-        v_k, test_pts_known, estimator_metrics = estimate_value_level(test_pts, test_pts_known, params_sobolev_ens, upper_v=v_next_target)
+        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
+        v_k, test_pts_known, estimator_metrics = estimate_value_level(v_means, v_stds, test_pts_known, upper_v=v_next_target)
 
-        for metric_key in estimator_metrics:
-            run.track(estimator_metrics[metric_key], step=k, name=metric_key)
-
-        run.track(time.time() - start_t, step=k, name='wall_t')
-
-        # set next value target :)
+        # set next value target
         v_next_target = set_value_target(all_ys, v_k)
-        run.track(v_next_target, step=k, name='v_next_target')
 
-        key = jax.random.PRNGKey(k)
+        # propose interesting points
+        proposal_key, key = jax.random.split(key)
+        proposed_pts, proposal_vmeans, proposal_vstds = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
-        proposed_pts = propose_pts(key, v_k, v_next_target, params_sobolev_ens, x_extent)
-
-        # try this random move. propose points with higher level set, but only
-        # learn with smaller step.
-
-        # this actually seems to work alright (or the general settings right
-        # now seem to work alright). counterintuitively we give less info to
-        # the extrapolated, 'half-learned' regime. but maybe that's the price
-        # we pay for actual pruning of suboptimal solutions.
-        # v_next_target = v_k + (v_next_target - v_k)*0.2
-
-        # this figure is opened in estimate_value_level and further written to in propose_pts...
-        # and here too...
-        if algo_params['savefigs']:
-            pl.savefig(f'tmp/meanstds_{k:04d}.png')
 
         # ~~~~ ORACLE ~~~~
         backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
 
-        for metric_key in oracle_metrics:
-            run.track(oracle_metrics[metric_key], step=k, name=metric_key)
-
+        # append data & suboptimality flag to previous data
         new_ys = backward_sols_new.ys
         all_ys = jtm(lambda a, b: np.concatenate([a, b], axis=0), all_ys, new_ys)
         is_suboptimal = np.concatenate([is_suboptimal, np.zeros_like(new_ys['v']).astype(bool)], axis=0)
 
-        prev_params_sobolev_ens = params_sobolev_ens
 
-        train_key = key  # yolo
+        # prune suboptimal data & train NN
+        prev_params_sobolev_ens = params_sobolev_ens
+        train_key, key = jax.random.split(key)
         params_sobolev_ens, oups, is_suboptimal = prune_and_train_simple(
             train_key,
             params_sobolev_ens,
@@ -2302,18 +2192,33 @@ def testbed(problem_params, algo_params):
             algo_params,
             warmstart=algo_params['nn_warm_start']
         )
+
         all_oups = oups
 
-        # here:
-        # if NN training went like shit:
-        #     repeat prune&train with smaller v_next_target.
 
-        # or even better:
-        # while oups['train_loss'] > threshold:
-        #     v_next_target = v_k + (v_next_target - v_k) / 2
-        #     repeat prune_and_train_simple, starting from PREVIOUS params if warmstart bc current ones are messed up
 
+
+
+        # metric tracking :)
+        run.track(time.time() - start_t, step=k, name='wall_t')
         run.track(v_k, step=k, name='vk')
+        run.track(v_next_target, step=k, name='v_next_target')
+
+        for metric_key in estimator_metrics:
+            run.track(estimator_metrics[metric_key], step=k, name=metric_key)
+
+        for metric_key in oracle_metrics:
+            run.track(oracle_metrics[metric_key], step=k, name=metric_key)
+
+
+        # figure plotting :))
+        fig = pl.figure('proposals')
+        plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
+        if algo_params['savefigs']:
+            pl.savefig(f'tmp/meanstds_{k:04d}.png')
+        if algo_params['aimfigs']:
+            aimfig = aim.Image(fig)
+            run.track(aimfig, step=k, name='trainplot')
 
         fig = pl.figure(f'nn training iter {k}')
         plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)

@@ -436,3 +436,21 @@ def plot_nn_train_outputs(outputs, subsample=256):
 
 
 
+def plot_proposals(v_means, v_stds, testpts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params):
+
+    pl.xlabel('v mean')
+    pl.ylabel('v std')
+    pl.loglog(v_means + (np.nan * testpts_known), v_stds, '. ', alpha=.1, c='C1', label='unknown points')
+    pl.loglog(v_means + (np.nan * ~testpts_known), v_stds, '. ', alpha=.1, c='C0', label='known points')
+
+    pl.loglog(proposal_vmeans, proposal_vstds, '. ', alpha=.5, c='green', label='proposed points')
+
+    pl.loglog([v_k, v_k], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_k')
+    pl.loglog([v_next_target, v_next_target], [v_stds.min(), v_stds.max()], linestyle='--', color='black', alpha=.2, label='v_next_target')
+
+    vmax = v_means.max()
+    plot_vs = np.logspace(-4, np.log10(vmax)+0.5, 200)
+    plot_sig_maxs = algo_params['sigma_max_abs'] + plot_vs * algo_params['sigma_max_rel']
+    pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
+    pl.legend()
+

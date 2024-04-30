@@ -4,7 +4,7 @@ import numpy as onp
 import diffrax
 import equinox
 
-import aim
+import wandb
 
 import nn_utils
 import plotting_utils
@@ -1340,7 +1340,7 @@ def testbed(problem_params, algo_params):
 
 
         # split into train/test set.
-        train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=.98)
+        train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=algo_params['nn_train_fraction'])
 
         # use these instead if we somehow need the normaliser again
         # ys_n = normaliser.normalise_all_dict(train_ys)
@@ -1374,7 +1374,14 @@ def testbed(problem_params, algo_params):
         test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
         final_testloss = np.mean(test_losses)
 
-        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, final_trainloss, final_testloss
+        final_losses = {
+            'final_trainloss': final_trainloss,
+            'final_testloss': final_testloss,
+        }
+
+
+
+        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, final_losses
 
 
     # initial step:
@@ -1646,21 +1653,21 @@ def testbed(problem_params, algo_params):
     #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
-    if os.getlogin() == 'dbalduin':
-        # we are on euler
-        repo_file = '/cluster/home/dbalduin/approximate_optimal_control/aim_repo.txt'
-        repo = open(repo_file, 'r').read().strip()
-        run = aim.Run(repo=repo)
-    else:
-        # locally
-        run = aim.Run()
 
     # algo_params_for_aim = just the algoparams that are not weird types like
     # functions. the only functions we have are the sample_state ones and they
     # are not really relevant here.
-    algo_params_for_aim = {k: v for k, v in algo_params.items() if not callable(v)}
+    algo_params_clean = {k: v for k, v in algo_params.items() if not callable(v)}
 
-    run['hparams'] = algo_params_for_aim
+    # start a new wandb run to track this script
+    projectname = 'levelsets_' + problem_params['system_name']
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project=projectname,
+
+        # track hyperparameters and run metadata
+        config=algo_params_clean
+    )
 
     start_t = time.time()
 
@@ -1697,7 +1704,7 @@ def testbed(problem_params, algo_params):
         # prune suboptimal data & train NN
         prev_params_sobolev_ens = params_sobolev_ens
         train_key, key = jax.random.split(key)
-        params_sobolev_ens, oups, is_suboptimal, final_trainloss, final_testloss = prune_and_train_simple(
+        params_sobolev_ens, oups, is_suboptimal, final_losses = prune_and_train_simple(
             train_key,
             params_sobolev_ens,
             all_ys,
@@ -1711,17 +1718,15 @@ def testbed(problem_params, algo_params):
 
 
         # metric tracking :)
-        run.track(time.time() - start_t, step=k, name='wall_t')
-        run.track(v_k, step=k, name='vk')
-        run.track(v_next_target, step=k, name='v_next_target')
-        run.track(final_trainloss, step=k, name='final_trainloss')
-        run.track(final_testloss, step=k, name='final_testloss')
+        wandb.log({
+            "wall_t": time.time() - start_t,
+            'vk': v_k,
+            'v_next_target': v_next_target,
+        })
 
-        for metric_key in estimator_metrics:
-            run.track(estimator_metrics[metric_key], step=k, name=metric_key)
-
-        for metric_key in oracle_metrics:
-            run.track(oracle_metrics[metric_key], step=k, name=metric_key)
+        wandb.log(final_losses)
+        wandb.log(estimator_metrics)
+        wandb.log(oracle_metrics)
 
 
         # figure plotting :))

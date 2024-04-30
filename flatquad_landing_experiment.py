@@ -4,8 +4,6 @@ import jax
 import jax.numpy as np
 import diffrax
 
-import aim
-
 import levelsets
 import pontryagin_utils
 import visualiser
@@ -892,6 +890,7 @@ def base_algo_params():
         'lr_init': 0.02,
         'lr_final': 0.0002,
         'weight_decay': .01,
+        'nn_warmstart_fraction': 1/3,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
@@ -959,9 +958,9 @@ def base_algo_params():
         # save figures on filesystem.
         'savefigs': False,
         # track figures with aim.
-        'aimfigs': True,
+        'aimfigs': False,
         # show figures in UI (blocking!)
-        'showfigs': False,
+        'showfigs': True,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

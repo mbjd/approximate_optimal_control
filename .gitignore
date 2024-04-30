@@ -12,3 +12,4 @@ tmp/
 tmp_euler/
 latex/
 .aim/
+wandb

@@ -4091,3 +4091,9 @@ IMO it should work like this but it doesn't seem to:
 
 * https://aimstack.readthedocs.io/en/latest/using/remote_tracking.html
 ** https://github.com/aimhubio/aim/issues/2261
+
+
+
+2024-04-30
+
+giving up, doing it with wandb.

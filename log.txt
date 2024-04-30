@@ -4134,16 +4134,6 @@ something like "we assume the NN+training procedure describes somehow the
 functions we're interested in so we'll just remove points that don't
 achieve good loss"
 
-
-getting some entertainment out of plotting ||x-y|| vs ||vx-vy|| for points
-in value level set. if (vx) lipschitz pruning is supposed to work at all,
-at least for small ||x-y|| there should be two distinct point clouds, one
-for the lipschitz constant of the "local branches" and one larger one
-indicating the conflicts. BUT it just looks like one connected point cloud
-af first glance...
-
-
-
 qualitatively there are two distinct situations:
 
 a) the two parts of the level set are moving towards each other, in
@@ -4156,10 +4146,57 @@ slowly merging. this case is harder, as the new data cannot be proven
 suboptimal based on the known solution. instead two yet unknown parts of
 the solution will collide.
 
+(not sure what to make of this, wrote it down for like the 5th time...)
+
+
+
+getting some entertainment out of plotting ||x-y|| vs ||vx-vy|| for points
+in value level set. if (vx) lipschitz pruning is supposed to work at all,
+at least for small ||x-y|| there should be two distinct point clouds, one
+for the lipschitz constant of the "local branches" and one larger one
+indicating the conflicts. BUT it just looks like one connected point cloud
+af first glance...
+
+
+
+currently trying huber-style outlier rejection. quadratic penalty for v
+overestimation, huber for underestimation, also huber-style loss for vx.  first
+runs seem to go okay, although visually the vx functions look less nice than
+before. much has been speculated and researched about the specific reason why
+L2 loss and deep neural nets work so well, after all. 
+
+I suspect this is fixable with a bit of tuning -- if the quadratic region
+contains "most" data then it should behave more or less like 2-norm loss in
+terms of prediction performance (and training in the last, converged part only)
+
+also, and most importantly, it *looks* like the whole thing just works beyond
+the previous "stalling" point of 250-300!!! in fact it is now at 500ish, and
+just keeps on going, right up to the limit (v_next_target) every single time!
+will have to do further investigation before becoming too enthusiastic. But
+maybe this is the answer that has been waiting all along! 
+
+what happens intuitively with conflicting data? if conflicting data is at the
+same point or in the same region with equal distribution, then L2 loss will go
+to the weighted mean of the labels, weighted by sampling density and loss
+strength. instead, a hypothetic "abs" loss would go exactly to 
+
+to get this to work properly, and with reason to believe it works, we need:
+ - a way to remove points deemed "outliers" after training to avoid continuing
+   using them and keep their number in check
+ - nicely working and (optimally) theoretically motivated (largest value
+   underestimator?) tuning of the loss function
+ - more testing all.
 
 
 
 
 
 
-also reading that Holzmüller paper again.
+
+
+also reading that Holzmüller paper again. i am VERY certain that while my
+current implementation may work, it is a far cry from actually approximating
+the addition of some training point in any sensible way. should definitely read
+that more closely and decide if the effort of a "proper" implementation is
+worth it. or maybe if my method does after all appear as a special case of
+something they introduce? 

@@ -238,6 +238,12 @@ def testbed(problem_params, algo_params):
         # keep some "running min" that is updated at basically no cost.
         # but this on the other hand is much simpler implementation wise.
 
+        # maybe a better heuristic would be to take the top k datapoints in
+        # terms of v (which are still below v_upper) and find min_l of those?
+        # then we are able to use a thinner interval (= better approximation of
+        # min l over NEXT interval) as data density increases, making the
+        # quality of our estimation constant instead of the interval.
+
         def l_of_y(y):
             x = y['x']
             vx = y['vx']
@@ -753,6 +759,9 @@ def testbed(problem_params, algo_params):
 
             all_valueband_pts = np.concatenate([all_valueband_pts, interesting_x0s], axis=0)
 
+        metrics = dict()
+        metrics['proposal_sampling_iters'] = i
+
         if all_valueband_pts.shape[0] < N_pts_desired:
 
             # this has never happened since we started using non-uniform sample
@@ -974,7 +983,7 @@ def testbed(problem_params, algo_params):
 
         proposed_states = all_valueband_pts[proposal_idxs]
 
-        return proposed_states, v_means[proposal_idxs], v_stds[proposal_idxs]
+        return proposed_states, v_means[proposal_idxs], v_stds[proposal_idxs], metrics
 
 
 
@@ -1693,7 +1702,7 @@ def testbed(problem_params, algo_params):
 
         # propose interesting points
         proposal_key, key = jax.random.split(key)
-        proposed_pts, proposal_vmeans, proposal_vstds = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
+        proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
 
         # ~~~~ ORACLE ~~~~
@@ -1729,6 +1738,7 @@ def testbed(problem_params, algo_params):
         })
 
         wandb.log(final_losses)
+        wandb.log(proposal_metrics)
         wandb.log(estimator_metrics)
         wandb.log(oracle_metrics)
 

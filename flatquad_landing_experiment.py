@@ -889,7 +889,7 @@ def base_algo_params():
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
         'lr_final': 0.0002,
-        'weight_decay': .01,
+        'weight_decay': .005,
         'nn_warmstart_fraction': 1/3,
 
         'nn_ensemble_size': 4,
@@ -927,7 +927,7 @@ def base_algo_params():
 
         # the value level we include in the initial learning round.
         'v_init': 50,
-        'initial_shooting': 'lqr',
+        'initial_shooting': 'uniform',
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM

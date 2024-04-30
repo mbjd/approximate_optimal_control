@@ -46,6 +46,8 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 
     observed_fractions = np.mean(normalised_predictions[:, None] < sigmas, axis=0)
 
+    # ipdb.set_trace()
+
     pl.plot(predicted_fractions, observed_fractions, '.-')
     pl.plot([0, 1], [0, 1], '--', c='black', alpha=.1)
     pl.xlabel('predicted fraction')
@@ -509,7 +511,7 @@ def testbed(problem_params, algo_params):
 
         solsdict = {'t': trajs.ts, 'x': ys}
 
-        visualiser.plot_trajectories(solsdict)
+        visualiser.plot_trajectories_meshcat(solsdict)
 
 
 
@@ -721,7 +723,7 @@ def testbed(problem_params, algo_params):
             newkey, key = jax.random.split(key)
 
             x_pts = algo_params['sample_states_batched'](
-                newkey, 10000, x_extent, log_min_scale=-2
+                newkey, 100000, x_extent, log_min_scale=-2
             )
 
             # what kind of points do we propose? we want points x such that:
@@ -1307,7 +1309,9 @@ def testbed(problem_params, algo_params):
 
 
 
-
+        # do this cumsum step here? for ANY pruning strategy this is the
+        # reasonable last step...
+        # is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
 
         # keep suboptimal points marked suboptimal
@@ -1790,6 +1794,8 @@ def testbed(problem_params, algo_params):
             run.track(aimfig, step=k, name='calibration')
 
 
+        if k==10:
+            ipdb.set_trace()
         '''
         if k % 20 == 0:
             ipdb.set_trace()

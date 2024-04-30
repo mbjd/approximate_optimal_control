@@ -25,6 +25,7 @@ report.
 theory.
 
 - write down everything cleanly once for a start.
+  - probably theory & problem setting are the easiest to start with.
 
 - frame it as "clean" active learning problem by separating acquisition
   function from sampling/optimisation method.
@@ -32,6 +33,7 @@ theory.
 
 - think about whether measuring uncertainty only in terms of V (not vxx)
   makes sense.
+  - or not.
 
 - address the pruning with a bit more rigor & respect. see log 2024-04-22.
 
@@ -110,6 +112,16 @@ implementation, mid/low importance.
   better trajectory distribution by forward simulating with the LQR
   solution, starting from uniformly distributed points inside some LQR
   value level set (= ellipsoid), and then backward shooting from there.
+
+- in the calibration plot exclude nan/inf points to make the plots look
+  better
+
+- improve the manifold stuff a bit. during forward simulation, we do
+  sometimes stray off the manifold into the ambient space, by a LOT. if
+  this is only the case for the simulations that don't reach the lower set
+  anyway it's not a problem. Otherwise, we should fix it -- if we evaluate
+  NN ensemble mean/std (significantly) outside of the manifold, it is
+  meaningless...
 
 
 

@@ -4049,3 +4049,45 @@ fraction, and so is not used at all. will see after lunch if the change
 affects this as much as this would suggest.
 
 project for afternoon: intermingle aim & euler.
+
+instead, first got some more local runs done. it seems like the plateau is
+not (purely) due to the train/test split -- it persists after fixing that.
+tried around a bit in an ipdb sessions after 10 iterations, at vk=250ish.
+tried to find the lowest-value states with [sin, cos] = [0, -1]. there are
+many of them with v lower than what we have already! meaning we are already
+at the situation where the decision boundary comes up, and might be messing
+things up for us.
+
+having difficulty with the remote setup. first fought with github keys on
+euler again, i think the setup is correct now though. second, tried to grok
+how to reach my laptop from euler. the docs [*] just say use
+aim.Run(repo='aim://IP:PORT'). This guy [**] says to use ssh port
+forwarding. how to setup?
+
+IMO it should work like this but it doesn't seem to:
+
+ - on own machine, called "server" in tutorial, do 'aim server --repo .'.
+   It will say: server is mounted on aim://0.0.0.0:LOCALPORT
+ - login on remote with ssh -L LOCALPORT:localhost:REMOTEPORT username@host
+   (i think this is "port forwarding")
+   - but mayb ethis is already wrong, it says "address is alredy in use"
+ - run experiments on remote remote with
+   aim.Run(repo='aim://localhost:REMOTEPORT')
+   - but that runs into: aim.sdk.errors.MissingRunError: Cannot find Run
+     aim://localhost:16000 in aim Repo /cluster/home/...
+   - hmm, now it runs into RuntimeError: Failed to connect to Aim Server.
+     Have you forgot to run `aim server` command?
+   - and now yet another error: requests.exceptions.JSONDecodeError:
+     Expecting value: line 1 column 1 (char 0)??? man it is getting more
+     cryptic by the minute
+
+
+
+
+
+
+
+
+
+* https://aimstack.readthedocs.io/en/latest/using/remote_tracking.html
+** https://github.com/aimhubio/aim/issues/2261

@@ -389,6 +389,7 @@ class nn_wrapper():
         # this is for a *single* datapoint in dict form. vmap later.
         # needs a PRNG key for the hvp in random direction. this is
         # only a stochastic approximation of the actual sobolev loss.
+        # (vxx not used anymore and thus key not really needed)
 
         # y is the dict with training data.
         # tree_map(lambda z: z.shape, ys) should be: {
@@ -404,6 +405,7 @@ class nn_wrapper():
         # maybe that is better? if squeeze()ing at the end of nn definition, shapes are the same
 
 
+
         v_pred = self.nn.apply(params, y['x'])
 
         # does the same if jacobian is replaced by grad, jacfwd, jacrev \o/
@@ -411,16 +413,36 @@ class nn_wrapper():
         # jacfwd is definitely not smart here (n arguments, 1 output)
         vx_pred = jax.grad(self.nn.apply, argnums=1)(params, y['x'])
 
-        # basic version. worked just fine for easy cases but issues arise
-        # when data are covering multiple magnitudes. then the relative error
-        # is very high for low v
-        v_loss  = (v_pred - y['v']) ** 2
-
         # adapted to not "stregthen" loss too much for tiny labels
         # 1 + x = smoothed max(1, x)
         # replace the 1 with the smallest order of magnitude we want to be
         # accurate at.
         v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
+
+        outlier_loss_experiment = True
+        if outlier_loss_experiment:
+
+            # quick & dirty experimentation with the idea I've had for a
+            # long time now. basically, make the loss a smooth huber-type
+            # function for underestimation (= we accept outliers if label >
+            # prediction) but a squared error for overestimation.
+
+            # lengthscale of the quadratic region of this smooth huber
+            # function is about 1. relative error is also about 1 initially
+            # and much less at the end of training. if so, the linear
+            # region of the huber function never becomes active. we should
+            # probably shrink the quadratic region to tolerate closer
+            # outliers?
+
+            rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
+            rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+
+            underestimation = v_pred < y['v']
+            v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
+
+            # this function (namely: (v_pred - y['v']) -> errsq_asymmetric)
+            # looks to have continuous first, second, and third derivative,
+            # with the fourth one becoming discontinuous. thanks desmos :)
 
         # this looks really fucked up, i know. basically the problems
         # previously are these:
@@ -517,18 +539,21 @@ class nn_wrapper():
             square_scalings = 1 + np.square(proj_label)
             vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
 
-            '''
-            # stochastic version. did not work, am leaving this alone atm.
-            # was slower than "naive" version somehow.
-            key, dirkey = jax.random.split(key)
-            v = P_tangent @ jax.random.normal(dirkey, shape=(problem_params['nx'],))
-            v = v / np.linalg.norm(v)
-            primal, tangent = jax.jvp(lambda x: self.nn.apply(params, x), (y['x'],), (v,))
-            vx_label_loss = problem_params['nx'] * (tangent - y['vx'] @ v)**2
-            '''
+            if outlier_loss_experiment:
+                # second part of the puzzle. vx loss that cares less about
+                # outliers. again a smooth huber type function. this time
+                # with a lengthscale parameter!
+
+                vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
+
+                lengthscale = 0.1
+                vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
+
 
 
             vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
+
+
             # vx_reg_loss = 0.
 
             vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss

@@ -51,12 +51,14 @@ implementation, most important.
 
 - always be on the lookout for magic constants that can be eliminated
 
+- save the results somehow and prepare for evaluation?
 
 
 
 
 implementation, mid/low importance.
 
+  (done)
 - handle manifold correctly.
   probably projecting back after each simulation is good enough. thoughts
   in log 2024-04-02.
@@ -64,6 +66,7 @@ implementation, mid/low importance.
   each backward sol. still ignore manifold within ODE solver. works fine,
   |m(x)| becomes around 1e-5 at most.
 
+  (not done but alternative with known points buffer)
 - reject estimated known value level above last value target. this happens
   sometimes in the early stages of the run, especially with large active
   learning batchsizes. this means we "trust" the extrapolation because the
@@ -74,12 +77,14 @@ implementation, mid/low importance.
   happnen. and also fits the paradigm of "we assume well calibrated model"
   and treating it as a black box initially.
 
+  (not done, hack accepted)
 - make "prior" without problem specific hacks?
   currently we push up Vnn(x) at the point where it empirically tends to
   come close to zero again, which is the equilibrium but with the quad
   upside down. is there a way to find this out automatically, maybe based
   on failed forward simulations? probably yes. unclear if better.
 
+  (done)
 - in general, make it more "transparent". output much more data so we can
   locate failures more quickly. also some global "output verboseness"
   setting? probably it would be wise to also use wandb for this stuff at

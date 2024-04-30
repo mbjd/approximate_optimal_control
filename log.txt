@@ -4096,4 +4096,70 @@ IMO it should work like this but it doesn't seem to:
 
 2024-04-30
 
-giving up, doing it with wandb.
+giving up, doing it with wandb. easier than I thought, is working now. had
+to do 'module load eth_proxy' to make euler connect to the outside world.
+back to the actual work i guess.
+
+most importantly, definitely some sort of pruning that works, even if only
+to a low-ish standard. in principle I'm fine with removing everything above
+the current known set if it even looks like a conflict might be happening.
+then we can still have nice overall motivation: small timestep for ODE
+integration and larger timestep for "approximate" global optimality. in
+contrast, NN fitted bellman iteration would have to do both things with the
+same timestep, so we certainly claim that advantage.
+
+recap again of possible strategies:
+
+ - assume Lipschitz constant for v and vx, remove everything that violates
+   it. spent some thought on this, bhavya&lenart are not thrilled about
+   extra tuning constants which I agree with.
+ - only simulate to the proposal. that would cause the "extrapolated"
+   decision boundaries to be used properly. however i can draw pictures of
+   situation where this fails, when two fronts are almost parallel.
+ - nn asymmetric loss. huge can of worms which I am not keen on opening.
+ - sweep up value level continuously, removing datapoints (and preceding
+   trajectory segments) where low loss is not achieved.
+ - "detect" decision boundaries already in extrapolation by some sort of
+   negative curvature, if we encounter it during backward integration, we
+   stop. problems: might skip over it w/ large solver step, boundaries can
+   have very different "sharpness" (-> another tuning parameter).
+ - set up some sort of "outlier-resistant" loss function -- huber-ish loss
+   with both v and vx? then, remove points that are in the outlier regime.
+
+
+but then again probably we will not be doing the pruning step without
+assuming something extra about the function. and in that regard I am much
+more in favour of explicitly assuming a lipschitz constant, rather than
+something like "we assume the NN+training procedure describes somehow the
+functions we're interested in so we'll just remove points that don't
+achieve good loss"
+
+
+getting some entertainment out of plotting ||x-y|| vs ||vx-vy|| for points
+in value level set. if (vx) lipschitz pruning is supposed to work at all,
+at least for small ||x-y|| there should be two distinct point clouds, one
+for the lipschitz constant of the "local branches" and one larger one
+indicating the conflicts. BUT it just looks like one connected point cloud
+af first glance...
+
+
+
+qualitatively there are two distinct situations:
+
+a) the two parts of the level set are moving towards each other, in
+opposite-ish directions. then we can remove everything proven to be
+suboptimal by the already known solution, and a bit after that, and be
+fine.
+
+b) the two parts of the level set are moving "alongside" each other, while
+slowly merging. this case is harder, as the new data cannot be proven
+suboptimal based on the known solution. instead two yet unknown parts of
+the solution will collide.
+
+
+
+
+
+
+
+also reading that Holzmüller paper again.

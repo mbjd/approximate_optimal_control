@@ -12,4 +12,6 @@ tmp/
 tmp_euler/
 latex/
 .aim/
-wandb
+wandb/
+slurm-*.out
+

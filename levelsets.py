@@ -140,7 +140,7 @@ def testbed(problem_params, algo_params):
 
 
             term = diffrax.ODETerm(forwardsim_rhs)
-            step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+            step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05, dtmax=1.)
             saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
 
@@ -485,7 +485,7 @@ def testbed(problem_params, algo_params):
 
 
         term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05, dtmax=1.)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         # simulate for pretty damn long
@@ -538,7 +538,7 @@ def testbed(problem_params, algo_params):
 
 
         term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05, dtmax=1.)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         # additionally, terminating event.

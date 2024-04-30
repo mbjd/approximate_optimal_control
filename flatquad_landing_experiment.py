@@ -960,7 +960,7 @@ def base_algo_params():
         # track figures with aim.
         'aimfigs': False,
         # show figures in UI (blocking!)
-        'showfigs': True,
+        'showfigs': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

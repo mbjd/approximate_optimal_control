@@ -5,8 +5,16 @@ from util import generate_run_commands, generate_base_command, dict_permutations
 PROJECT_NAME = 'flatquad'
 
 flatquad_configs = {
-    'active_learning_batchsize': [4, 8, 16, 32, 64, 128, 256, 512],
+    'T_value_target': [1., 2., 3., 5.],
+    'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1]
 }
+
+'''
+flatquad_configs = {
+    'T_value_target': [1.],
+    'weight_decay': [.0001]
+}
+'''
 
 
 def main():

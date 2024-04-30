@@ -1790,8 +1790,6 @@ def testbed(problem_params, algo_params):
             run.track(aimfig, step=k, name='calibration')
 
 
-        if k==10:
-            ipdb.set_trace()
         '''
         if k % 20 == 0:
             ipdb.set_trace()

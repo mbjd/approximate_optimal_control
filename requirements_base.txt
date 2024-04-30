@@ -23,9 +23,7 @@ idna==3.7
 importlib_resources==6.4.0
 ipdb==0.13.13
 ipython==8.19.0
-jax==0.4.23
 jax-tqdm==0.1.2
-jaxlib==0.4.23
 jaxtyping==0.2.25
 jedi==0.19.1
 kiwisolver==1.4.5

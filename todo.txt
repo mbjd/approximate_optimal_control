@@ -53,6 +53,11 @@ implementation, most important.
 
 - save the results somehow and prepare for evaluation?
 
+- evaluate and use the test error somehow? e.g. only accept the value level
+  up to where the test error stops being good. If uncertainty is low but
+  test error high we should probably not trust the value estimate, but
+  currently we do.
+
 
 
 

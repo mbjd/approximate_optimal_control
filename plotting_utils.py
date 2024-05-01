@@ -453,4 +453,6 @@ def plot_proposals(v_means, v_stds, testpts_known, proposal_vmeans, proposal_vst
     plot_sig_maxs = algo_params['sigma_max_abs'] + plot_vs * algo_params['sigma_max_rel']
     pl.loglog(plot_vs, plot_sig_maxs, linestyle='--', alpha=.5, label='$σ_{max}(v)$')
     pl.legend()
+    pl.xlim([1e-2, 1e5])
+    pl.ylim([1e-2, 1e5])
 

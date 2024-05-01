@@ -956,7 +956,7 @@ def base_algo_params():
         'frac_certain_in_Vk': .99,
 
         # save figures on filesystem.
-        'savefigs': False,
+        'savefigs': True,
         # track figures with aim.
         'aimfigs': False,
         # show figures in UI (blocking!)

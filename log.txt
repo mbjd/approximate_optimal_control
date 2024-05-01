@@ -4162,4 +4162,64 @@ the solution will collide.
 
 
 
-also reading that Holzmüller paper again.
+also reading that Holzmüller paper again. pretty sure I'm not doing
+anything close to their methods, just loosely inspired. read again sometime
+in more detail.
+
+
+
+2024-05-01
+
+looking at some plots of that promising run from yesterday. it does look to
+be not just a fluke! huge if true.
+
+also changed min_l estimation. previously we would take the smallest of all
+l(x, u(lambda, x)) with v_k/2 <= v <= v_k. the new thing takes the
+highest-v points below v_k, a fixed number, and then outputs their lowest
+v. this gives larger min_l values and larger targeted value steps. not sure
+if it is due to estimating the min_l over the next interval better, or due
+to missing some important points and selecting a too large interval. my
+intuition though says the new one is actually good: by selecting the top-k
+values in advance, we favour the trajectories with small value steps, which
+corresponds to low l(x, u) (the 'benign', 'slow manifold' trajectories,
+which are exactly the limiting factor in the selection of the value step).
+anyway, it seems to work even after the change, with much larger steps.
+leaving the change until it maybe messes up.
+
+
+doing some sims to see the watersheds. all in all they seem to do what I
+expect! however, there is always a region in the middle where some
+simulations don't go to either side but just do nothing and fall down.
+trying to investigate rn whether this is an ODE solver problem or actually
+a problem with the whole approach. possible solutions:
+ - smaller timestep
+ - tiny amount of randomisation in costate or input?
+
+but also most states are still in the WAY extrapolated regime where we
+don't really know anything. if we take a state which is definitely inside,
+a similar thing happens though. it looks like the input in this case
+(linspace between [+/-10, 0, 0, -1, 0, 5., 0], very close to x=0) is
+actually zero initially, over a small interval close to x=0. to both sides,
+one of the inputs become nonzero. this means the two "fixes" above would
+not do anything. Intuitively I thought that the input would change so as to
+create an unstable dynamic equilibrium near the decision boundary, however
+that seems to not be the case. if the unconstrained optimal input passes
+outside of the input constraints, we are pretty much bound to get stuff
+like this. can this be fixed without huge interventions?
+
+this region can probably be made smaller by tuning such that the costate
+switches more quickly, which is kind of a hairy combination between loss
+function, training params esp. weight decay, NN architecture, and which
+data we decide to throw away. especially this seems to indicate that a
+generous "exclusion zone" and along it a strong "smoothing" of the solution
+also has its downsides. but do we want to make it smaller? do we just say
+the corresponding states are unlikely?
+
+this is probably fundamentally unavoidable though, if we stick to a) using
+a smooth approximation of the value function and b) using the actual
+control-theoretic u* function with the approximated costate. either of
+these could be changed, but both are pretty much the core of everything and
+changing them would involve significant rethinking.
+
+
+

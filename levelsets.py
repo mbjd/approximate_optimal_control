@@ -227,6 +227,13 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
+    def l_of_y(y):
+        x = y['x']
+        vx = y['vx']
+        u = pontryagin_utils.u_star_2d(x, vx, problem_params)
+        return problem_params['l'](x, u)
+
+    l_of_y_vmapjit = jax.jit(jax.vmap(l_of_y))
 
     def find_min_l(ys, v_lower, v_upper, problem_params):
 
@@ -238,12 +245,8 @@ def testbed(problem_params, algo_params):
         # keep some "running min" that is updated at basically no cost.
         # but this on the other hand is much simpler implementation wise.
 
-        def l_of_y(y):
-            x = y['x']
-            vx = y['vx']
-            u = pontryagin_utils.u_star_2d(x, vx, problem_params)
-            return problem_params['l'](x, u)
 
+        '''
         # double vmap because we have N_trajectories x N_timesteps ys
         all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
 
@@ -255,7 +258,33 @@ def testbed(problem_params, algo_params):
         all_ls_masked = all_ls + (is_outside_valueband * np.inf)
 
         min_l = np.nanmin(all_ls_masked)
+        '''
+
+
+        # alternatively: fix number of points needed for estimation, take top-k that many points.
+        N_est = 256
+
+        # for each trajectory, the index pointing to its largest v below v_upper.
+        top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
+        # some index magic to get a ys dict with all those points
+        all_traj_idx = np.arange(all_ys['v'].shape[0])
+        ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], all_ys)
+
+        # among those points, find the top-k.
+        # replace NaNs with 0.0. Although I'm not sure if NaNs can even occur here.
+        vs_top_nonan = np.where(np.isnan(ys_top['v']), 0., ys_top['v'])
+        top_vs, top_v_idx = jax.lax.top_k(vs_top_nonan, N_est)
+
+        ys_final = jtm(lambda node: node[top_v_idx], ys_top)
+
+        all_ls = l_of_y_vmapjit(ys_final)
+        min_l = np.nanmin(all_ls)
+        print(f'min l: {min_l}')
+
         return min_l
+
+
+
 
 
 
@@ -487,7 +516,7 @@ def testbed(problem_params, algo_params):
 
 
         term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05, dtmax=1.)
+        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.01, dtmax=.5)
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         # simulate for pretty damn long

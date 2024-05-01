@@ -1758,87 +1758,88 @@ def testbed(problem_params, algo_params):
             "wall_t": time.time() - start_t,
             'vk': v_k,
             'v_next_target': v_next_target,
-        })
+        }, step=k)
 
-        wandb.log(final_losses)
-        wandb.log(proposal_metrics)
-        wandb.log(estimator_metrics)
-        wandb.log(oracle_metrics)
+        wandb.log(final_losses, step=k)
+        wandb.log(proposal_metrics, step=k)
+        wandb.log(estimator_metrics, step=k)
+        wandb.log(oracle_metrics, step=k)
 
 
         # figure plotting :))
-        fig = pl.figure('proposals')
-        plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
-        if algo_params['savefigs']:
-            pl.savefig(f'tmp/meanstds_{k:04d}.png')
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='proposals')
+        if algo_params['savefigs'] or algo_params['aimfigs'] or algo_params['showfigs']:
+            fig = pl.figure('proposals')
+            plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
+            if algo_params['savefigs']:
+                pl.savefig(f'tmp/meanstds_{k:04d}.png')
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='proposals')
 
-        fig = pl.figure(f'nn training iter {k}')
-        plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)
-        pl.ylim([1e-4, 1e3])
-        if algo_params['savefigs']:
-            pl.savefig(f'tmp/trainplot_{k:04d}.png')
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='trainplot')
-
-
-        fig = pl.figure(f'random trajectory, iter {k}')
-        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-        if algo_params['savefigs']:
-            pl.savefig(f'tmp/trajectory_{k:04d}.png')
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='trajectory')
-
-        fig = pl.figure('manifold')
-        plot_manifold(v_nn, params_sobolev_ens, problem_params)
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='manifold')
-
-        fig = pl.figure('decision boundary')
-        plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='decision boundary')
-
-        fig = pl.figure(f'value lines, iter {k}')
-        plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='value_lines')
-
-        fig = pl.figure(f'lipschitz plot, iter {k}')
-        lipschtz_plot(all_ys)
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='lipschitz')
-
-        fig = pl.figure(f'nn calibration, iter {k}')
-        means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
-        plot_calibration(all_ys, means, stds)
-        if algo_params['savefigs']:
-            pl.savefig(f'tmp/calibration_{k:04d}.png')
-        if algo_params['aimfigs']:
-            aimfig = aim.Image(fig)
-            run.track(aimfig, step=k, name='calibration')
+            fig = pl.figure(f'nn training iter {k}')
+            plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)
+            pl.ylim([1e-4, 1e3])
+            if algo_params['savefigs']:
+                pl.savefig(f'tmp/trainplot_{k:04d}.png')
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='trainplot')
 
 
-        if k==10:
-            ipdb.set_trace()
-        '''
-        if k % 20 == 0:
-            ipdb.set_trace()
-        '''
+            fig = pl.figure(f'random trajectory, iter {k}')
+            plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
+            if algo_params['savefigs']:
+                pl.savefig(f'tmp/trajectory_{k:04d}.png')
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='trajectory')
+
+            fig = pl.figure('manifold')
+            plot_manifold(v_nn, params_sobolev_ens, problem_params)
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='manifold')
+
+            fig = pl.figure('decision boundary')
+            plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='decision boundary')
+
+            fig = pl.figure(f'value lines, iter {k}')
+            plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='value_lines')
+
+            fig = pl.figure(f'lipschitz plot, iter {k}')
+            lipschtz_plot(all_ys)
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='lipschitz')
+
+            fig = pl.figure(f'nn calibration, iter {k}')
+            means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+            plot_calibration(all_ys, means, stds)
+            if algo_params['savefigs']:
+                pl.savefig(f'tmp/calibration_{k:04d}.png')
+            if algo_params['aimfigs']:
+                aimfig = aim.Image(fig)
+                run.track(aimfig, step=k, name='calibration')
 
 
-        if algo_params['showfigs']:
-            pl.show()
+            if k==10:
+                ipdb.set_trace()
+            '''
+            if k % 20 == 0:
+                ipdb.set_trace()
+            '''
 
-        pl.close('all')
+
+            if algo_params['showfigs']:
+                pl.show()
+
+            pl.close('all')
 
 
     pl.figure('off manifold straying m(x)')

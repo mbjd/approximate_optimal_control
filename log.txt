@@ -4222,4 +4222,15 @@ these could be changed, but both are pretty much the core of everything and
 changing them would involve significant rethinking.
 
 
+had plans of doing nothing the afternoon. instead, running some jobs with
+configs
 
+flatquad_configs = {
+    'T_value_target': [1/2, 1., 2.],
+    'weight_decay': [.0007, .001, .002, .005],
+    'pruning_strategy': ['conservative_past', 'conservative_bidirectional'],
+}
+
+first lesson: all the conservative_bidirectional jobs went into ipdb
+(because not enough level band points were found) or had +inf as next value
+target. not sure why. are we pruning too much there?

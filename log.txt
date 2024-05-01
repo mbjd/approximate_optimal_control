@@ -4211,9 +4211,9 @@ this region can probably be made smaller by tuning such that the costate
 switches more quickly, which is kind of a hairy combination between loss
 function, training params esp. weight decay, NN architecture, and which
 data we decide to throw away. especially this seems to indicate that a
-generous "exclusion zone" and along it a strong "smoothing" of the solution
-also has its downsides. but do we want to make it smaller? do we just say
-the corresponding states are unlikely?
+generous "exclusion zone" (and along it a strong "smoothing" of the
+solution) also has its downsides. but do we want to make it smaller? do we
+just say the corresponding states are unlikely?
 
 this is probably fundamentally unavoidable though, if we stick to a) using
 a smooth approximation of the value function and b) using the actual

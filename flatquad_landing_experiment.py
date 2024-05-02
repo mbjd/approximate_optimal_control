@@ -954,21 +954,26 @@ def base_algo_params():
         'proposal_strategy': 'max_kernel',
         'pruning_strategy': 'conservative_past',
 
+        'second_pruning_sigma': 3.,
+
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".
         # only applies for 'vk_estimator' == 'relaxed'.
         'frac_certain_in_Vk': .99,
 
+
+        # OUTPUT & VISUALISATION
         'wandb': True,
 
         # save figures on filesystem.
         'savefigs': False,
         # track figures with aim.
-        'wandbfigs': False,
+        'wandbfigs': True,
         # show figures in UI (blocking!)
-        'showfigs': True,
+        'showfigs': False,
 
+        'ipdb_interval': 0,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

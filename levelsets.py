@@ -1217,28 +1217,6 @@ def testbed(problem_params, algo_params):
             is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
 
 
-        elif algo_params['pruning_strategy'] == 'bayesian':
-
-            # same inequality as above but without the vk sandwiched in. this
-            # means we prune a strict superset of the points pruned with the
-            # 'bayesian_future' strategy. in fact, the condition there is:
-
-            # (v_nn_means + 3 * v_nn_stds < v_lower) & (v_lower < all_ys['v'])
-
-            # which is equivalent to is_suboptimal (below) &
-            is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v'])
-
-            # but only trust the nn posterior up until v_upper, above that level it is purely an extrapolation
-            is_suboptimal = (v_nn_means + 3 * v_nn_stds < all_ys['v']) & (v_lower < all_ys['v']) & (all_ys['v'] < v_upper)
-
-            # in fact after all these changes I doubt this is worth much at all.
-
-            # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
-            # cumsum marks as suboptimal the PRECEDING points in physical time even
-            # though in array indices they are the subsequent ones. all correct.
-            is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
-
-
         elif algo_params['pruning_strategy'] == 'lipschitz':
 
             # lipschitz pruning based on V being L-lipschitz.
@@ -1389,7 +1367,8 @@ def testbed(problem_params, algo_params):
         # keep suboptimal points marked suboptimal
         is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
 
-        print(f'pruning {is_suboptimal.sum():.3f} = {100 * is_suboptimal.mean():.3f}% points')
+        frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
+        print(f'fraction suboptimal before training: {frac_suboptimal:.4f}')
 
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
@@ -1456,6 +1435,29 @@ def testbed(problem_params, algo_params):
         }
 
 
+        # second pruning step. very trivial: remove everything likely to be suboptimal
+        # here we just assume we know everything up to the next v target. may not be true!
+        v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
+
+        # idea for other strategy: remove points at least x % above nn mean value?
+        sigma_cutoff = algo_params['second_pruning_sigma']
+
+        # if label is MUCH higher than function, consider it suboptimal.
+        # these boolean indices obviously wrt. the training&test data, usable_ys
+        is_suboptimal_nn_train = usable_ys['v'] > v_means_trained + sigma_cutoff * v_stds_trained
+
+        # as usable_ys = all_ys[bool_train_idx] (modulo tree_map) we can modify the original array like this:
+        is_suboptimal_nn_full = np.zeros_like(is_suboptimal, dtype=bool).at[bool_train_idx].set(is_suboptimal_nn_train)
+
+        # does this or and cumsum commute?
+        # probably yes.
+        is_suboptimal_either = np.logical_or(is_suboptimal, is_suboptimal_nn_full)
+        is_suboptimal_final = np.cumsum(is_suboptimal_either, axis=1) > 0
+
+        is_suboptimal = is_suboptimal_final
+
+        frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
+        print(f'fraction suboptimal after training: {frac_suboptimal:.4f}')
 
         return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, final_losses
 
@@ -1652,66 +1654,44 @@ def testbed(problem_params, algo_params):
 
     train_key, key = jax.random.split(key)
 
+    # without evaluating on the test set at every loop. that makes it quite slow
+    # nowadays we just trust it.
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-        train_key, train_ys, problem_params, algo_params, ys_test=test_ys
+        train_key, train_ys, problem_params, algo_params
     )
 
-    # ipdb.set_trace()
-
-    # shouldn't it have been called "de-normalised" anyway?
-    # v_nn_unnormalised = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-    # because that one is actually "unnormalised":
+    # no normalisation anywhere anymore
     v_nn_unnormalised = v_nn
 
-    idx = 20
-    sol = jax.tree_util.tree_map(itemgetter(idx), sols_orig)
+    sol_idx = 20
+    sol = jax.tree_util.tree_map(itemgetter(sol_idx), sols_orig)
 
-    # pl.figure()
-    # plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
+    if algo_params['showfigs']:
+        # pl.figure()
+        # plotting_utils.plot_trajectory_vs_nn(sol, params_sobolev, v_nn_unnormalised)
 
-    pl.figure('trajectory vs NN')
-    plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
+        pl.figure('trajectory vs NN')
+        plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
 
-    # misuse the plotting function to compare trajectories w/ lqr solution.
-    # it seems like all the optimal control stuff checks out indeed -- we
-    # do have V_lqr(x(t)) ≈ v(t) along the initial part of the solutions.
-    # pl.figure('trajectory vs LQR value fct')
-    # plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
+        # misuse the plotting function to compare trajectories w/ lqr solution.
+        # it seems like all the optimal control stuff checks out indeed -- we
+        # do have V_lqr(x(t)) ≈ v(t) along the initial part of the solutions.
+        # pl.figure('trajectory vs LQR value fct')
+        # plotting_utils.plot_trajectory_vs_nn(sol, P_lqr, lambda P, x: 0.5 * x.T @ P @ x)
 
-    pl.figure('training run')
-    plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
+        pl.figure('training run')
+        plotting_utils.plot_nn_train_outputs(oups_sobolev_ens)
 
-    pl.figure('nn calibration, initial run')
-    means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(sols_orig.ys['x'], params_sobolev_ens)
-    plot_calibration(sols_orig.ys, means, stds)
+        pl.figure('nn calibration, initial run')
+        means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(sols_orig.ys['x'], params_sobolev_ens)
+        plot_calibration(sols_orig.ys, means, stds)
 
-    pl.figure('manifold')
-    plot_manifold(v_nn, params_sobolev_ens, problem_params)
+        pl.figure('manifold')
+        plot_manifold(v_nn, params_sobolev_ens, problem_params)
 
-    pl.show()
-
-
-    def print_solver_stats(sols):
-        pass
+        pl.show()
 
 
-
-    def flat_sol_ys(sols):
-        # for a sols object with ys dict, reshape each member of the ys dict
-        # from (N_trajectories, N_t_per_trajectory, x) to (N_pts, x)
-        # (where x is either nx or nothing for scalar values)
-        # also removes nan or inf values.
-
-        # would be cool: if we still include a single nan point between the solutions
-        # to make plotting "everything at once" nicer bc it breaks the line.
-
-        where_usable = np.logical_and(~np.isnan(sols.ys['v']), ~np.isinf(sols.ys['v']))
-        flat_ys = jtm(lambda node: node[where_usable], sols.ys)
-        return flat_ys
-
-
-
-    # all_ys = flat_sol_ys(sols_orig)
 
     all_ys = sols_orig.ys
     is_suboptimal = np.zeros_like(all_ys['v']).astype(bool)
@@ -1807,9 +1787,11 @@ def testbed(problem_params, algo_params):
 
             # serialise nn parameters.
             # probably incorrect. not sure how to read documentation.
+            '''
             with nn_params_artefact.new_file('params.msgpack', 'wb') as params_file:
                 params_bytes = flax.serialization.msgpack_serialize(params_sobolev_ens)
                 params_file.write(params_bytes)
+            '''
 
 
         # figure plotting :))
@@ -1859,7 +1841,7 @@ def testbed(problem_params, algo_params):
             if algo_params['wandb'] and algo_params['wandbfigs']:
                 wandb.log({'calibration' : wandb.Image(fig)}, step=k)
 
-            if k % 10 == 0:
+            if algo_params['ipdb_interval'] > 0 and k % algo_params['ipdb_interval'] == 0:
                 ipdb.set_trace()
 
             if algo_params['showfigs']:

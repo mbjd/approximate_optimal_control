@@ -850,6 +850,10 @@ def base_algo_params():
 
     algo_params = {
 
+        # PRNG seed
+        'seed': 0,
+
+
         # ODE SOLVER PARAMS
         'pontryagin_solver_vxx': False,
         'pontryagin_solver_atol': 1e-4,
@@ -915,19 +919,23 @@ def base_algo_params():
         # otherwise at equilibrium.
         'prior_strength': 0.01,
         'v_prior': 500.,
-        # 'v_prior_factor': 100.,
-        # 'prior_extent_factor': 8,
 
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
+
+        # the uncertainty bound we wish to satisfy. 
+        # sigma_max(mu) = simga_max_abs + simga_max_rel * mu
+        'sigma_max_abs': 0.5,
+        'sigma_max_rel': 0.05,
+
         'thin_data': True,
 
-
+        # initial data generation. 'uniform' or 'lqr' for nicer distribution. 
+        'initial_shooting': 'uniform',
         # the value level we include in the initial learning round.
         'v_init': 50,
-        'initial_shooting': 'uniform',
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
@@ -938,17 +946,11 @@ def base_algo_params():
         # in one iteration.
         'T_value_target': 1.,
 
-        'proposal_strategy': 'max_kernel',
+        'vk_estimator': 'k_exceptions',
 
+        'proposal_strategy': 'max_kernel',
         'pruning_strategy': 'conservative_past',
 
-        # tolerate some more error just to make the experiments run faster
-        # this is nicer but aim doesn't like it.
-        # 'sigma_max': lambda mu: 0.5 + 0.05 * mu,
-        'sigma_max_abs': 0.5,
-        'sigma_max_rel': 0.05,
-
-        'vk_estimator': 'k_exceptions',
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".
@@ -956,7 +958,7 @@ def base_algo_params():
         'frac_certain_in_Vk': .99,
 
         # save figures on filesystem.
-        'savefigs': True,
+        'savefigs': False,
         # track figures with aim.
         'aimfigs': False,
         # show figures in UI (blocking!)

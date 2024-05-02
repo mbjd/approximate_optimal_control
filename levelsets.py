@@ -71,7 +71,7 @@ def testbed(problem_params, algo_params):
     # idea: learn V(x) for some level set V(x) <= v_k.
     # once we have that, increase v_k.
 
-    key = jax.random.PRNGKey(0)
+    key = jax.random.PRNGKey(algo_params['seed'])
 
     # find terminal LQR controller and value function.
     # ultimately generate the function unitsphere_to_dXf
@@ -279,7 +279,7 @@ def testbed(problem_params, algo_params):
 
         all_ls = l_of_y_vmapjit(ys_final)
         min_l = np.nanmin(all_ls)
-        print(f'min l: {min_l}')
+        print(f'min l: {min_l:.3f}')
 
         return min_l
 
@@ -1707,8 +1707,6 @@ def testbed(problem_params, algo_params):
 
     start_t = time.time()
 
-    key = jax.random.PRNGKey(0)
-
     for k in range(100):
 
         print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')
@@ -1767,7 +1765,7 @@ def testbed(problem_params, algo_params):
 
 
         # figure plotting :))
-        if algo_params['savefigs'] or algo_params['aimfigs'] or algo_params['showfigs']:
+        if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['aimfigs']:
             fig = pl.figure('proposals')
             plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
             if algo_params['savefigs']:
@@ -1828,25 +1826,12 @@ def testbed(problem_params, algo_params):
                 run.track(aimfig, step=k, name='calibration')
 
 
-            if k==10:
+            if k % 10 == 0:
                 ipdb.set_trace()
-            '''
-            if k % 20 == 0:
-                ipdb.set_trace()
-            '''
-
 
             if algo_params['showfigs']:
                 pl.show()
 
             pl.close('all')
-
-
-    pl.figure('off manifold straying m(x)')
-    pl.plot(jax.vmap(problem_params['m'])(all_ys['x'].reshape(-1, 7)))
-
-    pl.show()
-    ipdb.set_trace()
-
 
 

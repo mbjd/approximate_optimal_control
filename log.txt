@@ -4234,3 +4234,10 @@ flatquad_configs = {
 first lesson: all the conservative_bidirectional jobs went into ipdb
 (because not enough level band points were found) or had +inf as next value
 target. not sure why. are we pruning too much there?
+
+
+
+
+noticed that all euler runs got stuck at 300ish like before. then it struck
+me that I didn't git pull recently enough. all because of those keys
+somehow expiring as soon as we login a second time.

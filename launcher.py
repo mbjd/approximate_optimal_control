@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import flatquad_landing_experiment as exp
 
 from util import generate_run_commands, generate_base_command, dict_permutations, available_gpus
@@ -5,8 +6,9 @@ from util import generate_run_commands, generate_base_command, dict_permutations
 PROJECT_NAME = 'flatquad'
 
 flatquad_configs = {
-    'T_value_target': [1., 2., 3., 5.],
-    'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1]
+    # 'T_value_target': [1/2, 1, 2.],
+    # 'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1]
+    'seed': [1,2,3,4,5,6,7,8]
 }
 
 '''
@@ -32,7 +34,7 @@ def main():
                           mode='euler',
                           duration='3:59:00',
                           prompt=True,
-                          mem=16384)
+                          mem=8192)
 
 
 if __name__ == '__main__':

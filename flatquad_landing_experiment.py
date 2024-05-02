@@ -960,14 +960,15 @@ def base_algo_params():
         # only applies for 'vk_estimator' == 'relaxed'.
         'frac_certain_in_Vk': .99,
 
+        'wandb': True,
+
         # save figures on filesystem.
         'savefigs': False,
         # track figures with aim.
-        'aimfigs': False,
+        'wandbfigs': False,
         # show figures in UI (blocking!)
         'showfigs': True,
 
-        'wandb': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

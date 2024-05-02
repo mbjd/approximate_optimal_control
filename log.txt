@@ -4249,7 +4249,7 @@ somehow expiring as soon as we login a second time.
 
 ditched git for putting code on euler due to ssh key difficulties. now there is
 a simple rsync script that just puts everything relevant on euler, no git repo
-there anymore at all. 
+there anymore at all.
 
 disabled the square output transform at the NN again. seems to actually work
 better without it. goodbye I guess :) as a nice side effect we need fewer
@@ -4259,7 +4259,7 @@ presumably is less steep.
 thought about that decision boundary indecisiveness yesterday. another way to
 fix it could be to use a smoothed version of the u* map. that way we will not
 output EXACTLY 0 input on a nonzero-width strip around the decision boundary,
-but only EXACTLY on it. 
+but only EXACTLY on it.
 
 Either we could just hack something together for forward simulation which has
 the desired smoothing, which is probably not too hard, similar experiments were
@@ -4276,11 +4276,11 @@ these runs...
 
 got a bit sidetracked because amsgrad looked to perform much better (past
 gradients window? is it like L-BFGS?) anyway after a couple iterations it lost
-its edge. now doing euler sweep on lr params instead. preliminary finding after 
-15 min running: old settings (0.02 -> 0.0002) work best with vk at ~800. 
+its edge. now doing euler sweep on lr params instead. preliminary finding after
+15 min running: old settings (0.02 -> 0.0002) work best with vk at ~800.
 
 more important issue: still more testing to see if/how that huber loss business
-works. adapt pruning if necessary to reflect this? 
+works. adapt pruning if necessary to reflect this?
 
 I guess pruning before training doesn't hurt. we can already throw out
 everything that is definitely suboptimal, so we should do that.
@@ -4292,10 +4292,10 @@ actually, since the whole premise of the asymmetric loss is to detect
 suboptimal solutions, marking them as such after the fact is basically a
 no-brainer, and should be relatively simple. whatever is DEFINITELY suboptimal
 or in the linear huber-loss range is thrown out. there is nuance though in
-whether we consider v or vx or both. 
+whether we consider v or vx or both.
 
 when only looking at v we preserve BOTH solutions at the watersheds. with the
-vx huber loss this looks to not be problematic, and the v'x agree anyway. 
+vx huber loss this looks to not be problematic, and the v'x agree anyway.
 
 when we also remove data where vx is in *its* linear huber range we create that
 empty band of data around the watershed. for a long time I've thought this was
@@ -4312,14 +4312,17 @@ then again i am always thinking of weakening the vx loss whenever the v label
 is much higher than the data, and thus probably a suboptimal solution. holding
 off because my gut says this will be not be convex anymore wrt the NN function,
 which all previous losses were. might do it if it seems strictly needed, but it
-doesn't look that way rn. 
+doesn't look that way rn.
 
 
 
-other things I should do sometime: 
+
+other things I should do sometime:
  - log plots with wandb for easier problem spotting
+   - done :) saved as images in wandb.
  - find some metrics that characterise closed loop performance and look out for
    those when doing hyperparam selection
+ - store nn weights (and data?) somehow somewhere.
 
 
 

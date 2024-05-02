@@ -3,6 +3,7 @@ import jax.numpy as np
 import numpy as onp
 import diffrax
 import equinox
+import flax
 
 import wandb
 
@@ -1745,6 +1746,8 @@ def testbed(problem_params, algo_params):
             config=algo_params_clean
         )
 
+        nn_params_artefact = wandb.Artifact('nn_params', type='model')
+
     for k in range(100):
 
         print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')
@@ -1802,67 +1805,59 @@ def testbed(problem_params, algo_params):
             wandb.log(oracle_metrics, step=k)
 
 
+            # serialise nn parameters.
+            # probably incorrect. not sure how to read documentation.
+            with nn_params_artefact.new_file('params.msgpack', 'wb') as params_file:
+                params_bytes = flax.serialization.msgpack_serialize(params_sobolev_ens)
+                params_file.write(params_bytes)
+
+
         # figure plotting :))
-        if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['aimfigs']:
+        if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['wandbfigs']:
             fig = pl.figure('proposals')
             plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
             if algo_params['savefigs']:
                 pl.savefig(f'tmp/meanstds_{k:04d}.png')
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='proposals')
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'proposals' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure(f'nn training iter {k}')
             plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)
             pl.ylim([1e-4, 1e3])
             if algo_params['savefigs']:
                 pl.savefig(f'tmp/trainplot_{k:04d}.png')
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='trainplot')
-
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'trainplot' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure(f'random trajectory, iter {k}')
             plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
             if algo_params['savefigs']:
                 pl.savefig(f'tmp/trajectory_{k:04d}.png')
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='trajectory')
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'trajectory' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure('manifold')
             plot_manifold(v_nn, params_sobolev_ens, problem_params)
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='manifold')
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'manifold' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure('decision boundary')
             plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='decision boundary')
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'decision_boundary' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure(f'value lines, iter {k}')
             plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='value_lines')
-
-            fig = pl.figure(f'lipschitz plot, iter {k}')
-            lipschtz_plot(all_ys)
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='lipschitz')
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure(f'nn calibration, iter {k}')
             means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
             plot_calibration(all_ys, means, stds)
             if algo_params['savefigs']:
                 pl.savefig(f'tmp/calibration_{k:04d}.png')
-            if algo_params['aimfigs']:
-                aimfig = aim.Image(fig)
-                run.track(aimfig, step=k, name='calibration')
-
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'calibration' : wandb.Image(fig)}, step=k)
 
             if k % 10 == 0:
                 ipdb.set_trace()

@@ -142,7 +142,13 @@ def testbed(problem_params, algo_params):
 
 
             term = diffrax.ODETerm(forwardsim_rhs)
-            step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05, dtmax=1.)
+            step_ctrl = diffrax.PIDController(
+                atol=algo_params['pontryagin_solver_atol'],
+                rtol=algo_params['pontryagin_solver_rtol'],
+                dtmin=algo_params['dtmin'],
+                dtmax=algo_params['dtmax'],
+            )
+
             saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
 
@@ -154,9 +160,13 @@ def testbed(problem_params, algo_params):
 
             terminating_event = diffrax.DiscreteTerminatingEvent(event_fn)
 
-            # simulate for pretty damn long
+            if problem_params['m'] is not None and algo_params['project_manifold']:
+                solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
+            else:
+                solver = diffrax.Tsit5()
+
             forward_sol = diffrax.diffeqsolve(
-                term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.01, y0=x0,
+                term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
                 stepsize_controller=step_ctrl, saveat=saveat,
                 max_steps = algo_params['pontryagin_solver_maxsteps'],
                 throw=algo_params['throw'],
@@ -180,6 +190,10 @@ def testbed(problem_params, algo_params):
 
         x0s = jax.vmap(unitsphere_to_dV)(unitball_pts)
         sols = jax.vmap(forward_sim_lqr_until_value, in_axes=(0, None, None))(x0s, P_lqr, problem_params['V_f'])
+
+        # pl.figure('forward solver m(x)')
+        # pl.plot(jax.vmap(jax.vmap(problem_params['m']))(sols.ys).T, c='black', alpha=.1)
+        # pl.show()
 
         xfs_unprojected = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(sols)
         xfs = jax.vmap(problem_params['project_M'])(xfs_unprojected)
@@ -226,6 +240,10 @@ def testbed(problem_params, algo_params):
         return solve_backward(state_f, v_upper=10. * algo_params['v_init'])
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
+
+    # pl.figure('backward solver m(x)')
+    # pl.plot(jax.vmap(jax.vmap(problem_params['m']))(sols_orig.ys['x']).T, c='black', alpha=.1)
+    # pl.show()
 
     def l_of_y(y):
         x = y['x']
@@ -516,12 +534,22 @@ def testbed(problem_params, algo_params):
 
 
         term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.01, dtmax=.5)
+        step_ctrl = diffrax.PIDController(
+            atol=algo_params['pontryagin_solver_atol'],
+            rtol=algo_params['pontryagin_solver_rtol'],
+            dtmin=algo_params['dtmin'],
+            dtmax=algo_params['dtmax'],
+        )
+
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
-        # simulate for pretty damn long
+        if problem_params['m'] is not None and algo_params['project_manifold']:
+            solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
+        else:
+            solver = diffrax.Tsit5()
+
         forward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.01, y0=x0,
+            term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'],
             throw=algo_params['throw'],
@@ -569,7 +597,13 @@ def testbed(problem_params, algo_params):
 
 
         term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'], dtmin=.05, dtmax=1.)
+        step_ctrl = diffrax.PIDController(
+            atol=algo_params['pontryagin_solver_atol'],
+            rtol=algo_params['pontryagin_solver_rtol'],
+            dtmin=algo_params['dtmin'],
+            dtmax=algo_params['dtmax'],
+        )
+
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         # additionally, terminating event.
@@ -598,9 +632,14 @@ def testbed(problem_params, algo_params):
 
         terminating_event = diffrax.DiscreteTerminatingEvent(event_fn)
 
-        # simulate for pretty damn long
+        if problem_params['m'] is not None and algo_params['project_manifold']:
+            solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
+        else:
+            solver = diffrax.Tsit5()
+
+
         forward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=10., dt0=0.01, y0=x0,
+            term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'],
             throw=algo_params['throw'],
@@ -1825,10 +1864,8 @@ def testbed(problem_params, algo_params):
                 run.track(aimfig, step=k, name='calibration')
 
 
-            '''
             if k % 10 == 0:
                 ipdb.set_trace()
-            '''
 
             if algo_params['showfigs']:
                 pl.show()

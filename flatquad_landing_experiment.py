@@ -767,7 +767,7 @@ def define_problem_params():
 
         return xdot
 
-    x_eq = np.array([0., 0, 0, 1, 0, 0, 0])
+    x_eq = np.array([0, 0, 0, 1, 0, 0, 0], dtype=float)
 
     def l(x, u):
         Fl, Fr = u
@@ -797,25 +797,31 @@ def define_problem_params():
         return state_cost + input_cost
 
 
-    def h(x):
-        # irrelevant if terminal constraint or infinite horizon
-        # OR we could right in here put the terminal quadratic cost
-        # plus some exception or +infinity cost if outside terminal set...
-        raise NotImplementedError('not used for a long time')
-        Qf = 1 * np.eye(6)
-        return (x.T @ Qf @ x).reshape()
-
-
     problem_params = {
+
         'system_name': 'flatquad',
 
+        # dynamics X x U -> TxX, stage cost X x U -> R
         'f': f,
         'l': l,
-        'h': h,
 
-        'nx': 7, # if manifold, the dimension of the ambient space, not the manifold!
+        # state & input space dimensions
+        # if manifold, the dimension of the ambient space, not the manifold!
+        'nx': 7,
+        'nu': 2,
+
         'state_names': ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega"),
 
+        'u_eq': np.ones(2) * m * g / 2,
+        'x_eq': x_eq,
+
+
+        # if ever treating slightly bigger systems it would pay to frame this
+        # as a general convex polytope described by Ax <= b.
+        'U_interval': [np.zeros(2), umax*np.ones(2)],
+
+        # the value level below which we accept the LQR solution as correct.
+        'V_f': 0.001,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -831,15 +837,6 @@ def define_problem_params():
         # we stray off the manifold due to numerical errors.
         'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
 
-        'nu': 2,
-        # if ever treating slightly bigger systems it would pay to frame this
-        # as a general convex polytope described by Ax <= b.
-        'U_interval': [np.zeros(2), umax*np.ones(2)],
-
-        'V_f': 0.001,
-        'V_max': 1000.,
-        'u_eq': np.ones(2) * m * g / 2,
-        'x_eq': x_eq.astype(float),
     }
 
     return problem_params
@@ -858,6 +855,12 @@ def base_algo_params():
         'pontryagin_solver_vxx': False,
         'pontryagin_solver_atol': 1e-4,
         'pontryagin_solver_rtol': 1e-4,
+        'dtmin': 0.01,
+        'dtmax': 0.5,
+
+        # project back to manifold after each solver step. only possible if
+        # problem_params['project_M'] correctly defined.
+        'project_manifold': True,
 
         # with throw=True we can set this pretty tight - it will just stop early.
         # will have to make sure ourselves that this is not a problem
@@ -962,9 +965,9 @@ def base_algo_params():
         # track figures with aim.
         'aimfigs': False,
         # show figures in UI (blocking!)
-        'showfigs': False,
+        'showfigs': True,
 
-        'wandb': True,
+        'wandb': False,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

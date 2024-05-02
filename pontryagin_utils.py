@@ -410,6 +410,73 @@ def u_star_general_activeset(x, costate, problem_params):
 
 
 
+def fwsim_projection(y, problem_params):
+    # here y is only the system state -- we have the solution in
+    # problem_params already. could also just give the solver
+    # project = problem_params['project_M'] even more neatly.
+    return problem_params['project_M'](y)
+
+def bwsim_projection(y, problem_params):
+
+    # here y is the extended state, i.e. a dict with t, x, v, vx.
+
+    new_y = y.copy()
+
+    new_y['x'] = problem_params['project_M'](y['x'])
+
+    # this piece of code stolen from nn_utils.py
+    # projects the costate w.r.t. the system in ambient space
+    #   λ ∈ T_x* R^n
+    # to the corresponding costate for the manifold,
+    #   λ_new ∈ T_x* M
+    # although if everything afterwards works correctly it should
+    # not depend on the costate in normal direction at all.
+
+    B = jax.jacobian(problem_params['m'])(y['x'])
+    assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
+    B = B / np.linalg.norm(B)
+    P_normal = np.outer(B, B)
+    P_tangent = np.eye(problem_params['nx']) - P_normal
+
+    new_y['vx'] = P_tangent @ y['vx']
+
+    return new_y
+
+
+class ProjectionSolver(diffrax.Tsit5):
+
+    """
+    Extension of Tsit5 solver. Can initialise with any project function
+    from state space to state space. Most interestingly here we will
+    probably use it to project back to the manifold.
+
+    adapted from https://github.com/patrick-kidger/diffrax/issues/277
+    """
+
+    project: callable
+
+    def __init__(self, project):
+
+        super().__init__()
+        self.project = project
+
+    def step(
+        self,
+        terms: diffrax.AbstractTerm,
+        t0, # t0: Scalar,
+        t1, # t1: Scalar,
+        y0, # : PyTree,
+        args, # : PyTree,
+        solver_state, #: diffrax._SolverState,
+        made_jump, # Bool,
+    ):
+
+        y, err_est, dense_info, solver_state, result = super().step(terms, t0, t1, y0, args, solver_state, made_jump)
+
+        y_new = self.project(y)
+
+        return y_new, err_est, dense_info, solver_state, result
+
 
 def define_backward_solver(problem_params, algo_params):
 
@@ -492,13 +559,11 @@ def define_backward_solver(problem_params, algo_params):
         term = diffrax.ODETerm(f_extended)
 
 
-        relax_factor = 1.
         step_ctrl = diffrax.PIDController(
-            rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
-            atol=relax_factor*algo_params['pontryagin_solver_atol'],
-            # dtmin=problem_params['T'] / algo_params['pontryagin_solver_maxsteps'],
-            dtmin = 0.0005,  # just to avoid getting stuck completely
-            dtmax = 0.5,
+            atol=algo_params['pontryagin_solver_atol'],
+            rtol=algo_params['pontryagin_solver_rtol'],
+            dtmin=algo_params['dtmin'],
+            dtmax=algo_params['dtmax'],
         )
 
         saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
@@ -516,8 +581,14 @@ def define_backward_solver(problem_params, algo_params):
                 cond_fn = lambda state, **kwargs: state.y['v'] > v_upper
             )
 
+
+        if problem_params['m'] is not None and algo_params['project_manifold']:
+            solver = ProjectionSolver(project=lambda y: bwsim_projection(y, problem_params))
+        else:
+            solver = diffrax.Tsit5()
+
         backward_sol = diffrax.diffeqsolve(
-            term, diffrax.Tsit5(), t0=0., t1=-T, dt0=-0.1, y0=state_f,
+            term, solver, t0=0., t1=-T, dt0=-0.1, y0=state_f,
             stepsize_controller=step_ctrl, saveat=saveat,
             max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
             discrete_terminating_event=terminating_event,

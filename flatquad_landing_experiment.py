@@ -925,15 +925,15 @@ def base_algo_params():
         # only take a subsample of data for active learning. dense sample
         # close to current level set, less dense sample further down.
 
-        # the uncertainty bound we wish to satisfy. 
+        # the uncertainty bound we wish to satisfy.
         # sigma_max(mu) = simga_max_abs + simga_max_rel * mu
         'sigma_max_abs': 0.5,
         'sigma_max_rel': 0.05,
 
         'thin_data': True,
 
-        # initial data generation. 'uniform' or 'lqr' for nicer distribution. 
-        'initial_shooting': 'uniform',
+        # initial data generation. 'uniform' or 'lqr' for nicer distribution.
+        'initial_shooting': 'lqr',
         # the value level we include in the initial learning round.
         'v_init': 50,
 
@@ -963,6 +963,8 @@ def base_algo_params():
         'aimfigs': False,
         # show figures in UI (blocking!)
         'showfigs': False,
+
+        'wandb': True,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

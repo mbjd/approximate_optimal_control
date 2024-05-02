@@ -1690,22 +1690,21 @@ def testbed(problem_params, algo_params):
 
 
 
-    # algo_params_for_aim = just the algoparams that are not weird types like
-    # functions. the only functions we have are the sample_state ones and they
-    # are not really relevant here.
-    algo_params_clean = {k: v for k, v in algo_params.items() if not callable(v)}
+    if algo_params['wandb']:
+        # algo_params_for_aim = just the algoparams that are not weird types like
+        # functions. the only functions we have are the sample_state ones and they
+        # are not really relevant here.
+        algo_params_clean = {k: v for k, v in algo_params.items() if not callable(v)}
 
-    # start a new wandb run to track this script
-    projectname = 'levelsets_' + problem_params['system_name']
-    wandb.init(
-        # set the wandb project where this run will be logged
-        project=projectname,
+        # start a new wandb run to track this script
+        projectname = 'levelsets_' + problem_params['system_name']
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project=projectname,
 
-        # track hyperparameters and run metadata
-        config=algo_params_clean
-    )
-
-    start_t = time.time()
+            # track hyperparameters and run metadata
+            config=algo_params_clean
+        )
 
     for k in range(100):
 
@@ -1752,16 +1751,16 @@ def testbed(problem_params, algo_params):
 
 
         # metric tracking :)
-        wandb.log({
-            "wall_t": time.time() - start_t,
-            'vk': v_k,
-            'v_next_target': v_next_target,
-        }, step=k)
+        if algo_params['wandb']:
+            wandb.log({
+                'vk': v_k,
+                'v_next_target': v_next_target,
+            }, step=k)
 
-        wandb.log(final_losses, step=k)
-        wandb.log(proposal_metrics, step=k)
-        wandb.log(estimator_metrics, step=k)
-        wandb.log(oracle_metrics, step=k)
+            wandb.log(final_losses, step=k)
+            wandb.log(proposal_metrics, step=k)
+            wandb.log(estimator_metrics, step=k)
+            wandb.log(oracle_metrics, step=k)
 
 
         # figure plotting :))
@@ -1826,8 +1825,10 @@ def testbed(problem_params, algo_params):
                 run.track(aimfig, step=k, name='calibration')
 
 
+            '''
             if k % 10 == 0:
                 ipdb.set_trace()
+            '''
 
             if algo_params['showfigs']:
                 pl.show()

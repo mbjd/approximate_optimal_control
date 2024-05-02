@@ -151,7 +151,7 @@ def generate_run_commands(command_list: List[str],
         else:
             if prompt:
                 answer = input(f"about to launch {len(command_list)} jobs with {num_cpus} "
-                               f"cores each. proceed? [yes/no]")
+                               f"cores each. proceed? [yes/no] ")
             else:
                 answer = 'yes'
             if answer == 'yes':
@@ -160,7 +160,7 @@ def generate_run_commands(command_list: List[str],
 
     elif mode == 'local':
         if prompt:
-            answer = input(f"about to run {len(command_list)} jobs in a loop. proceed? [yes/no]")
+            answer = input(f"about to run {len(command_list)} jobs in a loop. proceed? [yes/no] ")
         else:
             answer = 'yes'
 
@@ -174,7 +174,7 @@ def generate_run_commands(command_list: List[str],
     elif mode == 'local_async':
         if prompt:
             answer = input(f"about to launch {len(command_list)} commands in {num_cpus} "
-                           f"local processes. proceed? [yes/no]")
+                           f"local processes. proceed? [yes/no] ")
         else:
             answer = 'yes'
 

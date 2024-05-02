@@ -766,6 +766,13 @@ class nn_wrapper():
         else:
             optim = optax.adam(learning_rate=lr_schedule)
 
+            # noodling around. amsgrad seems to achieve very low loss in the
+            # tail of training more easily, about 10x less than adam/adamw. in
+            # the 1st run this does also translate to better test loss. however,
+            # there is no weight decay and so we cannot expect warmstarting to work.
+
+            # optim = optax.amsgrad(learning_rate=lr_schedule)
+
         opt_state = optim.init(nn_params)
 
         def update_step(key, ys, opt_state, params):

@@ -8,6 +8,7 @@ animation*
 *.npy
 *.swp
 *.png
+venv/
 tmp/
 tmp_euler/
 latex/

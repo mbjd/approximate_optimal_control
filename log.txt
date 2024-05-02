@@ -4314,6 +4314,10 @@ off because my gut says this will be not be convex anymore wrt the NN function,
 which all previous losses were. might do it if it seems strictly needed, but it
 doesn't look that way rn.
 
+the trajectory plot definitely has a "wiggly" behaviour of vx in the region
+where it previously started to break down. this indicates to me that
+conflicting data is still present but not with a HUGE effect. removing this
+somehow is really a no brainer.
 
 
 
@@ -4336,3 +4340,15 @@ motivated clearly enough, which I feel like I can do. ('learning in level sets
 minimises the amount of conflicting solutions, and we observe that this type of
 NN model IS capable of handling moderate amounts of conflicts nicely' or
 something like that)
+
+
+
+
+
+
+17:20. brain is becoming muddy. immediate next goals:
+ - develop additional pruning step after NN fit
+ - think more about NN cost function and interplay with pruning, data
+   density, weight decay, etc etc etc.
+ - read holzmüller, decide if worth implementing
+ - find out why the low oracle_frac_usable is happening

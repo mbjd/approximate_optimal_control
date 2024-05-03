@@ -4415,3 +4415,30 @@ not sure also if this is at all "compatible" with the fact that we use a whole
 ensemble of those NNs. at the very least we create unnecessarily many nonsmooth
 decision boundaries which are close together if there is actually an underlying
 nonsmoothness, but just anywhere else if not. we'll see if this is a problem.
+
+atm we are using z = MLP(x); y = min(z) for training and inference. if we want
+to properly include solutions a bit before they become optimal, we should
+change the training part, while leaving inference the same. would it be
+sufficient to do this: 
+
+def loss(x, v, vx): 
+    z, z_x = value_and_grad(MLP)(x)
+    grad_dists = [ || zi_x - vx || for i=1,..., nz ]
+    i_closest = argmin(grad_dists)
+    
+    v_pred = z_i
+    vx_pred = zi_x
+
+    # from here on the old loss
+
+so basically, instead of "predicting" the lowest value function we instead
+predict the one that is already closest to the label in terms of the gradient.
+maybe this fails due to producing spurious low solutions -- could this be fixed
+by biasing the selection towards low v? e.g. (elementwise product): 
+  i_closests = argmin(grad_dists * (z - min_z))
+
+other tweak, disable the entire loss once v label >= 1.5 * v_pred or something
+similar, but watch out that this does not give rise to "too low" solutions
+which are never "catched". maybe just make that loss really weak instead? 
+
+

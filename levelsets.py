@@ -1811,6 +1811,7 @@ def testbed(problem_params, algo_params):
         }
 
         if algo_params['wandb']:
+            print('doing wandb log')
             wandb.log(full_logdict, step=k)
 
             # serialise nn parameters.

@@ -578,7 +578,7 @@ def testbed(problem_params, algo_params):
         ts = np.linspace(0, 1, x0s.shape[0])
         pl.plot(ts, v_means, c='C0', label='v mean')
         pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
-        pl.label()
+        pl.legend()
         pl.show()
         
         # would be cool to additionally plot actually incurred control cost...

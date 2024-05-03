@@ -4411,6 +4411,13 @@ improvement is not very huge. still the watershed is left more decisively, but
 not all problems are solved. making this properly very nice probably requires
 addressing those points just above in b).
 
+sadly, euler runs seem to also indicate that this "minout" network in itself
+does not improve anything measurably.
+
+
+
+
+
 not sure also if this is at all "compatible" with the fact that we use a whole
 ensemble of those NNs. at the very least we create unnecessarily many nonsmooth
 decision boundaries which are close together if there is actually an underlying
@@ -4442,3 +4449,37 @@ similar, but watch out that this does not give rise to "too low" solutions
 which are never "catched". maybe just make that loss really weak instead? 
 
 
+can this be formalised and reasoned about at all? smells like some sort of
+shitty k-means type clustering of vx, where the means are given by the
+function. 
+
+actual k-means: 
+ - find mean of each cluster
+ - cluster = everything closer to that mean than any other mean
+
+this thing: 
+ - adjust nn vx towards closest datapoint
+
+
+
+
+
+
+in general now we have two main paradigms and a significant decision between them: 
+
+a) consider local/global distinction a part of the data generation as before,
+develop pruning strategy that works & doesn't confuse the NN (which maybe does
+have huber-type outlier rejection)
+
+b) consider local/global distinction a NN modelling problem. continue with this
+idea of today that even slightly suboptimal solutions are somehow (?)
+represented by the NN so the optimal ones are all firmly in the interpolation
+regime, so we have nicer accuracy and precise nonsmooth watersheds. 
+
+
+
+probably both of them will work out alright in the end but I think we have to
+choose one and stick with it instead of wasting tons of time. 
+
+
+wrote coarse time plan in todo.txt which 

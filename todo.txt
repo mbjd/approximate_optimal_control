@@ -43,8 +43,6 @@ theory.
 
 implementation, most important.
 
-- get aim experiment tracking working properly on euler.
-
 - spend some time thinking about prune&train function and try to see it
   working with some appropriately selected test case. make sure it works
   both from a theory standpoint and in practice at least for easy cases.
@@ -151,4 +149,84 @@ implementation, long term "extra" goals, probably overkill though:
     never-optimal active sets)
   - constrained ODE -> switched DAE reformulation like in that one paper
     https://link.springer.com/article/10.1007/s10957-020-01744-4
+
+
+
+
+
+
+
+
+
+
+general rough time plan until handin. always the week following. this middle
+section is still quite dumb...
+
+
+
+ ~~~ 6 may ~~~
+
+decide definitely: better pruning & smooth approximation, or nonsmooth approximation
+with slightly suboptimal data too.
+
+go over active learning formulation & make it "proper" a la Holzmüller. 
+
+start writing easy to write parts
+ - Problem setting
+ - Related work
+ - Fundamentals
+
+ ~~~ 13 may ~~~
+
+define & implement 2-3 simpler 2D examples to show basic principle. 
+
+think about 1-2 other not entirely trivial systems for examples. 
+bhavya suggests: acrobot/cartpole
+    acrobot is not strictly a stabilisation problem, modify somehow?
+very cool too: plane landing from LQRTrees paper...
+   
+
+implement some sort of metric like closed loop performance 
+somehow log the dataset and/or nn params
+
+start writing "central ideas" section, or at least plan it in more detail.
+continue writing those "easy" parts. 
+
+ ~~~ 20 may ~~~
+
+make code work
+
+do writing
+
+ ~~~ 27 may  ~~~
+
+collect results
+
+do writing
+
+ ~~~ 3. jun ~~~
+
+ ~~~ 10. jun  ~~~
+
+last week to do any coding at all
+
+collect experiment data, plots
+
+ ~~~ 17. jun  ~~~
+
+prepare final draft
+
+ ~~~ 24. jun ~~~
+
+send final draft for feedback
+
+writing & figures 
+
+ ~~~ 1 jul ~~~
+
+writing polish
+
+ ~~~ 2 jul ~~~
+
+hand in !!!!!
 

@@ -1834,8 +1834,11 @@ def testbed(problem_params, algo_params):
                 wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
 
             fig = pl.figure(f'nn calibration, iter {k}')
-            means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
-            plot_calibration(all_ys, means, stds)
+
+            relevant_ys = jtm(lambda node: node[~is_suboptimal], all_ys)
+            means, stds = v_meanstds(relevant_ys['x'], params_sobolev_ens)
+            plot_calibration(relevant_ys, means, stds)
+
             if algo_params['savefigs']:
                 pl.savefig(f'tmp/calibration_{k:04d}.png')
             if algo_params['wandb'] and algo_params['wandbfigs']:

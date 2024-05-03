@@ -4352,3 +4352,22 @@ something like that)
    density, weight decay, etc etc etc.
  - read holzmüller, decide if worth implementing
  - find out why the low oracle_frac_usable is happening
+
+
+
+
+
+2024-05-03
+
+found out how to record animation in meshcat. open javascript console.
+
+this.viewer.animator.record()
+# wait until captured enough
+this.viewer.animator.stop_capture()
+this.viewer.animator.save_capture()
+
+no clue why apparently this doesn't happen when the record button is
+pressed. is there just no button to do the other two commands? man this is
+a clunky piece of software. also, when the images finally are saved, the
+objects that are white on web become completely black (as in completely
+#000000, not like a properly rendered black surface texture). not fun

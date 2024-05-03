@@ -934,7 +934,7 @@ def base_algo_params():
         'sigma_max_abs': 0.5,
         'sigma_max_rel': 0.05,
 
-        'thin_data': True,
+        'thin_data': False,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',

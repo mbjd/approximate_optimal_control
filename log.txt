@@ -4458,8 +4458,8 @@ actual k-means:
  - cluster = everything closer to that mean than any other mean
 
 this thing: 
- - adjust nn vx towards closest datapoint
-
+ - adjust nn vx towards closest label
+ - hope it develops somehow a coherent function approx. 
 
 
 

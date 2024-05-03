@@ -7,8 +7,9 @@ PROJECT_NAME = 'flatquad'
 
 flatquad_configs = {
     # 'T_value_target': [1/2, 1, 2.],
-    'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1],
-    'nn_type': ['softplus'],
+    # 'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1],
+    'weight_decay': [.0002, .0003, .0004, .0005, .0007, .0009, .001, .0012, .0015],
+    'nn_type': ['minout_softplus', 'softplus'],
     # 'seed': [1,2,3,4,5,6,7,8]
     # 'lr_init': [0.05, 0.02, 0.01, 0.005],
     # 'lr_final': [0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001],

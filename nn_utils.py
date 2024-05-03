@@ -254,18 +254,18 @@ class nn_wrapper():
     # all the usual business logic around the NN.
     # initialisation, data loading, training, loss plotting
 
-    def __init__(self, input_dim, layer_dims, output_dim, has_t=False):
+    def __init__(self, problem_params, algo_params):
 
-        self.input_dim  = input_dim
-        self.layer_dims = layer_dims
-        self.output_dim = output_dim
+        self.input_dim  = problem_params['nx']
+        self.layer_dims = algo_params['nn_layerdims']
+        self.output_dim = 1
 
-        # self.nn = my_nn_flax(features=layer_dims, output_dim=output_dim)
-        self.nn = my_nn_nonsmooth(features=layer_dims, penultimate_dim=8, output_dim=output_dim)
-
-        # somehow this won't work if we put exactly the same but as a decorator.
-        self.ensemble_init_and_train = partial(jax.vmap, in_axes=(0, None, None, None))(self.init_and_train)
-
+        if algo_params['nn_type'] == 'softplus':
+            self.nn = my_nn_flax(features=self.layer_dims, output_dim=self.output_dim)
+        elif algo_params['nn_type'] == 'minout_softplus':
+            self.nn = my_nn_nonsmooth(features=self.layer_dims, penultimate_dim=8, output_dim=self.output_dim)
+        else:
+            raise ValueError(f'NN type {algo_params["nn_type"]} unknown')
 
     # so we can use it like a function :)
     def __call__(self, params, x):

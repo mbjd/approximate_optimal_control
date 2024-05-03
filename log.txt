@@ -4371,3 +4371,47 @@ pressed. is there just no button to do the other two commands? man this is
 a clunky piece of software. also, when the images finally are saved, the
 objects that are white on web become completely black (as in completely
 #000000, not like a properly rendered black surface texture). not fun
+
+
+
+
+could not let go of the idea of doing something smarter with the nonsmooth
+watersheds than just saying "well, we approximate it smoothly". very old ideas
+about multi-output NN come to mind again. well, again on a whim I tried the
+simplest most minimal version of it: just change the NN architecture to include
+a last-layer "min-out" operation, that is z = MLP(x), y = min(z) (the size of z
+can be chosen, atm it is 8), no changes to training at all. 
+
+well it seems like it is doing better than the previous "barebones" softplus
+MLP!!! this looks to be VERY good news. am planning to do some plots including
+all of the last-layer activations to see if something similar to the desired
+effect is actually happening, or if rather the better performance is a result
+of adding another (small) layer but not that special one necessarily.
+
+if this works we can 
+
+a) leave it like that and chill on our lorbeeren, or rather, get to work writing
+   and collecting data etc
+
+b) try to debug&modify it even further so that it actually represents the
+decision boundaries perfectly, based on good approximations of the two local
+solutions, even a bit beyond the watersheds. this could involve:
+
+ - imposing the loss of "suboptimal" samples not on the output (= the globally
+   optimal value function), but rather on the matched suboptimal output, making
+   the "hidden" solution accurate for a slightly bigger region
+
+ - trying to crank up weight decay even more to make the individual smooth
+   parts of the solution actually smooth? maybe minimimses the amount of
+   unnecessary decision boundaries where the argmin changes.
+
+
+after looking at some more plots and closed loop sims, i have to say the
+improvement is not very huge. still the watershed is left more decisively, but
+not all problems are solved. making this properly very nice probably requires
+addressing those points just above in b).
+
+not sure also if this is at all "compatible" with the fact that we use a whole
+ensemble of those NNs. at the very least we create unnecessarily many nonsmooth
+decision boundaries which are close together if there is actually an underlying
+nonsmoothness, but just anywhere else if not. we'll see if this is a problem.

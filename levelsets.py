@@ -584,6 +584,26 @@ def testbed(problem_params, algo_params):
         # would be cool to additionally plot actually incurred control cost...
 
 
+    def plot_v_vx_line(xs, vmap_params):
+
+        # xs = problem_params['project_M'](np.linspace(x0, x1, N))
+
+        mus, sigmas = v_meanstds(xs, vmap_params)
+        vx_mu, vx_sigma = vx_meanstds(xs, vmap_params)
+
+        ax = pl.subplot(211)
+        pl.plot(thetas, mus, label='value mean')
+        pl.fill_between(thetas, mus - sigmas, mus + sigmas, color='C0', alpha=.2, label=f'value 1σ confidence')
+        pl.legend()
+
+        pl.subplot(212, sharex=ax)
+        pl.plot(thetas, vx_mu, label=problem_params['state_names'])
+
+        pl.gca().set_prop_cycle(None)
+        for j in range(7):
+            pl.fill_between(thetas, vx_mu[:, j] - vx_sigma[:, j], vx_mu[:, j] + vx_sigma[:, j], alpha=.2)
+
+        pl.legend()
 
     def forward_sim_nn_until_value(x0, params, v_k, vmap=False):
 
@@ -1639,12 +1659,7 @@ def testbed(problem_params, algo_params):
     # split into train/test set.
     train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
 
-    v_nn = nn_utils.nn_wrapper(
-        input_dim=problem_params['nx'],
-        layer_dims=algo_params['nn_layerdims'],
-        output_dim=1
-    )
-
+    v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
     init_key, key = jax.random.split(key)
     params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))

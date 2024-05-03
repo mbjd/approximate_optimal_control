@@ -140,41 +140,66 @@ class data_normaliser(object):
         return oup
 
 
-class my_nn_dropout(nn.Module):
+class my_nn_nonsmooth(nn.Module):
 
-    # not worth spending effort on for maybe better maybe worse uncertainty
-    # estimates. leaving here for history books. also see:
-    # https://flax.readthedocs.io/en/latest/guides/training_techniques/dropout.html
+    '''
+    
+    maybe this is the way in which we represent the nonsmoothness exactly?
+    idea: we output like 8 (output_dim) "possible" value functions in a vector
+    z, and among them we take the lowest, v = min(z). Nonsmoothly!!!
 
-    # in contrast to deterministic NN:
-    # initialise params with:
-    #   dnn = nn_utils.my_nn_dropout(features=algo_params['nn_layerdims'], output_dim=1)
-    #   variables = dnn.init(rngs={'dropout': key, 'params': key}, x=np.zeros((7,)))
-    #   params = variables['params']  # no clue why this
+    this is the easy part. training will be less trivial. we want a loss
+    function that makes the NN do these things: 
 
-    # inference (still with dropout!)
-    #    y = dnn.apply(params, np.zeros((7,)), rngs={'dropout': key})
+     - for each label (v, vx), there should be AT LEAST one i such that 
+       (z_i, grad_x z_i) ≈ (v, vx), whether the label is optimal or not. 
 
-    # training.
-    #    ....
+     - there should be no "spurious" solution z_i that is lower than all
+       solutions given by data. 
+     
+     - it is bound to happen that two solutions z_i, z_j switch first/second
+       places for the min(.) WITHOUT there being an actual discontinuity in the
+       solution (just imagine single integrator on unit circle. if decision
+       boundary is represented nonsmoothly there needs to be another nonsmooth
+       point too). we should somehow make sure that in that case, the
+       transition is somewhat smooth. either by making sure the two z's are
+       actually quite close in those regions, or by smoothening the transition
+       somehow. or both.
+
+     - make sure that two different local solutions don't randomly switch
+       places for no reason
+
+    can we somehow do it with *minimal* adaptation to the training procedure? 
+    maybe it works if we just have this nn but normal training procedure???
+    surely not. 
+
+    '''
+
+    # here output_dim is the dimensionality of the penultimate hidden variable. 
+    # z = NN(x)
+    # v = min(z)
+    # z.shape == (penultimate_dim,)
 
     features: Sequence[int]
+    penultimate_dim: Optional[int]
     output_dim: Optional[int]
 
     @nn.compact
     def __call__(self, x):
+
         for feat in self.features:
             x = nn.Dense(features=feat)(x)
-
-            # we also want dropout at inference time for "bayesian" NN.
-            x = nn.Dropout(0.2, deterministic=False)(x)
-
             x = nn.softplus(x)
 
         if self.output_dim is not None:
-            x = nn.Dense(features=self.output_dim)(x)
+            assert self.output_dim == 1
 
-        return (x + nn.softplus(x)**2).squeeze()
+            x = nn.Dense(features=self.penultimate_dim)(x)
+            x = np.min(x)
+
+        return x.squeeze()
+
+
 
 
 
@@ -235,7 +260,8 @@ class nn_wrapper():
         self.layer_dims = layer_dims
         self.output_dim = output_dim
 
-        self.nn = my_nn_flax(features=layer_dims, output_dim=output_dim)
+        # self.nn = my_nn_flax(features=layer_dims, output_dim=output_dim)
+        self.nn = my_nn_nonsmooth(features=layer_dims, penultimate_dim=8, output_dim=output_dim)
 
         # somehow this won't work if we put exactly the same but as a decorator.
         self.ensemble_init_and_train = partial(jax.vmap, in_axes=(0, None, None, None))(self.init_and_train)

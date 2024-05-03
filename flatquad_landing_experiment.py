@@ -896,7 +896,7 @@ def base_algo_params():
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
         'lr_final': 0.0002,
-        'weight_decay': .005,
+        'weight_decay': .0005,
         'nn_warmstart_fraction': 1/3,
 
         'nn_ensemble_size': 4,
@@ -964,16 +964,16 @@ def base_algo_params():
 
 
         # OUTPUT & VISUALISATION
-        'wandb': True,
+        'wandb': False,
 
         # save figures on filesystem.
         'savefigs': False,
         # track figures with aim.
         'wandbfigs': True,
         # show figures in UI (blocking!)
-        'showfigs': False,
+        'showfigs': True,
 
-        'ipdb_interval': 0,
+        'ipdb_interval': 5,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

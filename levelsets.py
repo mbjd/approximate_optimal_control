@@ -22,6 +22,7 @@ import meshcat.transformations as tf
 import ipdb
 import time
 import tqdm
+import pprint
 from operator import itemgetter
 
 
@@ -570,6 +571,17 @@ def testbed(problem_params, algo_params):
         solsdict = {'t': trajs.ts, 'x': ys}
 
         visualiser.plot_trajectories_meshcat(solsdict)
+
+        # also plot initial values. 
+        pl.figure('meshcat sims: initial v mean/std')
+        v_means, v_stds = v_meanstds(x0s, nn_params)
+        ts = np.linspace(0, 1, x0s.shape[0])
+        pl.plot(ts, v_means, c='C0', label='v mean')
+        pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
+        pl.label()
+        pl.show()
+        
+        # would be cool to additionally plot actually incurred control cost...
 
 
 
@@ -1747,7 +1759,7 @@ def testbed(problem_params, algo_params):
         proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
 
-        # ~~~~ ORACLE ~~~~
+        # obtain optimal trajectories close to those points
         backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
 
         # append data & suboptimality flag to previous data
@@ -1773,17 +1785,18 @@ def testbed(problem_params, algo_params):
 
 
         # metric tracking :)
+        
+        # if a key is repeated apparently the latter one is used. but don't repeat keys! 
+        full_logdict = {
+            **{ 'vk': v_k, 'v_next_target': v_next_target, }, 
+            **final_losses,
+            **proposal_metrics, 
+            **estimator_metrics,
+            **oracle_metrics,
+        }
+
         if algo_params['wandb']:
-            wandb.log({
-                'vk': v_k,
-                'v_next_target': v_next_target,
-            }, step=k)
-
-            wandb.log(final_losses, step=k)
-            wandb.log(proposal_metrics, step=k)
-            wandb.log(estimator_metrics, step=k)
-            wandb.log(oracle_metrics, step=k)
-
+            wandb.log(full_logdict, step=k)
 
             # serialise nn parameters.
             # probably incorrect. not sure how to read documentation.
@@ -1792,6 +1805,8 @@ def testbed(problem_params, algo_params):
                 params_bytes = flax.serialization.msgpack_serialize(params_sobolev_ens)
                 params_file.write(params_bytes)
             '''
+        else:
+            pprint.pprint(full_logdict)
 
 
         # figure plotting :))
@@ -1844,12 +1859,12 @@ def testbed(problem_params, algo_params):
             if algo_params['wandb'] and algo_params['wandbfigs']:
                 wandb.log({'calibration' : wandb.Image(fig)}, step=k)
 
-            if algo_params['ipdb_interval'] > 0 and k % algo_params['ipdb_interval'] == 0:
-                ipdb.set_trace()
-
             if algo_params['showfigs']:
                 pl.show()
 
             pl.close('all')
+
+        if algo_params['ipdb_interval'] > 0 and k % algo_params['ipdb_interval'] == 0:
+            ipdb.set_trace()
 
 

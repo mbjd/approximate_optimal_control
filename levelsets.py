@@ -572,7 +572,7 @@ def testbed(problem_params, algo_params):
 
         visualiser.plot_trajectories_meshcat(solsdict)
 
-        # also plot initial values. 
+        # also plot initial values.
         pl.figure('meshcat sims: initial v mean/std')
         v_means, v_stds = v_meanstds(x0s, nn_params)
         ts = np.linspace(0, 1, x0s.shape[0])
@@ -580,7 +580,7 @@ def testbed(problem_params, algo_params):
         pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
         pl.legend()
         pl.show()
-        
+
         # would be cool to additionally plot actually incurred control cost...
 
 
@@ -619,7 +619,7 @@ def testbed(problem_params, algo_params):
             v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(params, x).mean()
 
         else:
-            v_fct = lambda x: v_nn_unnormalised(params, x)
+            raise NotImplementedError('too long since this was used')
 
         def forwardsim_rhs(t, x, args):
 
@@ -696,78 +696,16 @@ def testbed(problem_params, algo_params):
             'vx': vx_f,
         }
 
-        # if manifold, backproject here.
+        # if manifold, backproject.
+        # now that we repeated this code a couple times it is very simple :)
         if problem_params['m'] is not None:
-
-            # easy part: project x to the manifold.
-            state_f['x'] = problem_params['project_M'](x_f)
-
-            # now we want to set the costate to 0 in the "irrelevant" normal direction.
-            # get normal & tangent space projections just like in nn_utils
-            B = jax.jacobian(problem_params['m'])(x_f)
-            assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
-            B = B / np.linalg.norm(B)
-
-            # orthogonal projection to normal space at current x
-            P_normal = np.outer(B, B)
-            # orthogonal projection to tangent space at current x
-            P_tangent = np.eye(problem_params['nx']) - P_normal
-
-            # from this construction we have P_normal + P_tangent = I. can we
-            # thus just project a costate onto the tangent space? will this
-            # work out?
-
-            # the costate is in T*xM, the cotangent space, whereas the state
-            # derivative is in TxM. Together they can form the inner product
-            # <lambda, xdot> as they often do, which equals d/dt V(x(t)).
-
-            # We decompose lambda:
-            # lambda = (P_normal + P_tangent) lambda = lambda_normal + lambda_tangent.
-            # the inner product becomes <lambda, xdot> =
-            #   = <P_normal lambda, xdot> + <P_tangent lambda, xdot>
-            #   = lambda.T P_normal.T xdot + lambda.T P_tangent.T xdot     | writing it out in R^n standard basis
-            #   = <lambda, P_normal.T xdot> + <lambda, P_tangent.T xdot>   | changing parentheses without effect & writing as inner product again
-            #   = <lambda, P_normal xdot> + <lambda, P_tangent xdot>       | projection matrices symmetric
-            #   = 0                       + <lambda, P_tangent xdot>       | normal space is orthogonal to tangent space of which xdot is an element
-
-            # thus, we see that we can arbitrarily modify the costate in
-            # normal direction without affecting the relevant inner products.
-            # this is kind of obvious right? more formally this means
-            # (something like) the canonical map from T*x R^n to T*x M is a
-            # surjection, with all lambda in T*x R^n differing only by a
-            # vector in normal direction mapping to the same element of T*x M.
-
-            state_f['vx'] = P_tangent @ vx_f
-
+            state_f = pontryagin_utils.bwsim_projection(state_f, problem_params)
 
         if algo_params['pontryagin_solver_vxx']:
             vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
             state_f['vxx'] = vxx_f
 
         return solve_backward(state_f, v_upper=v_upper)
-
-
-    '''
-    # cover a couple different magnitudes
-    x0s = np.concatenate([
-        # jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
-        # jax.random.normal(jax.random.PRNGKey(1), shape=(100, 6)) * .3,
-        jax.random.normal(jax.random.PRNGKey(2), shape=(100, 6)) * 1,
-        # jax.random.normal(jax.random.PRNGKey(3), shape=(100, 6)) * 3,
-        jax.random.normal(jax.random.PRNGKey(4), shape=(100, 6)) * 10,
-    ], axis=0)
-
-    # sol = forward_sim_nn(x0s[0], params)
-    # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
-    # sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
-    # sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
-
-    # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
-    # visualiser.plot_trajectories_meshcat(sols_sobolev)
-    # visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
-    # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
-    '''
-
 
 
     def set_value_target(all_ys, v_k):
@@ -1263,7 +1201,7 @@ def testbed(problem_params, algo_params):
 
         if True:
 
-            # instead do this anyway to get a feel for the behaviour of those lipschitz constants. 
+            # instead do this anyway to get a feel for the behaviour of those lipschitz constants.
 
             # Pruning based both on both V and Vx being Lipschitz, or similar.
             # for more see log 2024-04-24, or idea dump, PruneAndTrain.
@@ -1285,12 +1223,12 @@ def testbed(problem_params, algo_params):
             # close to our celebrated watersheds, making NN fitting easier. I
             # dunno, maybe we can also drop this step though.
 
-            # i kinda prefer to think of 2 and 3 as one step though. like: 
+            # i kinda prefer to think of 2 and 3 as one step though. like:
             # for each pair of points i, j:
             #  - if lipschitz upper bound of i at j > v_j: mark j suboptimal
             #  - conversely too
-            #  - if both are still not labeled suboptimal AND they jointly violate the 
-            #    vx lipschitz bound, remove them both. 
+            #  - if both are still not labeled suboptimal AND they jointly violate the
+            #    vx lipschitz bound, remove them both.
 
             # pruning based on already knowing a better solution.
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
@@ -1641,7 +1579,7 @@ def testbed(problem_params, algo_params):
 
 
 
-    # choose initial value level. 
+    # choose initial value level.
 
     v_k = algo_params['v_init']
 
@@ -1801,12 +1739,12 @@ def testbed(problem_params, algo_params):
 
 
         # metric tracking :)
-        
-        # if a key is repeated apparently the latter one is used. but don't repeat keys! 
+
+        # if a key is repeated apparently the latter one is used. but don't repeat keys!
         full_logdict = {
-            **{ 'vk': v_k, 'v_next_target': v_next_target, }, 
+            **{ 'vk': v_k, 'v_next_target': v_next_target, },
             **pruning_metrics,
-            **proposal_metrics, 
+            **proposal_metrics,
             **estimator_metrics,
             **oracle_metrics,
         }

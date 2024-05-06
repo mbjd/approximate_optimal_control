@@ -4515,3 +4515,131 @@ do. probably it is smartest to stick with smooth approximation for now.
 
 tried a few different (smooth, softplus or swish-shaped) activation
 functions, makes absolutely no difference, who would have thought.
+
+
+
+
+2024-05-06
+
+playing around again a bit with these nonsmooth function approximation
+ideas. I really should probably ditch this idea and live with smooth
+approximation. nevertheless, here the newest thoughts. current experiment
+is this: we calculate a "softmin" output layer, that is a smooth
+approximation to z = MLP(x), y = min(z). namely, we do z = MLP(x), ws =
+softmax(-z), y = ws @ z. this means that if the z's are all close, they are
+all mixed in similarly, and the backpropagated gradients affect all
+functions instaed of just one. not sure if this is any better than hard
+"minout" layer. running a small euler sweep to compare the "nn_type"
+options.
+
+found out though that if we try to use more layers and it fails to train at
+all sometimes (presumably due to gradients zeroing out at initilaisation)
+it can be fixed by making the activation function leaky, like for example
+doing .9 * softplus(x) + .1 * x. makes sense
+
+on a higher level though, it is probably smartest to stick with smooth
+approximation instead of trying to handle the nonsmoothness correctly. just
+because it seems to be too late to work on another relatively hard, 90%
+unsolved problem. smooth approximation is simple, does work in many cases
+and in the cases it doesn't we can write it in the report and get points
+for that.
+
+nonsmoothness "heuristic" i've thought about in rough terms a couple times
+already: specify k different random points in vx space, for each one there
+will be a separate NN (or a single one with k outputs). for each label, we
+train only the output whose corresponding vx is closest to the label. this
+is essentially a voronoi partitioning of the vx space, encoding exactly how
+we will "patch up" the different local solutions. it works if for all
+distinct local solutions that are "close" (-> watersheds) the two vx fall
+in different voronoi cells.
+
+For inference we will have to evaluate all outputs and also figure out
+which one the correct one is. the lowest? the one with lowest variance, if
+ensemble? not so trivial. probably not much better, or worse, than any of
+the other ideas up until now.
+
+
+therefore, here some thoughts on data pruning / loss function interplay.
+currently we are still suffering from the fact that suboptimal vx labels do
+affect the NN. while suboptimal v are (apparently...) successfully ignored
+due to the very one sided loss function, it might pay to similarly care
+less about the vx loss for those labels. I'll just try this right now
+while ignoring that it makes the whole thing less convex.
+
+first attempt: scale down the vx loss with a factor
+    rel_err = (v_pred - v_label) / v_label
+    scaling = min(1, exp( rel_err / 0.1 )
+could work. maybe it will try to "cheat" that way: make the vx loss smaller
+by underestimating v entirely. if that happens only around the watersheds,
+why not? otoh if it happens in larger regions it is bad. perhaps then we
+could disable or weaken the vx loss non-differentiably? or with
+"artificial" zero gradient, corresonding to a staircase like approximation
+of this attenuation.
+
+starting to think that also this type of "loss function tuning" is not the
+way to go. probably the most practical thing at this point is some type of
+"generous" pruning. After all all of this huber loss business is just a way
+to get a smooth-ish function that fits "most" of the data. the initial idea
+about assuming lipschitz constant is essentially the same though right???
+
+i guess more generally it should not be forgotten that these problems
+despite their apparent simplicity are not solvable in the general case.
+everything we do here is an approximation that maybe works in some cases.
+from that angle we should probably relax our requirements about these
+pruning strategies a bit.
+
+
+
+
+blindly "accept" the decision boundaries already present in the
+extrapolation? can we do this? similar to lenart's idea of only integrating
+until the proposal point. for this we kind of need both of these:
+ - a way to detect the decision boundary in the extrapolation explicitly
+ - a way to enforce that decision boundary by pruning the right data.
+
+
+
+
+
+
+
+
+
+
+
+
+
+lipschitz ideas again. i feel like this is equally good but much simpler
+than somehow relying on the NN to tell us about the suboptimality. also
+once a basic version is working we might imagine finding local lipschitz
+constants, or finding it with some vxx-enabled sim, etc. all of these have
+no, or only very shitty, pendants in the NN world.
+
+say we assume lipschitz constants L_v and L_vx.
+Then, for any two points x_i, x_j, these need to hold if they both are
+samples from a lipschiitz continuous function:
+
+    || v_i - v_j || <= L_v || x_i - x_j ||
+    || vx_i - vx_j || <= L_vx || x_i - x_j ||
+
+these we can easily check. BUT the lipschitz bound on vx actually gives us
+a better bound on the v difference. consider just the line between x_i and
+x_j, and a third point x = x_j + t (x_i - x_j). suppose that the vx
+lipschitz bound is satisfied with equality, i.e. we have the maximal rate
+of change of vx, and that this change is in direction of x_i - x_j.
+
+todo evening:
+ - finish deriving this upper bound
+ - write it out in code and see if/how often it is violated and whether or
+   not those correspond indeed to decision boundaries.
+
+
+let's investigate the directional derivative
+   d: R^n -> R, d(x) = vx(x) @ (x_i - x_j)
+via lipschitzness of vx we may write
+   |d(x) - d(y)| = |vx(x) @ (x_i - x_j) - vx(y) @ (x_i - x_j)|
+                 = |(vx(x) - vx(y)) @ (x_i - x_j)|
+                <= L_vx |x - y| @ |x_i - x_j|
+                = L_vx |x - y| |x_i - x_j|
+                = L_vx |x - y| |x_i - x_j|
+thus the function d is lipschitz too.

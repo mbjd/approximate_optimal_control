@@ -1186,6 +1186,8 @@ def testbed(problem_params, algo_params):
         # v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
 
 
+        pruning_metrics = {}
+
         if algo_params['pruning_strategy'] == 'conservative':
 
             # be conservative: only prune POINTS (not trajectories) that
@@ -1256,9 +1258,12 @@ def testbed(problem_params, algo_params):
             raise NotImplementedError('see log 2024-04-23')
 
 
-        elif algo_params['pruning_strategy'] == 'lipschitz_both':
+        # elif algo_params['pruning_strategy'] == 'lipschitz_both':
+            # raise NotImplementedError()
 
-            raise NotImplementedError()
+        if True:
+
+            # instead do this anyway to get a feel for the behaviour of those lipschitz constants. 
 
             # Pruning based both on both V and Vx being Lipschitz, or similar.
             # for more see log 2024-04-24, or idea dump, PruneAndTrain.
@@ -1280,6 +1285,13 @@ def testbed(problem_params, algo_params):
             # close to our celebrated watersheds, making NN fitting easier. I
             # dunno, maybe we can also drop this step though.
 
+            # i kinda prefer to think of 2 and 3 as one step though. like: 
+            # for each pair of points i, j:
+            #  - if lipschitz upper bound of i at j > v_j: mark j suboptimal
+            #  - conversely too
+            #  - if both are still not labeled suboptimal AND they jointly violate the 
+            #    vx lipschitz bound, remove them both. 
+
             # pruning based on already knowing a better solution.
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
             trajectory_outside_levelset = v_lower < all_ys['v']
@@ -1293,19 +1305,14 @@ def testbed(problem_params, algo_params):
             L_v = 10
             # or better than lipschitz altogether, assume gradient-boundedness according to the closest couple vx's...
 
-            # make a new array with only the remaining points, because now
-            # comes the O(n^2) (or even O(n^3)?!??!!?) part.
-
-            # remaining = np.logical_and(~is_suboptimal_Vk, all_ys['v'] < np.inf)
-            # remaining = np.logical_and(remaining, all_ys['v'] > v_lower)
-            # remaining = np.logical_and(remaining, all_ys['v'] < v_upper )
 
             # or just this (inf condition implied by v < v_upper)
             remaining = (~is_suboptimal_Vk) & (all_ys['v'] > v_lower) & (all_ys['v'] < v_upper)
 
-            print(f'remaining points for O(n^2) pruning: {remaining.sum()}')
+            print(f'remaining points for O(n^2) lipschitz stuff: {remaining.sum()}')
 
             all_ys_remaining = jtm(lambda node: node[remaining], all_ys)
+            ipdb.set_trace()
 
             # Now, we first do the value-based lipschitz pruning, meaning
             # concretely that for any pair x1, x2, we remove x1 if:
@@ -1326,7 +1333,6 @@ def testbed(problem_params, algo_params):
 
             # is this axis correct? think about this even harder sometime.
             should_prune_remaining_V_lipschitz = should_prune_x1.any(axis=1)
-
 
 
             # second, vx lipschitz pruning. this is a bit more complicated.
@@ -1461,10 +1467,8 @@ def testbed(problem_params, algo_params):
         test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
         final_testloss = np.mean(test_losses)
 
-        final_losses = {
-            'final_trainloss': final_trainloss,
-            'final_testloss': final_testloss,
-        }
+        pruning_metrics['final_trainloss'] = final_trainloss
+        pruning_metrics['final_testloss'] = final_testloss
 
 
         # second pruning step. very trivial: remove everything likely to be suboptimal
@@ -1491,7 +1495,7 @@ def testbed(problem_params, algo_params):
         frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
         print(f'fraction suboptimal after training: {frac_suboptimal:.4f}')
 
-        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, final_losses
+        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, pruning_metrics
 
 
     # initial step:
@@ -1637,10 +1641,7 @@ def testbed(problem_params, algo_params):
 
 
 
-    # choose initial value level. should we just blindly assume that below
-    # this value level we only have globally optimal solutions? then we could
-    # rapidly fill that sublevel set instead of being careful about
-    # collisions... but no way to verify the assumption besides praying
+    # choose initial value level. 
 
     v_k = algo_params['v_init']
 
@@ -1786,7 +1787,7 @@ def testbed(problem_params, algo_params):
         # prune suboptimal data & train NN
         prev_params_sobolev_ens = params_sobolev_ens
         train_key, key = jax.random.split(key)
-        params_sobolev_ens, oups, is_suboptimal, final_losses = prune_and_train_simple(
+        params_sobolev_ens, oups, is_suboptimal, pruning_metrics = prune_and_train_simple(
             train_key,
             params_sobolev_ens,
             all_ys,
@@ -1804,7 +1805,7 @@ def testbed(problem_params, algo_params):
         # if a key is repeated apparently the latter one is used. but don't repeat keys! 
         full_logdict = {
             **{ 'vk': v_k, 'v_next_target': v_next_target, }, 
-            **final_losses,
+            **pruning_metrics,
             **proposal_metrics, 
             **estimator_metrics,
             **oracle_metrics,

@@ -561,175 +561,6 @@ def manifold_testing(problem_params, algo_params):
 
 
 
-# def old_params():
-#
-#     # problem/algo params BEFORE switching to embedded manifold representation.
-#
-#     # classic 2D quad type thing. 6D state.
-#
-#     m = 20  # kg
-#     g = 9.81 # m/s^2
-#     r = 0.5 # m
-#     I = m * (r/2)**2 # kg m^2 / radian (???)
-#     umax = m * g * 1.2 / 2  # 20% above hover thrust
-#
-#     # remove time arguments sometime now that we're mostly treating
-#     # infinite horizon, time-invariant problems?
-#     def f(x, u):
-#
-#         # unpack for easier names
-#         Fl, Fr = u
-#         posx, posy, Phi, vx, vy, omega = x
-#
-#         xdot = np.array([
-#             vx,
-#             vy,
-#             omega,
-#             -np.sin(Phi) * (Fl + Fr) / m,
-#             np.cos(Phi) * (Fl + Fr) / m - g,
-#             (Fr-Fl) * r / I,
-#         ])
-#
-#         return xdot
-#
-#     def l(x, u):
-#         Fl, Fr = u
-#         posx, posy, Phi, vx, vy, omega = x
-#
-#         # state_length_scales = np.array([1, 1, np.deg2rad(10), 1, 1, np.deg2rad(45)])
-#         # state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), .5, .5, np.deg2rad(120)])
-#         # Q = np.diag(1/state_length_scales**2)
-#         # state_cost = x.T @ Q @ x
-#
-#         # instead just penalise the corresponding deviation from cos(Phi)=1, sin(Phi)=0?
-#         # derivatives should be the same still (bc sin'(0) = 1)
-#         x_transformed =    np.array([posx, posy, np.cos(Phi), np.sin(Phi), vx, vy, omega])
-#         zero_transformed = np.array([0,    0,    np.cos(0),   np.sin(0),   0,  0,  0    ])
-#
-#         state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), np.deg2rad(30), .5, .5, np.deg2rad(120)])
-#         Q = np.diag(1/state_length_scales**2)
-#         state_cost = (x_transformed - zero_transformed).T @ Q @ (x_transformed - zero_transformed)
-#
-#         # TODO write something that is kind of similar but only depends on sin and cos of theta, not theta.
-#         # bc as it is now the cost is not a well defined function of the (transformed) state.
-#
-#         # can we just set an input penalty that is zero at hover?
-#         # penalise x acc, y acc, angular acc here.
-#         # this here is basically a state-dependent linear map of the inputs, i.e. M(x) u with M(x) a 3x2 matrix.
-#         # the overall input cost will be acc.T M(x).T Q M(x) acc, so for each state it is still a nice quadratic in u.
-#         accelerations = np.array([
-#             -np.sin(Phi) * (Fl + Fr) / m,
-#             np.cos(Phi) * (Fl + Fr) / m - g,
-#             (Fr - Fl) * r / I,
-#         ])
-#
-#         accelerations_lengthscale = np.array([1, 1, 1])
-#
-#         input_cost = accelerations.T @ np.diag(1/accelerations_lengthscale**2) @ accelerations
-#
-#         return state_cost + input_cost
-#
-#
-#     def h(x):
-#         # irrelevant if terminal constraint or infinite horizon
-#         # OR we could right in here put the terminal quadratic cost
-#         # plus some exception or +infinity cost if outside terminal set...
-#         Qf = 1 * np.eye(6)
-#         return (x.T @ Qf @ x).reshape()
-#
-#
-#     problem_params = {
-#         'system_name': 'flatquad',
-#         'f': f,
-#         'l': l,
-#         'h': h,
-#         # 'T': 10.,  # problems come up if not float
-#         'nx': 6,
-#         'state_names': ("x", "y", "Phi", "vx", "vy", "omega"),
-#
-#         'm': None,
-#
-#         'nu': 2,
-#         'U_interval': [np.zeros(2), umax*np.ones(2)],  # but now 2 dim!
-#         'V_f': 0.001,
-#         'V_max': 1000.,
-#         'u_eq': np.ones(2) * m * g / 2,
-#         'x_eq': np.zeros(6),
-#     }
-#
-#
-#     algo_params = {
-#         'pontryagin_solver_vxx': False,
-#         'pontryagin_solver_atol': 1e-5,
-#         'pontryagin_solver_rtol': 1e-5,
-#
-#         # with throw=True we can set this pretty tight - it will just stop early.
-#         # will have to make sure ourselves that this is not a problem
-#         'pontryagin_solver_maxsteps': 128,
-#
-#         # not very relevant if we can just "resume" the trajectory in a later solve
-#         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x
-#         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
-#         # state space regions.
-#         'pontryagin_solver_T': 5.,
-#
-#         # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
-#         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
-#         # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
-#         # hopefully the state space will still be sufficiently covered. In regions where ||vxx|| would
-#         # have been very high we will just have to accept the interpolation instead.
-#         'vxx_max_norm': 1e4,
-#
-#         # causes it not to quit when hitting maxsteps. probably still all subsequent
-#         # results will be unusable due to evaluating solutions outside their domain giving NaN
-#         'throw': False,
-#
-#         # the state space transformation, now in algo_params.
-#         'use_transform': False,
-#         'T': lambda x: np.concatenate([
-#             x[0:2],
-#             np.array([np.cos(x[2]), np.sin(x[2])]),
-#             x[3:]
-#         ]),
-#
-#         # big question: should we aim for over- or underparameterisation?
-#         'nn_layerdims': (64, 64, 64),
-#         'nn_batchsize': 32,  # small batches good! friends don't let friends blabla
-#         'nn_N_epochs': 64,
-#         'nn_train_fraction': .98,
-#         'lr_staircase': False,
-#         'lr_staircase_steps': 8,
-#         'lr_init': 0.01,
-#         'lr_final': 0.0005,
-#
-#         'nn_ensemble_size': 8,
-#
-#         # relative importance of the losses for v, vx, vxx.
-#         # mostly we care about representing vx with great accuracy,
-#         # the other two can be thought of as "hints"/priors/inductive biases
-#         # to fit the correct vx function.
-#         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-#         'nn_sobolev_weights': np.array([0.1, 1.]),
-#
-#         'nn_progressbar': True,
-#
-#         # only take a subsample of data for active learning. dense sample
-#         # close to current level set, less dense sample further down.
-#         'thin_data': False,
-#         'N_band': 4096,
-#         'N_lower': 4096,
-#
-#         # number of proposals per active learning iteration.
-#         # larger = nicer! but don't kill our poor RAM
-#         'active_learning_batchsize': 32,
-#
-#         # sigma target = sigma_target_abs + sigma_target_rel * v_mean
-#         # still unsure if the uncertainty should rather be in terms of vx?
-#         'sigma_target_abs': 0.5,
-#         'sigma_target_rel': 0.01,
-#     }
-#
-#     return problem_params, algo_params
 
 
 def define_problem_params():
@@ -848,7 +679,7 @@ def base_algo_params():
     algo_params = {
 
         # PRNG seed
-        'seed': 0,
+        'seed': 32,
 
 
         # ODE SOLVER PARAMS
@@ -888,8 +719,8 @@ def base_algo_params():
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
         # 'nn_layerdims': (256, 16),
-        # 'nn_type': 'softplus',
-        'nn_type': 'experimental',
+        'nn_type': 'leaky',
+        # 'nn_type': 'experimental',
         # 'nn_type': 'minout_softplus',
         # 'nn_type': 'half_relu_out',
         'nn_layerdims': (32, 32, 32),
@@ -975,7 +806,7 @@ def base_algo_params():
         # track figures with aim.
         'wandbfigs': True,
         # show figures in UI (blocking!)
-        'showfigs': True,
+        'showfigs': False,
 
         'ipdb_interval': 8,
     }

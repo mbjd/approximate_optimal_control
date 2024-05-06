@@ -225,6 +225,8 @@ class my_nn_experimental(nn.Module):
             assert self.output_dim == 1
 
             '''
+            # last layer of half relu and half softplus
+
             x = nn.Dense(features=self.penultimate_dim)(x)
 
             half = self.penultimate_dim // 2
@@ -234,15 +236,45 @@ class my_nn_experimental(nn.Module):
             x = np.concatenate([x_relu, x_softplus])
             x = nn.Dense(features=1)(x)
             '''
+
+            '''
+            # regular "leaky squareplus" last layer
             x = nn.Dense(features=self.penultimate_dim)(x)
             x = 0.9 * jax.nn.squareplus(x) + 0.1 * x
             x = nn.Dense(features=1)(x)
+            '''
+
+            x = nn.Dense(features=self.penultimate_dim)(x)
+
+            # "softmin" weights
+            x_contribs = nn.softmax(-x)
+
+            x = np.dot(x, x_contribs)
 
         return x.squeeze()
 
 
 
 
+
+class my_nn_leaky(nn.Module):
+
+    # simple, fully connected NN class.
+    # for bells & wistles -> nn_wrapper class :)
+
+    features: Sequence[int]
+    output_dim: Optional[int]
+
+    @nn.compact
+    def __call__(self, x):
+        for feat in self.features:
+            x = nn.Dense(features=feat)(x)
+            x = 0.9 * jax.nn.squareplus(x) + 0.1 * x
+
+        if self.output_dim is not None:
+            x = nn.Dense(features=self.output_dim)(x)
+
+        return x.squeeze()
 
 class my_nn_flax(nn.Module):
 
@@ -303,6 +335,8 @@ class nn_wrapper():
 
         if algo_params['nn_type'] == 'softplus':
             self.nn = my_nn_flax(features=self.layer_dims, output_dim=self.output_dim)
+        if algo_params['nn_type'] == 'leaky':
+            self.nn = my_nn_leaky(features=self.layer_dims, output_dim=self.output_dim)
         elif algo_params['nn_type'] == 'minout_softplus':
             self.nn = my_nn_nonsmooth(features=self.layer_dims, penultimate_dim=32, output_dim=self.output_dim)
         elif algo_params['nn_type'] == 'experimental':
@@ -504,9 +538,18 @@ class nn_wrapper():
             # probably shrink the quadratic region to tolerate closer
             # outliers?
 
-            rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
-            rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+            # corresponds to the size of the quadratic region in the smoothed
+            # huber loss. equal to delta from:
+            # https://en.wikipedia.org/wiki/Huber_loss#Pseudo-Huber_loss_function
+            # dl(x)/dx at x->inf = 2*d i think
+            d = 0.1
 
+            rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
+            # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+            rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
+
+            # if NN value lower than data: push NN up only a bit, data could be suboptimal
+            # if NN value higher than data: push down aggressively, data PROVES that NN suboptimal
             underestimation = v_pred < y['v']
             v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
 
@@ -514,31 +557,6 @@ class nn_wrapper():
             # looks to have continuous first, second, and third derivative,
             # with the fourth one becoming discontinuous. thanks desmos :)
 
-        # this looks really fucked up, i know. basically the problems
-        # previously are these:
-        #  - if the loss is just based on a constant-scaled squared error,
-        #    the high v's dominate everything and mess up relative accuracy
-        #    at lower values. this is akin to specifying constant noise std
-        #    in the bayesian analogy.
-        #  - if the error is scaled down by a factor of v (>0), then we
-        #    have the same "relative" loss everywhere, i.e. noise std
-        #    proportional to v. This gives better fits, BUT once high
-        #    values come into play we tend to underestimate them.
-        #    Intuitively, gradient descent has to make the function
-        #    traverse a long path from 0-ish to a high v, based on a
-        #    relatively weak loss gradient.
-
-        # therefore, here we put a *tiny bit* more emphasis on higher
-        # values again. In the bayesian analogy, assume that noise
-        # amplitude is not proportional to v but proportional to v**0.75.
-        # v_loss  = ((v_pred - y['v']) / (1 + y['v'])**0.75 ) ** 2
-        # or proportional to sqrt(v), looks even nicer
-        # v_loss  = (v_pred - y['v'])**2 / (1 + y['v'])
-
-        # v_loss =  (v_pred / y['v'] - 1)**2
-
-        # vx_loss = np.sum((vx_pred - y['vx']) ** 2)
-        # vx_loss = np.sum(((vx_pred - y['vx']) / (1 + np.linalg.norm(y['vx'] @ P_tangent))) ** 2)
 
         lossterms = dict()
         lossterms['v'] = v_loss
@@ -616,8 +634,53 @@ class nn_wrapper():
 
                 vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
 
-                lengthscale = 0.1
-                vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
+                # same parameterisation as above: d = size of the quadratic region
+                # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
+                d = 0.01
+                vx_label_loss = d**2 * 2 * (np.sqrt(1 + vx_label_loss/d**2) - 1)
+
+                '''
+                squashing_fct = lambda x: 10 * np.tanh(x/10)
+                squashing_fct = lambda x: np.log(1 + x)
+
+                # weaken loss when large
+                # vx_label_loss = squashing_fct(vx_label_loss)
+
+                # attenuate the loss if it looks like we are underestimating. 
+                # (bc then data could be suboptimal)
+
+                # if NN value lower than data: push NN up only a bit, data could be suboptimal
+                # if NN value higher than data: push down aggressively, data PROVES that NN suboptimal
+                # here we want to weaken the vx loss in case the data looks suboptimal
+                # which means NN below label, v_pred < y['v']
+                # which means this rel_err here < 0. 
+
+                rel_err = (v_pred - y['v'] ) / y['v']
+
+                # this is the part that is nonconvex and thus maybe hairy. is
+                # the optimum even well defined? also, this loss could cause
+                # the optimiser to "favour" underestimation in case of high vx
+                # loss due to this attenuation... could make hard,
+                # non-differentiable attenuation to avoid that
+
+                scaling = 1.
+
+                # zero-gradient version.
+                # scaling = (rel_err < -0.1).astype(float)
+
+                # attenuate by e at 10% relative error. 
+                # scaling = np.clip(np.exp(rel_err/0.1), 0., 1.)
+
+                # completely misuse the scaling i
+
+                # vx_label_loss = scaling * vx_label_loss
+                '''
+                rel_err = (v_pred - y['v'] ) / y['v']
+                scaling = 1. / (1 + (rel_err/0.1)**2)
+                scaling = np.where(rel_err < 0, scaling, 1.)
+                vx_label_loss = vx_label_loss * scaling
+
+
 
 
 

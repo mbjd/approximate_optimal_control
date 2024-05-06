@@ -4634,12 +4634,56 @@ todo evening:
    not those correspond indeed to decision boundaries.
 
 
-let's investigate the directional derivative
-   d: R^n -> R, d(x) = vx(x) @ (x_i - x_j)
-via lipschitzness of vx we may write
-   |d(x) - d(y)| = |vx(x) @ (x_i - x_j) - vx(y) @ (x_i - x_j)|
-                 = |(vx(x) - vx(y)) @ (x_i - x_j)|
-                <= L_vx |x - y| @ |x_i - x_j|
-                = L_vx |x - y| |x_i - x_j|
-                = L_vx |x - y| |x_i - x_j|
-thus the function d is lipschitz too.
+wrote some stuff on paper, not entirely clear yet. For now, assume that
+just vx is Lipschitz, || vx_i - vx_j || <= L_vx || x_i - x_j ||. There will
+be a "double cone" of possible vx values around some known one. Say we
+known V(x0), Vx(x0) and L_vx, and are after an upper bound of V(x1).
+
+Investigate the function v(t) = V(x0 + t(x1 - x0)). We know:
+ a) v(t=0) = v(x0)
+ b) v_t(t=0) = vx(x0) * dx/dt = v(x0) (x1 - x0)  (chain rule dx/dt)
+ c) v_t behaves such that the Lipschitzness of the original Vx(x) holds.
+
+that means, from small v definition and chain rule:
+|v_t(ta) - v_t(tb)| = |(vx(x0 + ta(x1 - x0)) - vx(x0 + tb(x1 - x0))) (x1 - x0) |
+
+Now, using the triangle inequality:
+   <= ||(vx(x0 + ta(x1 - x0)) - vx(x0 + tb(x1 - x0))|| ||(x1 - x0) ||
+
+And using the Lipschitzness of vx:
+   <= L_vx ||(ta - tb) (x1 - x0) || ||(x1 - x0) ||
+
+Suppose both of these actually hold with equality (that means firstly that
+the gradient change is aligned with the direction of the line in question,
+and secondly that the Lipschitz constant for the original vx(x) is "maxed
+out" on the line). Spelled out with tb=0 that is:
+
+|v_t(ta) - v_t(0)| = L_vx ||ta (x1 - x0) || ||(x1 - x0) ||
+                   = L_vx ta ||(x1 - x0) ||^2
+
+pretty sure this is not yet entirely correct... feel like it should be a
+lot simpler.
+
+https://math.stackexchange.com/questions/1698812/lipschitz-constant-gradient-implies-bounded-eigenvalues-on-hessian
+
+
+
+
+
+isn't the other direction much easier? that is, say there is an upper bound
+of the form: V(x1) <= V(x0) + V_x(x0) (x1 - x0) + C ||x1 - x0||^2. What vx
+lipschitz constant does this correspond to? Say the upper bound is actually
+tight, and x0=0 just for cosmetics. Then we have:
+
+V(x1) - V(0) = V_x(x0) (x1) + C ||x1||^2
+
+taking the gradient of this wrt x1 gives:
+
+V_x(x1) = V_x(x0) + 2 C x1
+V_x(x1) - V_x(x0) = 2 C (x1 - x0)
+
+Does this mean that the Lipschitz constant is L_vx = 2C? and conversely,
+that the sought after upper bound is this? 1/2 in front of square certainly
+seems well placed.
+
+V(x1) <= V(x0) + V_x(x0) (x1 - x0) + 0.5 L_vx ||x1 - x0||^2

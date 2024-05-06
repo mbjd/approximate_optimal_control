@@ -16,3 +16,4 @@ latex/
 wandb/
 slurm-*.out
 
+output.mp4

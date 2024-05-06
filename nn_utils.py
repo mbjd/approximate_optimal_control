@@ -143,20 +143,20 @@ class data_normaliser(object):
 class my_nn_nonsmooth(nn.Module):
 
     '''
-    
+
     maybe this is the way in which we represent the nonsmoothness exactly?
     idea: we output like 8 (output_dim) "possible" value functions in a vector
     z, and among them we take the lowest, v = min(z). Nonsmoothly!!!
 
     this is the easy part. training will be less trivial. we want a loss
-    function that makes the NN do these things: 
+    function that makes the NN do these things:
 
-     - for each label (v, vx), there should be AT LEAST one i such that 
-       (z_i, grad_x z_i) ≈ (v, vx), whether the label is optimal or not. 
+     - for each label (v, vx), there should be AT LEAST one i such that
+       (z_i, grad_x z_i) ≈ (v, vx), whether the label is optimal or not.
 
      - there should be no "spurious" solution z_i that is lower than all
-       solutions given by data. 
-     
+       solutions given by data.
+
      - it is bound to happen that two solutions z_i, z_j switch first/second
        places for the min(.) WITHOUT there being an actual discontinuity in the
        solution (just imagine single integrator on unit circle. if decision
@@ -169,13 +169,13 @@ class my_nn_nonsmooth(nn.Module):
      - make sure that two different local solutions don't randomly switch
        places for no reason
 
-    can we somehow do it with *minimal* adaptation to the training procedure? 
+    can we somehow do it with *minimal* adaptation to the training procedure?
     maybe it works if we just have this nn but normal training procedure???
-    surely not. 
+    surely not.
 
     '''
 
-    # here output_dim is the dimensionality of the penultimate hidden variable. 
+    # here output_dim is the dimensionality of the penultimate hidden variable.
     # z = NN(x)
     # v = min(z)
     # z.shape == (penultimate_dim,)
@@ -192,10 +192,51 @@ class my_nn_nonsmooth(nn.Module):
             x = nn.softplus(x)
 
         if self.output_dim is not None:
+
             assert self.output_dim == 1
 
             x = nn.Dense(features=self.penultimate_dim)(x)
             x = np.min(x)
+
+        return x.squeeze()
+
+
+class my_nn_experimental(nn.Module):
+
+    # here output_dim is the dimensionality of the penultimate hidden variable.
+    # z = NN(x)
+    # v = min(z)
+    # z.shape == (penultimate_dim,)
+
+    features: Sequence[int]
+    penultimate_dim: Optional[int]
+    output_dim: Optional[int]
+
+    @nn.compact
+    def __call__(self, x):
+
+        for feat in self.features:
+            x = nn.Dense(features=feat)(x)
+            x = 0.9 * jax.nn.squareplus(x) + 0.1 * x
+
+        if self.output_dim is not None:
+
+            # last layer relu?
+            assert self.output_dim == 1
+
+            '''
+            x = nn.Dense(features=self.penultimate_dim)(x)
+
+            half = self.penultimate_dim // 2
+            x_relu = nn.relu(x[:half])
+            x_softplus = nn.softplus(x[half:])
+
+            x = np.concatenate([x_relu, x_softplus])
+            x = nn.Dense(features=1)(x)
+            '''
+            x = nn.Dense(features=self.penultimate_dim)(x)
+            x = 0.9 * jax.nn.squareplus(x) + 0.1 * x
+            x = nn.Dense(features=1)(x)
 
         return x.squeeze()
 
@@ -263,7 +304,10 @@ class nn_wrapper():
         if algo_params['nn_type'] == 'softplus':
             self.nn = my_nn_flax(features=self.layer_dims, output_dim=self.output_dim)
         elif algo_params['nn_type'] == 'minout_softplus':
-            self.nn = my_nn_nonsmooth(features=self.layer_dims, penultimate_dim=8, output_dim=self.output_dim)
+            self.nn = my_nn_nonsmooth(features=self.layer_dims, penultimate_dim=32, output_dim=self.output_dim)
+        elif algo_params['nn_type'] == 'experimental':
+            self.nn = my_nn_experimental(features=self.layer_dims,
+                    penultimate_dim=32, output_dim=self.output_dim)
         else:
             raise ValueError(f'NN type {algo_params["nn_type"]} unknown')
 

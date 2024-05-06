@@ -888,7 +888,10 @@ def base_algo_params():
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
         # 'nn_layerdims': (256, 16),
-        'nn_type': 'minout_softplus',
+        # 'nn_type': 'softplus',
+        'nn_type': 'experimental',
+        # 'nn_type': 'minout_softplus',
+        # 'nn_type': 'half_relu_out',
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,
         'nn_N_epochs': 1024,
@@ -965,16 +968,16 @@ def base_algo_params():
 
 
         # OUTPUT & VISUALISATION
-        'wandb': True,
+        'wandb': False,
 
         # save figures on filesystem.
-        'savefigs': False,
+        'savefigs': True,
         # track figures with aim.
         'wandbfigs': True,
         # show figures in UI (blocking!)
-        'showfigs': False,
+        'showfigs': True,
 
-        'ipdb_interval': 0,
+        'ipdb_interval': 8,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

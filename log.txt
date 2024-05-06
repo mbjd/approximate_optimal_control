@@ -4380,7 +4380,7 @@ watersheds than just saying "well, we approximate it smoothly". very old ideas
 about multi-output NN come to mind again. well, again on a whim I tried the
 simplest most minimal version of it: just change the NN architecture to include
 a last-layer "min-out" operation, that is z = MLP(x), y = min(z) (the size of z
-can be chosen, atm it is 8), no changes to training at all. 
+can be chosen, atm it is 8), no changes to training at all.
 
 well it seems like it is doing better than the previous "barebones" softplus
 MLP!!! this looks to be VERY good news. am planning to do some plots including
@@ -4388,7 +4388,7 @@ all of the last-layer activations to see if something similar to the desired
 effect is actually happening, or if rather the better performance is a result
 of adding another (small) layer but not that special one necessarily.
 
-if this works we can 
+if this works we can
 
 a) leave it like that and chill on our lorbeeren, or rather, get to work writing
    and collecting data etc
@@ -4426,13 +4426,13 @@ nonsmoothness, but just anywhere else if not. we'll see if this is a problem.
 atm we are using z = MLP(x); y = min(z) for training and inference. if we want
 to properly include solutions a bit before they become optimal, we should
 change the training part, while leaving inference the same. would it be
-sufficient to do this: 
+sufficient to do this:
 
-def loss(x, v, vx): 
+def loss(x, v, vx):
     z, z_x = value_and_grad(MLP)(x)
     grad_dists = [ || zi_x - vx || for i=1,..., nz ]
     i_closest = argmin(grad_dists)
-    
+
     v_pred = z_i
     vx_pred = zi_x
 
@@ -4441,31 +4441,31 @@ def loss(x, v, vx):
 so basically, instead of "predicting" the lowest value function we instead
 predict the one that is already closest to the label in terms of the gradient.
 maybe this fails due to producing spurious low solutions -- could this be fixed
-by biasing the selection towards low v? e.g. (elementwise product): 
+by biasing the selection towards low v? e.g. (elementwise product):
   i_closests = argmin(grad_dists * (z - min_z))
 
 other tweak, disable the entire loss once v label >= 1.5 * v_pred or something
 similar, but watch out that this does not give rise to "too low" solutions
-which are never "catched". maybe just make that loss really weak instead? 
+which are never "catched". maybe just make that loss really weak instead?
 
 
 can this be formalised and reasoned about at all? smells like some sort of
 shitty k-means type clustering of vx, where the means are given by the
-function. 
+function.
 
-actual k-means: 
+actual k-means:
  - find mean of each cluster
  - cluster = everything closer to that mean than any other mean
 
-this thing: 
+this thing:
  - adjust nn vx towards closest label
- - hope it develops somehow a coherent function approx. 
+ - hope it develops somehow a coherent function approx.
 
 
 
 
 
-in general now we have two main paradigms and a significant decision between them: 
+in general now we have two main paradigms and a significant decision between them:
 
 a) consider local/global distinction a part of the data generation as before,
 develop pruning strategy that works & doesn't confuse the NN (which maybe does
@@ -4474,12 +4474,44 @@ have huber-type outlier rejection)
 b) consider local/global distinction a NN modelling problem. continue with this
 idea of today that even slightly suboptimal solutions are somehow (?)
 represented by the NN so the optimal ones are all firmly in the interpolation
-regime, so we have nicer accuracy and precise nonsmooth watersheds. 
+regime, so we have nicer accuracy and precise nonsmooth watersheds.
 
 
 
 probably both of them will work out alright in the end but I think we have to
-choose one and stick with it instead of wasting tons of time. 
+choose one and stick with it instead of wasting tons of time.
 
 
-wrote coarse time plan in todo.txt which 
+wrote coarse time plan in todo.txt which
+
+
+
+
+2024-05-04
+
+i think the minout approach works not very well because the minout layer
+"collapses" to a single of its n inputs, so we have essentially the same
+behaviour as the barebones softplus MLP.
+
+small new experiments with representing nonsmoothness: not minout layer,
+but relu in output layer. atm i am doing a "half relu" layer:
+
+    x = nn.Dense(features=self.penultimate_dim)(x)
+
+    half = self.penultimate_dim // 2
+    x_relu = nn.relu(x[:half])
+    x_softplus = nn.softplus(x[half:])
+
+    x = np.concatenate([x_relu, x_softplus])
+    x = nn.Dense(features=1)(x)
+
+so we still have enough "smoothness" possible in the output layer. maybe
+that will work? first obvious difference: uncertainty grows MUCH more
+quickly as we leave the known region. but at some point it stops behaving
+that way. I suspect this too collapses to a single, smooth region of the
+relu output layer. if we put more relu (the full layer) it instead is
+nonsmooth almost everywhere, only a bit, but still not what I wanted it to
+do. probably it is smartest to stick with smooth approximation for now.
+
+tried a few different (smooth, softplus or swish-shaped) activation
+functions, makes absolutely no difference, who would have thought.

@@ -4537,12 +4537,6 @@ all sometimes (presumably due to gradients zeroing out at initilaisation)
 it can be fixed by making the activation function leaky, like for example
 doing .9 * softplus(x) + .1 * x. makes sense
 
-on a higher level though, it is probably smartest to stick with smooth
-approximation instead of trying to handle the nonsmoothness correctly. just
-because it seems to be too late to work on another relatively hard, 90%
-unsolved problem. smooth approximation is simple, does work in many cases
-and in the cases it doesn't we can write it in the report and get points
-for that.
 
 nonsmoothness "heuristic" i've thought about in rough terms a couple times
 already: specify k different random points in vx space, for each one there
@@ -4558,6 +4552,13 @@ which one the correct one is. the lowest? the one with lowest variance, if
 ensemble? not so trivial. probably not much better, or worse, than any of
 the other ideas up until now.
 
+
+on a higher level though, it is probably smartest to stick with smooth
+approximation instead of trying to handle the nonsmoothness correctly. just
+because it seems to be too late to work on another relatively hard, 90%
+unsolved problem. smooth approximation is simple, does work in many cases
+and in the cases it doesn't we can write it in the report and get points
+for that.
 
 therefore, here some thoughts on data pruning / loss function interplay.
 currently we are still suffering from the fact that suboptimal vx labels do
@@ -4596,6 +4597,8 @@ extrapolation? can we do this? similar to lenart's idea of only integrating
 until the proposal point. for this we kind of need both of these:
  - a way to detect the decision boundary in the extrapolation explicitly
  - a way to enforce that decision boundary by pruning the right data.
+but isn't this also achieved with vx lipschitz pruning, if we manage to get
+that working?
 
 
 
@@ -4684,6 +4687,17 @@ V_x(x1) - V_x(x0) = 2 C (x1 - x0)
 
 Does this mean that the Lipschitz constant is L_vx = 2C? and conversely,
 that the sought after upper bound is this? 1/2 in front of square certainly
-seems well placed.
+seems well placed, looking like the antiderivative of L_vx ||x1-x0||
 
 V(x1) <= V(x0) + V_x(x0) (x1 - x0) + 0.5 L_vx ||x1 - x0||^2
+
+
+
+
+plan tomorrow:
+ - see if this has any glaring mistakes
+ - if not try in code
+ - think about what happens if using different norms? or i guess it would
+   be more idiomatic to just use standard L2 norm and say that this covers
+   all matrix norms by state space transformation of the whole problem
+

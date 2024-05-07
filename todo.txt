@@ -169,7 +169,7 @@ section is still quite dumb...
 decide definitely: better pruning & smooth approximation, or nonsmooth approximation
 with slightly suboptimal data too.
 
-go over active learning formulation & make it "proper" a la Holzmüller. 
+go over active learning formulation & make it "proper" a la Holzmüller.
 
 start writing easy to write parts
  - Problem setting
@@ -178,19 +178,19 @@ start writing easy to write parts
 
  ~~~ 13 may ~~~
 
-define & implement 2-3 simpler 2D examples to show basic principle. 
+define & implement 2-3 simpler 2D examples to show basic principle.
 
-think about 1-2 other not entirely trivial systems for examples. 
+think about 1-2 other not entirely trivial systems for examples.
 bhavya suggests: acrobot/cartpole
     acrobot is not strictly a stabilisation problem, modify somehow?
 very cool too: plane landing from LQRTrees paper...
-   
 
-implement some sort of metric like closed loop performance 
+
+implement some sort of metric like closed loop performance
 somehow log the dataset and/or nn params
 
 start writing "central ideas" section, or at least plan it in more detail.
-continue writing those "easy" parts. 
+continue writing those "easy" parts.
 
  ~~~ 20 may ~~~
 
@@ -220,7 +220,7 @@ prepare final draft
 
 send final draft for feedback
 
-writing & figures 
+writing & figures
 
  ~~~ 1 jul ~~~
 

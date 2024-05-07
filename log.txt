@@ -4589,7 +4589,27 @@ everything we do here is an approximation that maybe works in some cases.
 from that angle we should probably relax our requirements about these
 pruning strategies a bit.
 
+ML guys tend to call these piecewise smooth functions "mixture of experts"
+if constructed with any collection of N functions plus some gating
+mechanism (which might be as simple as taking the min). could a half-decent
+approach look like this?
+ - inference: minout last layer like in experiments before
+ - training: replace "gating mechanism" with
+   - choose output that already has closest vx to label, and push all other
+     outputs "up" somehow. (maybe suffices to have some softplus(-x) type
+     loss to make it go enough above the lowest v).
+   - or, impose loss on closest label AND all other ones that are perhaps
+     at most 3x further. if another mode is already quite "certain" because
+     lots of data defines it it might hopefully resist this new vx label,
+     but other ones, even if they are further, might not. all while the
+     same loss on the mode with already lots of data will cause the loss to
+     only be imposed for that one.
+   - for both of these, completely disable the loss once the label is some
+     relatively low percentage above the "optimal" expert. we don't want to
+     spend too much effort training the "hidden" experts.
 
+but probably same difficulties with reaching a globally "coherent"
+partition and making sure the different "experts" don't disturb each other.
 
 
 blindly "accept" the decision boundaries already present in the

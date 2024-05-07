@@ -417,7 +417,7 @@ def testbed(problem_params, algo_params):
             pl.fill_between(ts, line_ms - line_stds, line_ms + line_stds, color='C0', alpha=.1)
 
 
-    def lipschtz_plot(all_ys):
+    def lipschitz_plot(all_ys):
 
         # try to assess empirically whether assuming a lipschitz constant is in any way reasonable.
         # lipschitz constants on this plot = line with slope L, such that everywhere y <= L x
@@ -572,7 +572,7 @@ def testbed(problem_params, algo_params):
 
         visualiser.plot_trajectories_meshcat(solsdict)
 
-        # also plot initial values.
+        # also plot initial values. 
         pl.figure('meshcat sims: initial v mean/std')
         v_means, v_stds = v_meanstds(x0s, nn_params)
         ts = np.linspace(0, 1, x0s.shape[0])
@@ -580,7 +580,7 @@ def testbed(problem_params, algo_params):
         pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
         pl.legend()
         pl.show()
-
+        
         # would be cool to additionally plot actually incurred control cost...
 
 
@@ -619,7 +619,7 @@ def testbed(problem_params, algo_params):
             v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(params, x).mean()
 
         else:
-            raise NotImplementedError('too long since this was used')
+            v_fct = lambda x: v_nn_unnormalised(params, x)
 
         def forwardsim_rhs(t, x, args):
 
@@ -696,16 +696,78 @@ def testbed(problem_params, algo_params):
             'vx': vx_f,
         }
 
-        # if manifold, backproject.
-        # now that we repeated this code a couple times it is very simple :)
+        # if manifold, backproject here.
         if problem_params['m'] is not None:
-            state_f = pontryagin_utils.bwsim_projection(state_f, problem_params)
+
+            # easy part: project x to the manifold.
+            state_f['x'] = problem_params['project_M'](x_f)
+
+            # now we want to set the costate to 0 in the "irrelevant" normal direction.
+            # get normal & tangent space projections just like in nn_utils
+            B = jax.jacobian(problem_params['m'])(x_f)
+            assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
+            B = B / np.linalg.norm(B)
+
+            # orthogonal projection to normal space at current x
+            P_normal = np.outer(B, B)
+            # orthogonal projection to tangent space at current x
+            P_tangent = np.eye(problem_params['nx']) - P_normal
+
+            # from this construction we have P_normal + P_tangent = I. can we
+            # thus just project a costate onto the tangent space? will this
+            # work out?
+
+            # the costate is in T*xM, the cotangent space, whereas the state
+            # derivative is in TxM. Together they can form the inner product
+            # <lambda, xdot> as they often do, which equals d/dt V(x(t)).
+
+            # We decompose lambda:
+            # lambda = (P_normal + P_tangent) lambda = lambda_normal + lambda_tangent.
+            # the inner product becomes <lambda, xdot> =
+            #   = <P_normal lambda, xdot> + <P_tangent lambda, xdot>
+            #   = lambda.T P_normal.T xdot + lambda.T P_tangent.T xdot     | writing it out in R^n standard basis
+            #   = <lambda, P_normal.T xdot> + <lambda, P_tangent.T xdot>   | changing parentheses without effect & writing as inner product again
+            #   = <lambda, P_normal xdot> + <lambda, P_tangent xdot>       | projection matrices symmetric
+            #   = 0                       + <lambda, P_tangent xdot>       | normal space is orthogonal to tangent space of which xdot is an element
+
+            # thus, we see that we can arbitrarily modify the costate in
+            # normal direction without affecting the relevant inner products.
+            # this is kind of obvious right? more formally this means
+            # (something like) the canonical map from T*x R^n to T*x M is a
+            # surjection, with all lambda in T*x R^n differing only by a
+            # vector in normal direction mapping to the same element of T*x M.
+
+            state_f['vx'] = P_tangent @ vx_f
+
 
         if algo_params['pontryagin_solver_vxx']:
             vxx_f = jax.hessian(v_nn_unnormalised)(x_f)
             state_f['vxx'] = vxx_f
 
         return solve_backward(state_f, v_upper=v_upper)
+
+
+    '''
+    # cover a couple different magnitudes
+    x0s = np.concatenate([
+        # jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
+        # jax.random.normal(jax.random.PRNGKey(1), shape=(100, 6)) * .3,
+        jax.random.normal(jax.random.PRNGKey(2), shape=(100, 6)) * 1,
+        # jax.random.normal(jax.random.PRNGKey(3), shape=(100, 6)) * 3,
+        jax.random.normal(jax.random.PRNGKey(4), shape=(100, 6)) * 10,
+    ], axis=0)
+
+    # sol = forward_sim_nn(x0s[0], params)
+    # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
+    # sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
+    # sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
+
+    # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
+    # visualiser.plot_trajectories_meshcat(sols_sobolev)
+    # visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
+    # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
+    '''
+
 
 
     def set_value_target(all_ys, v_k):
@@ -1126,7 +1188,12 @@ def testbed(problem_params, algo_params):
 
         pruning_metrics = {}
 
-        if algo_params['pruning_strategy'] == 'conservative':
+        if algo_params['pruning_strategy'] in ('conservative', 'conservative_past'):
+
+            # these two are now the same -- the cumsum step which
+            # differentiated them is now done after all these strategies.  no
+            # matter how we conclude suboptimality of any point, the preceding
+            # ones will also be suboptimal due to dynamic programming principle
 
             # be conservative: only prune POINTS (not trajectories) that
             # definitely (with high prob) are outside of value level set
@@ -1135,22 +1202,6 @@ def testbed(problem_params, algo_params):
 
             is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
-        elif algo_params['pruning_strategy'] == 'conservative_past':
-
-            # same as conservative, BUT also mark points as suboptimal that
-            # "lead" to a suboptimal trajectory segment in the future, i.e.
-            # that are in the past w.r.t. the definitely suboptimal point.
-            # should be strictly better than 'conservative'.
-
-            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
-            trajectory_outside_levelset = v_lower < all_ys['v']
-
-            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
-
-            # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
-            # cumsum marks as suboptimal the PRECEDING points in physical time even
-            # though in array indices they are the subsequent ones. all correct.
-            is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
         elif algo_params['pruning_strategy'] == 'conservative_bidirectional':
 
@@ -1189,19 +1240,10 @@ def testbed(problem_params, algo_params):
             is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
 
 
+
         elif algo_params['pruning_strategy'] == 'lipschitz':
 
-            # lipschitz pruning based on V being L-lipschitz.
-
-            raise NotImplementedError('see log 2024-04-23')
-
-
-        # elif algo_params['pruning_strategy'] == 'lipschitz_both':
-            # raise NotImplementedError()
-
-        if True:
-
-            # instead do this anyway to get a feel for the behaviour of those lipschitz constants.
+            # instead do this anyway to get a feel for the behaviour of those lipschitz constants. 
 
             # Pruning based both on both V and Vx being Lipschitz, or similar.
             # for more see log 2024-04-24, or idea dump, PruneAndTrain.
@@ -1223,12 +1265,12 @@ def testbed(problem_params, algo_params):
             # close to our celebrated watersheds, making NN fitting easier. I
             # dunno, maybe we can also drop this step though.
 
-            # i kinda prefer to think of 2 and 3 as one step though. like:
+            # i kinda prefer to think of 2 and 3 as one step though. like: 
             # for each pair of points i, j:
             #  - if lipschitz upper bound of i at j > v_j: mark j suboptimal
             #  - conversely too
-            #  - if both are still not labeled suboptimal AND they jointly violate the
-            #    vx lipschitz bound, remove them both.
+            #  - if both are still not labeled suboptimal AND they jointly violate the 
+            #    vx lipschitz bound, remove them both. 
 
             # pruning based on already knowing a better solution.
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
@@ -1240,8 +1282,11 @@ def testbed(problem_params, algo_params):
 
             # to find a better number for L_v, we can locally around each data
             # point look at the values of vx and take the largest norm.
-            L_v = 10
             # or better than lipschitz altogether, assume gradient-boundedness according to the closest couple vx's...
+
+            L_v = algo_params['L_v']
+            # easy lower bound: max eigenvalue of P_lqr which is about 329.
+            L_vx = algo_params['L_vx']
 
 
             # or just this (inf condition implied by v < v_upper)
@@ -1250,7 +1295,6 @@ def testbed(problem_params, algo_params):
             print(f'remaining points for O(n^2) lipschitz stuff: {remaining.sum()}')
 
             all_ys_remaining = jtm(lambda node: node[remaining], all_ys)
-            ipdb.set_trace()
 
             # Now, we first do the value-based lipschitz pruning, meaning
             # concretely that for any pair x1, x2, we remove x1 if:
@@ -1261,83 +1305,78 @@ def testbed(problem_params, algo_params):
             # in reverse order.
 
             # wtf man I typed "lhs/rhs =" and and copilot knew what to do!!!
-            # x1 -> [:, None], x2 -> [None, :]
+            # x1 -> [:, None], x2 -> [None, :] (rows = x1, columns = x2)
             lhs = all_ys_remaining['v'][:, None] - all_ys_remaining['v'][None, :]
-            x_normdiffs = np.linalg.norm(all_ys_remaining['x'][:, None] - all_ys_remaining['x'][None, :], axis=-1)
-            rhs = L_v * x_normdiffs
+            x_diffs = all_ys_remaining['x'][:, None] - all_ys_remaining['x'][None, :]
+            x_diffnorms = np.linalg.norm(x_diffs, axis=-1)
+            rhs = L_v * x_diffnorms
 
             # tiny epsilon to avoid float errors messing up the diagonal (where the two sides are equal)
-            should_prune_x1 = lhs > rhs + 0.00001
+            v_lipschitz_comparisons = lhs > rhs + 1e-6
+            suboptimal_V_lipschitz = (v_lipschitz_comparisons).any(axis=1)
 
-            # is this axis correct? think about this even harder sometime.
-            should_prune_remaining_V_lipschitz = should_prune_x1.any(axis=1)
+            # print( 'v lipschitz comparison')
+            # print(f'    {v_lipschitz_comparisons.sum()} contradictions in {v_lipschitz_comparisons.size} comparisons')
+            # print(f'    marking {suboptimal_V_lipschitz.sum()} / {suboptimal_V_lipschitz.size} points suboptimal')
+            pruning_metrics['N_points_pruning'] = remaining.sum()
+            pruning_metrics['frac_suboptimal_V_lip'] = suboptimal_V_lipschitz.mean()
 
+            # also, the vx lipschitz constant gives us another upper bound -- 
+            # considering these two jointly could give an even better bound
+            # assume form of the upper bound: 
+            #     V(x2) <= V(x1) + Vx(x1) (x2-x1) + C/2 || x2 - x1 ||^2
 
-            # second, vx lipschitz pruning. this is a bit more complicated.
-            # again we construct our matrix, this time of vx norm differences.
-
-            # will this be more of a tuning parameter specifying the size of
-            # the exclusion zone around watersheds?
-            # for the particular dataset here, we have:
-            #     np.nanmax(vx_normdiffs / x_normdiffs) = 99.865
-            L_vx = 50
-
-
-            # should we take into account the "unnecessary" costate pointing in
-            # normal direction here? or "sanitise" the whole dataset right
-            # after simulation anyway? by projecting x onto M and vx onto
-            # T*M... for the moment we just act like everything is euclidean.
-
-
-            # remove the points we have already pruned from consideration.
-            # TODO make sure this NaN will not mess up subsequent calculations.
-            vx_remaining = all_ys_remaining['vx'] + np.nan * should_prune_remaining_V_lipschitz
-            vx_normdiffs = np.linalg.norm(vx_remaining[:, None] - vx_remaining[None, :], axis=-1)
-
-            # if these watersheds turn out to cause high posterior uncertainty,
-            # a "simple" way to deal with it might be to mark all close test
-            # points as irrelevant for each point we remove here.
-
-            # each pair of points that fails to satisfy
-            #     || vx(x_i) - vx(x_j) || <= L_vx || x_i - x_j ||
-            # makes it impossible to find an interpolation with lipschitz
-            # gradient, thus we'd like to remove those points, but not more.
-
-            lhs = vx_normdiffs
-            rhs = L_vx * x_normdiffs
-
-            # symmetric bc equation is symmetric.
-            vx_lipschitz = lhs <= rhs
-
-            # now, big question:
-            #  a) remove all points that are part of a "violating pair" at once?
-            #  b) remove the "worst" violating pair, recompute, repeat?
-
-            # a) is easy.
-            should_prune_vx_lipschitz = (~vx_lipschitz).any(axis=0)
-            # but do we run the risk of pruning away too many points like this?
-            # not sure what option b) would look like.
+            # the gradient of this upper bound is Vx(x1) + C (x2 - x1). this
+            # gradient is Lipschitz continuous with lipschitz constant C, with
+            # the lipschitz condition tight for any two points. Thus the upper
+            # bound holds for our value function, with C = L_vx. Thus, if this
+            # upper bound is dissatisfied for some pair of points, we may also
+            # consider the higher-value one suboptimal. reorder: 
+            #     V(x2) - V(x1) <= Vx(x1) (x2-x1) + C/2 || x2 - x1 ||^2
+            # if this does not hold, we consider the datapoint at x2 suboptimal
 
 
+            # flip x1 and x2 to operate over rows like before. 
+            #     V(x1) - V(x2) <= Vx(x2) (x1-x2) + C/2 || x1 - x2 ||^2
+            # if this does not hold, we consider the datapoint at x1 suboptimal
+
+            # lhs = V(x1) - V(x2) same as before
+            vx_dot_xdiff_vmapped = jax.vmap(jax.vmap(np.dot, in_axes=(0, 0)), in_axes=(None, 0))(all_ys_remaining['vx'], x_diffs)
+
+            rhs = vx_dot_xdiff_vmapped + 0.5 * L_vx * x_diffnorms
+
+            vx_lipschitz_comparisons = lhs > rhs + 1e-6
+            suboptimal_Vx_lipschitz = (vx_lipschitz_comparisons).any(axis=1)
+
+            # print( 'vx lipschitz comparison')
+            # print(f'    {vx_lipschitz_comparisons.sum()} contradictions in {vx_lipschitz_comparisons.size} comparisons')
+            # print(f'    marking {suboptimal_Vx_lipschitz.sum()} / {suboptimal_Vx_lipschitz.size} points suboptimal')
+            pruning_metrics['frac_suboptimal_Vx_lip'] = suboptimal_Vx_lipschitz.mean()
+
+            # 'collect' the results of these two types of lipschitz comparisons. 
+            is_suboptimal_primary = np.logical_or(suboptimal_V_lipschitz, suboptimal_Vx_lipschitz)
+            print(f'both: marking {is_suboptimal_primary.sum()} / {is_suboptimal_primary.size} points suboptimal')
+
+            # finally, we want to remove "conflicting" vx data that violates
+            # the vx lipschitz condition itself, which reads: 
+            #     || Vx(x1) - Vx(x2) || <= L_vx ||x1 - x2||
+            vx_diffs = all_ys_remaining['vx'][:, None] - all_ys_remaining['vx'][None, :]
+            violates_vx_lipschitz = np.linalg.norm(vx_diffs, axis=-1) > L_vx * x_diffnorms
+            
+            # ... but only at points which we have not already marked suboptimal. 
+            violates_vx_lipschitz_relevant = violates_vx_lipschitz.at[is_suboptimal_primary, :].set(False)
+            violates_vx_lipschitz_relevant = violates_vx_lipschitz_relevant.at[:, is_suboptimal_primary].set(False)
 
 
-            # how do we ultimately bring this back to the original array?
-            # monumental if substantiated
-            should_prune_remaining = should_prune_remaining_V_lipschitz | should_prune_vx_lipschitz
-            pruned_idx_original = np.zeros_like(all_ys['v'], dtype=bool).at[remaining].set(should_prune_remaining)
-            # and then OR with the ones we already have, and mark the preceding segments suboptimal too.
-
-
-
-
-
-
-
-
+            # 'translate' these indices back to the full array
+            is_suboptimal = np.zeros_like(all_ys['v'], dtype=bool).at[remaining].set(is_suboptimal_primary)
 
         # do this cumsum step here? for ANY pruning strategy this is the
         # reasonable last step...
-        # is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+        # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
+        # cumsum marks as suboptimal the PRECEDING points in physical time even
+        # though in array indices they are the subsequent ones. all correct.
+        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
 
         # keep suboptimal points marked suboptimal
@@ -1579,7 +1618,7 @@ def testbed(problem_params, algo_params):
 
 
 
-    # choose initial value level.
+    # choose initial value level. 
 
     v_k = algo_params['v_init']
 
@@ -1739,12 +1778,12 @@ def testbed(problem_params, algo_params):
 
 
         # metric tracking :)
-
-        # if a key is repeated apparently the latter one is used. but don't repeat keys!
+        
+        # if a key is repeated apparently the latter one is used. but don't repeat keys! 
         full_logdict = {
-            **{ 'vk': v_k, 'v_next_target': v_next_target, },
+            **{ 'vk': v_k, 'v_next_target': v_next_target, }, 
             **pruning_metrics,
-            **proposal_metrics,
+            **proposal_metrics, 
             **estimator_metrics,
             **oracle_metrics,
         }

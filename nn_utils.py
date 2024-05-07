@@ -217,7 +217,7 @@ class my_nn_experimental(nn.Module):
 
         for feat in self.features:
             x = nn.Dense(features=feat)(x)
-            x = 0.9 * jax.nn.squareplus(x) + 0.1 * x
+            x = 0.9 * nn.softplus(x) + 0.1 * x
 
         if self.output_dim is not None:
 
@@ -269,7 +269,7 @@ class my_nn_leaky(nn.Module):
     def __call__(self, x):
         for feat in self.features:
             x = nn.Dense(features=feat)(x)
-            x = 0.9 * jax.nn.squareplus(x) + 0.1 * x
+            x = 0.9 * nn.softplus(x) + 0.1 * x
 
         if self.output_dim is not None:
             x = nn.Dense(features=self.output_dim)(x)
@@ -636,49 +636,14 @@ class nn_wrapper():
 
                 # same parameterisation as above: d = size of the quadratic region
                 # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
-                d = 0.01
+                d = 0.1
                 vx_label_loss = d**2 * 2 * (np.sqrt(1 + vx_label_loss/d**2) - 1)
 
-                '''
-                squashing_fct = lambda x: 10 * np.tanh(x/10)
-                squashing_fct = lambda x: np.log(1 + x)
 
-                # weaken loss when large
-                # vx_label_loss = squashing_fct(vx_label_loss)
-
-                # attenuate the loss if it looks like we are underestimating. 
-                # (bc then data could be suboptimal)
-
-                # if NN value lower than data: push NN up only a bit, data could be suboptimal
-                # if NN value higher than data: push down aggressively, data PROVES that NN suboptimal
-                # here we want to weaken the vx loss in case the data looks suboptimal
-                # which means NN below label, v_pred < y['v']
-                # which means this rel_err here < 0. 
-
-                rel_err = (v_pred - y['v'] ) / y['v']
-
-                # this is the part that is nonconvex and thus maybe hairy. is
-                # the optimum even well defined? also, this loss could cause
-                # the optimiser to "favour" underestimation in case of high vx
-                # loss due to this attenuation... could make hard,
-                # non-differentiable attenuation to avoid that
-
-                scaling = 1.
-
-                # zero-gradient version.
-                # scaling = (rel_err < -0.1).astype(float)
-
-                # attenuate by e at 10% relative error. 
-                # scaling = np.clip(np.exp(rel_err/0.1), 0., 1.)
-
-                # completely misuse the scaling i
-
-                # vx_label_loss = scaling * vx_label_loss
-                '''
-                rel_err = (v_pred - y['v'] ) / y['v']
-                scaling = 1. / (1 + (rel_err/0.1)**2)
-                scaling = np.where(rel_err < 0, scaling, 1.)
-                vx_label_loss = vx_label_loss * scaling
+                # rel_err = (v_pred - y['v'] ) / y['v']
+                # scaling = 1. / (1 + (rel_err/0.1)**2)
+                # scaling = np.where(rel_err < 0, scaling, 1.)
+                # vx_label_loss = vx_label_loss * scaling
 
 
 

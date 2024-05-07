@@ -660,6 +660,7 @@ def lqr(A, B, Q, R):
     with jax.default_device(cpu_device):
         # gpu only does eigh.
         eigVals = np.linalg.eigvals(A - B @ K)
+        P_eigvals, P_eigvecs = np.linalg.eigh(X)
 
     if not (eigVals.real < 0).all():
         raise ValueError('LQR closed loop not stable...')
@@ -673,6 +674,8 @@ def lqr(A, B, Q, R):
     print(f'fastest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
     p = eigVals.real.max()
     print(f'slowest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
+    print(f'max P eigenvalue = {P_eigvals.max():.3f}')
+
 
     return K, X, eigVals
 

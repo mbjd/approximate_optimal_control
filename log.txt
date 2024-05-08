@@ -4799,6 +4799,9 @@ trivial:
 
 
 
+
+
+
 trying right now to revert the loss function and nn changes in the new version
 to match the working, old one. hoping for the best! seeing in the first train
 plot the type of stagnation that is certainly fixed by making the activation
@@ -4820,6 +4823,57 @@ next steps:
    prune solutions which are at least 25% suboptimal wrt the NN solution. should
    that rather be hardcoded instead of parameterising with sigma???
 
+ - debug low oracle_frac_usable (like i set out to do a week ago too...)
  - try parameter sweep over loss function which is now working, maybe it will work better 
+   -> for that first reconcile old & new versions fully
  - try different variants of "throwing away outliers after training" 
- - accept the solution relatively soon even if it looks shite
+ - try that "scaling down vx loss for suboptimal looking data" with artificial 0 gradient again, in isolation starting from working state :) 
+
+
+ - do efficient-ish parameter search and accept the solution relatively soon
+   even if it looks shite
+
+
+
+
+
+
+
+
+
+about low oracle_frac_usable (often it is initially good then deteriorates).
+the only reason why a trajectory is "unusable" is that the terminatingevent did
+not stop the integration. the terminatingevent in forward_sim_nn_until_value
+has the condition: 
+
+    (v_mean + 2 * v_std <= Vk) & (sigma <= sigma_max)
+
+meaning we stop once we are both very likely in the level set considered
+"known" AND also NN ensemble uncertainty is low enough. but it is not that
+useful to know more about those since if 
+
+looking at forward sims visually. even within the "known" set many don't arrive
+at all :( wat do? even for much lower value level sets it often fails. not just
+for a small set of "watersheds" like we would expect from those x0 sweeps to
+illustrate those. very sad
+
+
+finally, experimenting with smaller "band" of data. until now either everything
+or the value band [v_k/100, v_next_target] was used. doing a random local run
+with [v_k/5, v_next_target] instead. seems to somehow work nicely!
+approximation seems to be a lot better around the level set, kind of
+unsurprising. is at step 10, v_k = 625 right now and up to that point always
+reached value target seemingly without problems! 
+
+
+
+
+
+despite me promising not to, thoughts about MoE. If we know or assume a
+Lipschitz constant for each *local* solution then maybe this gets easier? can
+we then set up each single expert to be lipschitz constrained (some results on
+this via weight clipping and lipschitz activaitons)? can we transfer this to
+L-smooth (gradient lipschitz)? If so, this would give a mechanism to certainly
+avoid "stretching" a single expert across a nonsmooth watershed. still all
+previous difficulties relating to suitable domain decomposition apply, but
+maybe this is a small piece of the puzzle? wie dem auch sei, not in this thesis

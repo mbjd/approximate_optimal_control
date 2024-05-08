@@ -1110,7 +1110,6 @@ def testbed(problem_params, algo_params):
 
         xfs = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(forward_sols)
 
-
         # the solutions that stopped due to DiscreteTerminatingEvent
         stopped_bc_terminatingevent = forward_sols.result == 1
 
@@ -1392,7 +1391,7 @@ def testbed(problem_params, algo_params):
         if algo_params['thin_data']:
 
             # much simpler strategy: just exclude way past data.
-            v_cutoff = v_lower / 100
+            v_cutoff = v_lower / algo_params['thin_data_denominator']
             in_band = in_band & (v_cutoff <= all_ys['v'])
 
 
@@ -1756,15 +1755,24 @@ def testbed(problem_params, algo_params):
         # set next value target
         v_next_target = set_value_target(all_ys, v_k)
 
-        print(f'estimated v_k = {v_k:.3f}, next target = {v_next_target:.3f}')
+        # not sure if this step size cutting down is smart at all. 
+        # TODO think about case when this never quits. is that even salvageable in any way? 
+        OK = False
+        while not OK:
+            print(f'estimated v_k = {v_k:.3f}, next target = {v_next_target:.3f}')
 
-        # propose interesting points
-        proposal_key, key = jax.random.split(key)
-        proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
+            # propose interesting points
+            proposal_key, key = jax.random.split(key)
+            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
 
-        # obtain optimal trajectories close to those points
-        backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
+            # obtain optimal trajectories close to those points
+            backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
+
+            OK = oracle_metrics['oracle_frac_usable'] > 0.5
+            if not OK:
+                v_next_target = v_k + (v_next_target - v_k) / 2
+
 
         # append data & suboptimality flag to previous data
         new_ys = backward_sols_new.ys

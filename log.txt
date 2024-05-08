@@ -4747,3 +4747,79 @@ meeting
 fsvgd functional prior gp
 test simple cases & get results even if mediocre
 uniform sampling ok too
+
+
+
+
+cannot figure out why it starts getting stuck at 120-200 again, even worse than
+last time. pushed old git state to euler from when (i think) it was working
+just as sanity check. but, it seems to work with that old state at least! (this
+one from may 2: 03b7942c)
+
+now I have a 1600 line diff to find the culprit, fml. what is in that diff? 
+
+
+interesting: 
+
+ - nn_type not present at all, only vanilla softplus MLP without output
+   transformation. 
+
+ - algo_params differences (so beautiful table right): 
+   +-------------------------+----------------+----------------+
+   | name                    | old            | new            |
+   +-------------------------+----------------+----------------+    
+   | seed                    | 0              | 32             |    
+   +-------------------------+----------------+----------------+    
+   | nn_type                 | None           | softplus       |    
+   +-------------------------+----------------+----------------+    
+   | thin_data               | True           | False          |    
+   +-------------------------+----------------+----------------+    
+
+   BUT sweep over second_pruning_sigma shows that everything <= 5 fails, and I
+   settled for 3. why? 
+
+ - sobolev loss. prob most important. in outlier_loss_experiment=True branch:
+   in v version:
+       cosmetically different version of the same thing, also without huber width parameter. or is it? 
+   in vx version:
+       parameterisation of pseudohuber loss with 
+         lengthscale = 0.1
+         vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
+       instead of "standard" one. also no scaling down of vx loss as v becomes wrong of any sort. 
+   
+
+trivial: 
+ - removed old_params in experiment definition
+ - v_nn wrapper api change (passing whole problem/algoparams now)
+ - lipschtz_plot -> lipschitz_plot
+ - plot v_nn(x0) in meshcat forward sim function
+ - lipschitz pruning experimentation (but that is disabled now)
+ - wandb logging cosmetics
+ - log, todo.
+
+
+
+trying right now to revert the loss function and nn changes in the new version
+to match the working, old one. hoping for the best! seeing in the first train
+plot the type of stagnation that is certainly fixed by making the activation
+function leaky, though. 
+
+it appears to work like it used to! will surely need closer investigation of
+which of the loss function changes triggered the failure. after all my
+intuition says the loss functions are essentially the same, and the old ones a
+special case of the new ones. maybe this is wrong, maybe i also confused
+over/underestimation, maybe the "weakening vx loss" idea was fundamentally
+flawed. will surely try again. 
+
+next steps: 
+ - plot loss distribution / huber outlier classification things for intutition
+
+ - think about that second_pruning_sigma parameter. apparently it only works if
+   that is >= 5. what does that mean? generally in the newest learned level set
+   we will have sigma about equal to the sigma limit of 5%. that means we only
+   prune solutions which are at least 25% suboptimal wrt the NN solution. should
+   that rather be hardcoded instead of parameterising with sigma???
+
+ - try parameter sweep over loss function which is now working, maybe it will work better 
+ - try different variants of "throwing away outliers after training" 
+ - accept the solution relatively soon even if it looks shite

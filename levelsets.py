@@ -1450,6 +1450,17 @@ def testbed(problem_params, algo_params):
 
         # second pruning step. very trivial: remove everything likely to be suboptimal
         # here we just assume we know everything up to the next v target. may not be true!
+
+        '''
+        # udpated plan: throw out everything which: 
+        #  - any huber loss classifies as an outlier
+        #  - also is in the current value level slice (otherwise we might end up removing more and more old data making the function "artificially" smooth)
+
+        # ipdb.set_trace()
+        all_losses = jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
+        '''
+
+
         v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
 
         # idea for other strategy: remove points at least x % above nn mean value?

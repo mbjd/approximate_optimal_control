@@ -719,20 +719,17 @@ def base_algo_params():
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
         # 'nn_layerdims': (256, 16),
-        'nn_type': 'leaky',
-        # 'nn_type': 'experimental',
-        # 'nn_type': 'minout_softplus',
-        # 'nn_type': 'half_relu_out',
+        'nn_type': 'softplus',
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,
-        'nn_N_epochs': 2048,
+        'nn_N_epochs': 1024,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
         'lr_final': 0.0002,
         'weight_decay': .005,
-        'nn_warmstart_fraction': 1/6,
+        'nn_warmstart_fraction': 1/3,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
@@ -772,7 +769,7 @@ def base_algo_params():
         'sigma_max_abs': 0.5,
         'sigma_max_rel': 0.05,
 
-        'thin_data': False,
+        'thin_data': True,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',
@@ -795,7 +792,7 @@ def base_algo_params():
         'L_v': np.inf,
         'L_vx': 2000,
 
-        'second_pruning_sigma': 3.,
+        'second_pruning_sigma': 5.,
 
 
         # the sublevel set Vk must contain at least this fraction of test points
@@ -814,7 +811,7 @@ def base_algo_params():
         # show figures in UI (blocking!)
         'showfigs': False,
 
-        'ipdb_interval': 4,
+        'ipdb_interval': 40,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

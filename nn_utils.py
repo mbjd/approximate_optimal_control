@@ -309,7 +309,7 @@ class nn_wrapper():
 
         if algo_params['nn_type'] == 'softplus':
             self.nn = my_nn_flax(features=self.layer_dims, output_dim=self.output_dim)
-        if algo_params['nn_type'] == 'leaky':
+        elif algo_params['nn_type'] == 'leaky':
             self.nn = my_nn_leaky(features=self.layer_dims, output_dim=self.output_dim)
         elif algo_params['nn_type'] == 'minout_softplus':
             self.nn = my_nn_nonsmooth(features=self.layer_dims, penultimate_dim=32, output_dim=self.output_dim)
@@ -461,6 +461,14 @@ class nn_wrapper():
             # probably shrink the quadratic region to tolerate closer
             # outliers?
 
+
+            # old version from 03b7942. 
+            rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
+            rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+            underestimation = v_pred < y['v']
+            v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
+
+            '''
             # corresponds to the size of the quadratic region in the smoothed
             # huber loss. equal to delta from:
             # https://en.wikipedia.org/wiki/Huber_loss#Pseudo-Huber_loss_function
@@ -487,6 +495,7 @@ class nn_wrapper():
             # this function (namely: (v_pred - y['v']) -> errsq_asymmetric)
             # looks to have continuous first, second, and third derivative,
             # with the fourth one becoming discontinuous. thanks desmos :)
+            '''
 
 
         lossterms = dict()
@@ -565,6 +574,11 @@ class nn_wrapper():
 
                 vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
 
+                # previously, in 03b7942 where milk and honey flows
+                lengthscale = 0.1
+                vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
+
+                '''
                 # same parameterisation as above: d = size of the quadratic region
                 # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
                 d = algo_params['vx_loss_d']
@@ -605,6 +619,7 @@ class nn_wrapper():
                 # quadratic region, it decreases it, keeping the behaviour for
                 # well-fitted labels the same as without the scaling.  probably
                 # though this offers no tangible advantage.
+                '''
 
 
 

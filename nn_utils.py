@@ -293,32 +293,6 @@ class my_nn_flax(nn.Module):
         if self.output_dim is not None:
             x = nn.Dense(features=self.output_dim)(x)
 
-        # these sorts of tricks are probably equivalent to transforming the
-        # training data with a (smooth invertible) function and then training
-        # with the accordingly modified loss function. but this is much cooler,
-        # we just have to change a single line, not do any manual gradient
-        # magic and in the end we have our full model already.
-
-        # roughly: x if x<0, x+x^2 if x>0, with smooth interpolation around 0
-        # so instead of the NN actually outputting huge values it only needs the sqrt of them.
-        # return (x + ((np.sqrt(1 + x**2) + x) / 2)**2).squeeze()
-
-        # can we just choose a power here?
-        # return (x + nn.softplus(x)**2).squeeze()
-        # return (x + nn.softplus(x)**3).squeeze()
-        # return (x + nn.softplus(x)**4).squeeze()
-
-        # or even without adding x? this might run into gradient issues close
-        # to 0. if nn initially outputs like -10, the full model will output a
-        # tiny number which will barely change as the nn output changes. thus a
-        # classic vanishing gradient problem.
-        # return (nn.softplus(x)**3).squeeze()
-
-        # an actual log transform could be mimicked by returning exp(x) or
-        # x+exp(x) here. but I feel like basic powers suffer fewer issues with
-        # v going to infinity suddenly.
-        # return (x + np.exp(x/10)).squeeze()
-
         return x.squeeze()
 
 
@@ -340,8 +314,7 @@ class nn_wrapper():
         elif algo_params['nn_type'] == 'minout_softplus':
             self.nn = my_nn_nonsmooth(features=self.layer_dims, penultimate_dim=32, output_dim=self.output_dim)
         elif algo_params['nn_type'] == 'experimental':
-            self.nn = my_nn_experimental(features=self.layer_dims,
-                    penultimate_dim=32, output_dim=self.output_dim)
+            self.nn = my_nn_experimental(features=self.layer_dims, penultimate_dim=32, output_dim=self.output_dim)
         else:
             raise ValueError(f'NN type {algo_params["nn_type"]} unknown')
 
@@ -426,60 +399,10 @@ class nn_wrapper():
         # smooth version for nicer plots hehehe
         pushup_loss = jax.nn.softplus(v_prior - v_pred)
 
-
-        '''
-        # second prior loss term to encourage smoothness.
-        # basically by making second derivative small.
-        # this one at essentially random points.
-        prior_key, left_direction_key, right_direction_key = jax.random.split(prior_key, 3)
-        smoothness_x = algo_params['sample_state'](prior_key, prior_extent)
-
-        # penalise directions of slow states
-        # but also a bit in the other states
-        # essentially this P matrix, though not oan orthogonal projection
-        # anymore, just scales the different N(0, 1) gaussian entries
-        # before the whole vector is projected to the unit sphere.
-        P = np.diag(np.array([1, 1, .1, .1, .1, .1, .1]))
-
-        left_direction = P @ jax.random.normal(left_direction_key, shape=(self.input_dim,))
-        left_direction = left_direction / np.linalg.norm(left_direction)
+        # smoothness_loss = 0
 
 
-        # make the params look constant, here we want x derivatives
-        f = lambda x: self.nn.apply(params, x)
-
-        # https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#hessian-vector-products-with-grad-of-grad
-        # tbh i have no clue how this works
-        # Dx < Dx f, v2 >
-        # hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), left_direction ))(smoothness_x)
-        # smoothness_loss = 0.001 * np.sum(np.square(hvp_pred))
-
-        right_direction = P @ jax.random.normal(right_direction_key, shape=(self.input_dim,))
-        right_direction = right_direction / np.linalg.norm(right_direction)
-
-        # instead, random vector-hessian-vector product with both vectors
-        # sampled from unit sphere. idea from sobolev paper. maybe more
-        # efficient?
-        # this is also where we could sample the vectors from a different
-        # distribution (eg. slow state coordinates only) to encode
-        # "approximate invariances" (= low feedback gain) in those
-        # directions
-        #   Dx < Dx <f, v1>, v2 >
-        # = Dx < <Dx f, v1>, v2 >
-        # = < Dx <Dx f, v1>, v2 >
-        inner = lambda x, v: np.vdot(jax.grad(f)(x), v)
-        vhvp_pred = np.vdot(jax.grad(inner, argnums=0)(smoothness_x, left_direction), right_direction)
-
-        smoothness_loss = np.square(vhvp_pred)
-
-        # compare with with:
-        # hess = jax.hessian(f)(smoothness_x)
-        # vhvp_pred = left_direction.T @ hess @ right_direction
-        '''
-        smoothness_loss = 0
-
-
-        prior_loss = pushup_loss + smoothness_loss
+        prior_loss = pushup_loss # + smoothness_loss
 
         total_loss = original_loss + algo_params['prior_strength'] * prior_loss
         loss_terms['pushup_prior'] = pushup_loss
@@ -542,7 +465,7 @@ class nn_wrapper():
             # huber loss. equal to delta from:
             # https://en.wikipedia.org/wiki/Huber_loss#Pseudo-Huber_loss_function
             # dl(x)/dx at x->inf = 2*d i think
-            d = 0.1
+            d = 1.
 
             rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
             # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
@@ -642,8 +565,11 @@ class nn_wrapper():
 
                 # rel_err = (v_pred - y['v'] ) / y['v']
                 # scaling = 1. / (1 + (rel_err/0.1)**2)
-                # scaling = np.where(rel_err < 0, scaling, 1.)
-                # vx_label_loss = vx_label_loss * scaling
+
+                # we switch the vx loss off entirely for "too high" v.
+                # but in a nondifferentiable way so sgd won't cheat
+                scaling = np.where(y['v'] > v_pred * 1.05, 0., 1.)
+                vx_label_loss = vx_label_loss * scaling
 
 
 

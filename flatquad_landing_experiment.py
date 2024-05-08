@@ -788,7 +788,7 @@ def base_algo_params():
 
         'proposal_strategy': 'max_kernel',
         'pruning_strategy': 'lipschitz',
-        'L_v': 100,
+        'L_v': np.inf,
         'L_vx': 800,
 
         'second_pruning_sigma': 3.,
@@ -801,16 +801,16 @@ def base_algo_params():
 
 
         # OUTPUT & VISUALISATION
-        'wandb': True,
+        'wandb': False,
 
         # save figures on filesystem.
-        'savefigs': False,
+        'savefigs': True,
         # track figures with aim.
         'wandbfigs': True,
         # show figures in UI (blocking!)
         'showfigs': False,
 
-        'ipdb_interval': 0,
+        'ipdb_interval': 8,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

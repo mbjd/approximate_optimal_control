@@ -4721,3 +4721,29 @@ plan tomorrow:
    be more idiomatic to just use standard L2 norm and say that this covers
    all matrix norms by state space transformation of the whole problem
 
+
+
+
+
+
+
+
+
+
+
+2024-05-08
+
+meeting
+
+ - thinking intensively about "minimum of smooth functions" = "mixture of
+   experts" function approximation, seeing only dead ends at this point
+ - going through with lipschitz pruning. combination of:
+    - acting like vx is lipschitz by pruning
+    - smoothness prior (weight decay)
+    - huber type loss
+ - Holzmüller business
+    - probably not important to follow this very closely.
+
+fsvgd functional prior gp
+test simple cases & get results even if mediocre
+uniform sampling ok too

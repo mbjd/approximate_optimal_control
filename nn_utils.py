@@ -465,16 +465,24 @@ class nn_wrapper():
             # huber loss. equal to delta from:
             # https://en.wikipedia.org/wiki/Huber_loss#Pseudo-Huber_loss_function
             # dl(x)/dx at x->inf = 2*d i think
-            d = 1.
+            d = algo_params['v_loss_d']
 
-            rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
+            rel_err = (v_pred - y['v']) / (1 + y['v'])
             # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
-            rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
+            # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
 
-            # if NN value lower than data: push NN up only a bit, data could be suboptimal
-            # if NN value higher than data: push down aggressively, data PROVES that NN suboptimal
-            underestimation = v_pred < y['v']
-            v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
+            # loss as function of rel. error
+            asym_loss = lambda re: jax.lax.select(re > 0, re**2, d**2 * 2 * (np.sqrt(1 + (re/d)**2) - 1))
+            # sanity check: re > 0 is equivalent to:
+            #      v_pred - v_label > 0
+            #      v_pred > v_label
+            #      we predict a large v but know from data that there is a lower one
+            #      we want to push the prediction down aggressively. 
+            # this checks out. and in the opposite case we only want to push it
+            # up a bit because the data is probably suboptimal.
+
+            # v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
+            v_loss = asym_loss(rel_err)
 
             # this function (namely: (v_pred - y['v']) -> errsq_asymmetric)
             # looks to have continuous first, second, and third derivative,
@@ -559,17 +567,45 @@ class nn_wrapper():
 
                 # same parameterisation as above: d = size of the quadratic region
                 # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
-                d = 0.1
+                d = algo_params['vx_loss_d']
                 vx_label_loss = d**2 * 2 * (np.sqrt(1 + vx_label_loss/d**2) - 1)
 
 
-                # rel_err = (v_pred - y['v'] ) / y['v']
-                # scaling = 1. / (1 + (rel_err/0.1)**2)
+                rel_err = (v_pred - y['v'] ) / y['v']
 
                 # we switch the vx loss off entirely for "too high" v.
                 # but in a nondifferentiable way so sgd won't cheat
-                scaling = np.where(y['v'] > v_pred * 1.05, 0., 1.)
+                # scaling = np.where(y['v'] > v_pred * 1.05, 0., 1.)
+                #         = np.where(y['v'] >
+                # vx_label_loss = vx_label_loss * scaling
+
+                # this scaling could also come from a smooth "modulation" where
+                # the vx loss is less and less important as we enter the
+                # underestimation regime (data probably suboptimal), which is
+                # then made "invisible" to the gradient based optimiser by
+                # quantising the modulation to a small grid, e.g. like this: 
+                # scaling = (some smooth function of y['v'] - v_pred)
+                # scaling = L * (floor(scaling)) / L
+
+                # again we want: if rel_err > 0 then scaling = 1
+                # for rel_err < 0 it should drop off. 
+
+                # cut off the gradient path sneakily, so sgd will not push the
+                # function towards overestimation to lower loss due to this scaling
+                scaling = np.clip(np.exp(rel_err / 0.05), 0., 1.)
+                L = 10000.
+                scaling = np.floor(L * scaling) / L
+
                 vx_label_loss = vx_label_loss * scaling
+
+                # other idea to continue this: instead of modulating the vx
+                # loss, modulate its d parameter, the width of the quadratic
+                # region. this will have essentially the same effect in the
+                # outlier regime, but instead of weakening the loss in the
+                # quadratic region, it decreases it, keeping the behaviour for
+                # well-fitted labels the same as without the scaling.  probably
+                # though this offers no tangible advantage.
+
 
 
 

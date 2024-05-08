@@ -725,14 +725,14 @@ def base_algo_params():
         # 'nn_type': 'half_relu_out',
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,
-        'nn_N_epochs': 1024,
+        'nn_N_epochs': 2048,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
         'lr_final': 0.0002,
-        'weight_decay': .001,
-        'nn_warmstart_fraction': 1/3,
+        'weight_decay': .005,
+        'nn_warmstart_fraction': 1/6,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
@@ -746,6 +746,10 @@ def base_algo_params():
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': [1., 10.],
+
+        # width of the quadratic regions in smoothed huber loss. 
+        'vx_loss_d': 0.1, 
+        'v_loss_d': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -787,9 +791,9 @@ def base_algo_params():
         'vk_estimator': 'k_exceptions',
 
         'proposal_strategy': 'max_kernel',
-        'pruning_strategy': 'lipschitz',
+        'pruning_strategy': 'conservative',
         'L_v': np.inf,
-        'L_vx': 800,
+        'L_vx': 2000,
 
         'second_pruning_sigma': 3.,
 
@@ -801,16 +805,16 @@ def base_algo_params():
 
 
         # OUTPUT & VISUALISATION
-        'wandb': False,
+        'wandb': True,
 
         # save figures on filesystem.
-        'savefigs': True,
+        'savefigs': False,
         # track figures with aim.
         'wandbfigs': True,
         # show figures in UI (blocking!)
         'showfigs': False,
 
-        'ipdb_interval': 8,
+        'ipdb_interval': 4,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

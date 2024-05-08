@@ -168,8 +168,19 @@ section is still quite dumb...
 
 decide definitely: better pruning & smooth approximation, or nonsmooth approximation
 with slightly suboptimal data too.
+-> smooth approximation it is, definitely.
 
 go over active learning formulation & make it "proper" a la Holzmüller.
+-> ditched. comparing simple diversity mechanism with assumed kernel
+   function against uniform sampling is probably enough.
+
+find simplest configuration that half works, which is probably:
+ - conservative pruning
+ - huber-type loss to "reject" outliers
+ - throw away "outliers" in second pruning step.
+to that end: put loss function params (huber width, switching of vx loss
+for "suboptimal" data) in algoparams & run euler sweep.
+
 
 start writing easy to write parts
  - Problem setting

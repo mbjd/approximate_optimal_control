@@ -4877,3 +4877,12 @@ L-smooth (gradient lipschitz)? If so, this would give a mechanism to certainly
 avoid "stretching" a single expert across a nonsmooth watershed. still all
 previous difficulties relating to suitable domain decomposition apply, but
 maybe this is a small piece of the puzzle? wie dem auch sei, not in this thesis
+
+
+
+
+
+
+2024-05-09
+
+plotting cdfs of loss functions w/ individual terms. not sure how to interpret. 

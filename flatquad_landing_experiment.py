@@ -719,12 +719,12 @@ def base_algo_params():
         # NN ARCHITECTURE & TRAINING
         # big question: should we aim for over- or underparameterisation?
         # 'nn_layerdims': (256, 16),
-        'nn_type': 'softplus',
+        'nn_type': 'leaky',
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,
         'nn_N_epochs': 1024,
         'nn_train_fraction': .98,
-        'lr_staircase': False,
+        'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
         'lr_final': 0.0002,
@@ -804,14 +804,14 @@ def base_algo_params():
 
 
         # OUTPUT & VISUALISATION
-        'wandb': True,
+        'wandb': False,
 
         # save figures on filesystem.
         'savefigs': False,
         # track figures with aim.
         'wandbfigs': True,
         # show figures in UI (blocking!)
-        'showfigs': False,
+        'showfigs': True,
 
         'ipdb_interval': 0,
     }

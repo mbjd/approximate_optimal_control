@@ -57,6 +57,30 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 
 
 
+def plot_loss_distribution(all_ys, aux_mean):
+
+    # to get insight on the loss distribution. this will ONLY evaluate the loss
+    # at the predicted mean, and ignore std. dev.
+
+    # aux_mean: dictionary of auxiliary outputs from loss function, containing
+    # individual loss function terms, meaned across axis 0 (NN ensemble)
+
+
+    # plot all the cdfs. 
+    def plotcdf(data, **pl_kwargs): 
+        assert len(data.shape) == 1
+        pl.semilogx(data.sort(), np.linspace(0, 1, data.shape[0]), **pl_kwargs)
+
+
+    for k in aux_mean:
+        plotcdf(aux_mean[k].flatten(), label=k)
+    
+    pl.legend()
+
+    
+
+
+
 
 
 
@@ -1863,14 +1887,45 @@ def testbed(problem_params, algo_params):
 
             fig = pl.figure(f'nn calibration, iter {k}')
 
-            relevant_ys = jtm(lambda node: node[~is_suboptimal], all_ys)
+            is_unusable = np.logical_or(all_ys['v'] == np.inf, np.isnan(all_ys['v']))
+            is_relevant = np.logical_and(~is_suboptimal, ~is_unusable)
+
+            relevant_ys = jtm(lambda node: node[is_relevant], all_ys)
             means, stds = v_meanstds(relevant_ys['x'], params_sobolev_ens)
+            vx_means, vx_stds = vx_meanstds(relevant_ys['x'], params_sobolev_ens)
             plot_calibration(relevant_ys, means, stds)
 
             if algo_params['savefigs']:
                 pl.savefig(f'tmp/calibration_{k:04d}.png')
             if algo_params['wandb'] and algo_params['wandbfigs']:
                 wandb.log({'calibration' : wandb.Image(fig)}, step=k)
+
+            pl.figure(f'loss distributions, iter {k}')
+
+            # calculate it again \o/ easier than reusing data in smart ways.
+
+            all_losses, aux = jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, relevant_ys, params_sobolev_ens, problem_params, algo_params)
+
+            # all_losses, aux = jax.vmap(
+            #         jax.vmap(
+            #             jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None,None)),
+            #             in_axes=(None, 0, None, None, None)
+            #         ), 
+            #         in_axes=(None, None, 0, None, None)
+            #     )(key, all_ys, params_sobolev_ens, problem_params, algo_params)
+
+            aux_mean = jtm(lambda z: z.mean(axis=0), aux)
+            plot_loss_distribution(all_ys, aux_mean)
+
+            if algo_params['savefigs']:
+                pl.savefig(f'tmp/calibration_{k:04d}.png')
+            if algo_params['wandb'] and algo_params['wandbfigs']:
+                wandb.log({'calibration' : wandb.Image(fig)}, step=k)
+
+
+
+
+
 
             if algo_params['showfigs']:
                 pl.show()

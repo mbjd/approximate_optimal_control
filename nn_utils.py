@@ -411,7 +411,12 @@ class nn_wrapper():
 
         return total_loss, loss_terms
 
+
+
     def sobolev_loss(self, key, y, params, problem_params, algo_params):
+
+
+
 
         # this is for a *single* datapoint in dict form. vmap later.
         # needs a PRNG key for the hvp in random direction. this is
@@ -423,28 +428,25 @@ class nn_wrapper():
         #  'x': (nx,), 'v': (1,), 'vx': (nx,), 'vxx': (nx, nx)
         # }
 
-        # algo_params['nn_sobolev_weights'] gives the (nonnegative!) relative
-        # weights associated with the v, vx, and vxx losses. set the latter
-        # one or two to imitate more "basic" nn variants.
-
-        # this somehow messes up the batch vmap (i think?)
-        # v_pred, vx_pred = jax.value_and_grad(self.nn.apply, argnums=1)(params, x)
-        # maybe that is better? if squeeze()ing at the end of nn definition, shapes are the same
-
-
-
         v_pred = self.nn.apply(params, y['x'])
 
         # does the same if jacobian is replaced by grad, jacfwd, jacrev \o/
         # apparently jacobian = jacrev. grad is also reverse-mode.
         # jacfwd is definitely not smart here (n arguments, 1 output)
-        vx_pred = jax.grad(self.nn.apply, argnums=1)(params, y['x'])
+        vx_pred = jax.jacrev(self.nn.apply, argnums=1)(params, y['x'])
+
+        return self.sobolev_loss_inner(key, y, v_pred, vx_pred, problem_params, algo_params)
+
+
+
+    def sobolev_loss_inner(self, key, y, v_pred, vx_pred, problem_params, algo_params):
 
         # adapted to not "stregthen" loss too much for tiny labels
         # 1 + x = smoothed max(1, x)
         # replace the 1 with the smallest order of magnitude we want to be
         # accurate at.
-        v_loss  = ((v_pred - y['v']) / (1 + y['v'])) ** 2
+        v_rel_err = (v_pred - y['v']) / (1 + y['v'])
+        v_loss  = (v_rel_err) ** 2
 
         outlier_loss_experiment = True
         if outlier_loss_experiment:
@@ -463,7 +465,7 @@ class nn_wrapper():
 
 
             # old version from 03b7942. 
-            rel_err_sq = ((v_pred - y['v']) / (1 + y['v']))**2
+            rel_err_sq = (v_rel_err)**2
             rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
             underestimation = v_pred < y['v']
             v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
@@ -500,6 +502,7 @@ class nn_wrapper():
 
         lossterms = dict()
         lossterms['v'] = v_loss
+        lossterms['v_rel_err'] = v_rel_err
         # lossterms['vx'] = vx_loss
 
         nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
@@ -567,6 +570,7 @@ class nn_wrapper():
             square_scalings = 1 + np.square(proj_label)
             vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
 
+
             if outlier_loss_experiment:
                 # second part of the puzzle. vx loss that cares less about
                 # outliers. again a smooth huber type function. this time
@@ -621,6 +625,7 @@ class nn_wrapper():
                 # though this offers no tangible advantage.
                 '''
 
+            lossterms['vx_rel_err'] = np.sqrt(vx_label_loss)
 
 
 

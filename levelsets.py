@@ -60,24 +60,23 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 def plot_loss_distribution(all_ys, aux_mean):
 
     # to get insight on the loss distribution. this will ONLY evaluate the loss
-    # at the predicted mean, and ignore std. dev.
+    # at the predicted mean, and ignore std. dev. maybe this is not exactly
+    # relevant though...
 
     # aux_mean: dictionary of auxiliary outputs from loss function, containing
     # individual loss function terms, meaned across axis 0 (NN ensemble)
-
 
     # plot all the cdfs. 
     def plotcdf(data, **pl_kwargs): 
         assert len(data.shape) == 1
         pl.semilogx(data.sort(), np.linspace(0, 1, data.shape[0]), **pl_kwargs)
 
-
     for k in aux_mean:
         plotcdf(aux_mean[k].flatten(), label=k)
-    
+
     pl.legend()
 
-    
+
 
 
 
@@ -1489,31 +1488,24 @@ def testbed(problem_params, algo_params):
         # idea for other strategy: remove points at least x % above nn mean value?
         sigma_cutoff = algo_params['second_pruning_sigma']
 
-        # if label is MUCH higher than function, consider it suboptimal.
-        # these boolean indices obviously wrt. the training&test data, usable_ys
-        is_suboptimal_nn_train = usable_ys['v'] > v_means_trained + sigma_cutoff * v_stds_trained
+        # # if label is MUCH higher than function, consider it suboptimal.
+        # # these boolean indices obviously wrt. the training&test data, usable_ys
+        # is_suboptimal_nn_train = usable_ys['v'] > v_means_trained + sigma_cutoff * v_stds_trained
 
-        # as usable_ys = all_ys[bool_train_idx] (modulo tree_map) we can modify the original array like this:
-        is_suboptimal_nn_full = np.zeros_like(is_suboptimal, dtype=bool).at[bool_train_idx].set(is_suboptimal_nn_train)
+        # # as usable_ys = all_ys[bool_train_idx] (modulo tree_map) we can modify the original array like this:
+        # is_suboptimal_nn_full = np.zeros_like(is_suboptimal, dtype=bool).at[bool_train_idx].set(is_suboptimal_nn_train)
 
-        # does this or and cumsum commute?
-        # probably yes.
-        is_suboptimal_either = np.logical_or(is_suboptimal, is_suboptimal_nn_full)
-        is_suboptimal_final = np.cumsum(is_suboptimal_either, axis=1) > 0
+        # # does this or and cumsum commute?
+        # # probably yes.
+        # is_suboptimal_either = np.logical_or(is_suboptimal, is_suboptimal_nn_full)
+        # is_suboptimal_final = np.cumsum(is_suboptimal_either, axis=1) > 0
 
-        is_suboptimal = is_suboptimal_final
+        # is_suboptimal = is_suboptimal_final
 
         frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
         print(f'fraction suboptimal after training: {frac_suboptimal:.4f}')
 
         return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, pruning_metrics
-
-
-    # initial step:
-    # - generate data from uniform backward shooting
-    # - do train_and_prune step to find value nn and known value level.
-    # - start loop
-
 
 
     # test points, with increased density towards origin.
@@ -1781,21 +1773,27 @@ def testbed(problem_params, algo_params):
 
         # not sure if this step size cutting down is smart at all. 
         # TODO think about case when this never quits. is that even salvageable in any way? 
+
         OK = False
-        while not OK:
+        i = 0
+
+        while True:
             print(f'estimated v_k = {v_k:.3f}, next target = {v_next_target:.3f}')
 
             # propose interesting points
             proposal_key, key = jax.random.split(key)
             proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
 
-
             # obtain optimal trajectories close to those points
             backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
 
             OK = oracle_metrics['oracle_frac_usable'] > 0.5
-            if not OK:
-                v_next_target = v_k + (v_next_target - v_k) / 2
+
+            if OK or i > 5:
+                break
+
+            v_next_target = v_k + (v_next_target - v_k) / 2
+            i += 1
 
 
         # append data & suboptimality flag to previous data
@@ -1885,10 +1883,14 @@ def testbed(problem_params, algo_params):
             if algo_params['wandb'] and algo_params['wandbfigs']:
                 wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
 
-            fig = pl.figure(f'nn calibration, iter {k}')
 
+            # sift out the data that we used during training. 
+            v_cutoff = v_k / algo_params['thin_data_denominator'] if algo_params['thin_data'] else 0.
+            is_in_band = np.logical_and(all_ys['v'] <= v_next_target, all_ys['v'] >= v_cutoff)
             is_unusable = np.logical_or(all_ys['v'] == np.inf, np.isnan(all_ys['v']))
-            is_relevant = np.logical_and(~is_suboptimal, ~is_unusable)
+            is_relevant = (~is_suboptimal) & (~is_unusable) & is_in_band
+
+            fig = pl.figure(f'nn calibration, iter {k}')
 
             relevant_ys = jtm(lambda node: node[is_relevant], all_ys)
             means, stds = v_meanstds(relevant_ys['x'], params_sobolev_ens)

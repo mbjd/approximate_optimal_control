@@ -4815,6 +4815,7 @@ over/underestimation, maybe the "weakening vx loss" idea was fundamentally
 flawed. will surely try again. 
 
 next steps: 
+
  - plot loss distribution / huber outlier classification things for intutition
 
  - think about that second_pruning_sigma parameter. apparently it only works if
@@ -4886,3 +4887,13 @@ maybe this is a small piece of the puzzle? wie dem auch sei, not in this thesis
 2024-05-09
 
 plotting cdfs of loss functions w/ individual terms. not sure how to interpret. 
+
+it seems that at the largest relative vx errors DO flatten out a bit which to
+me smells like a sign that the huber linear region is doing its job. 
+
+calibration plot used ALL data up until now, changed it so it only includes the
+data we trained on, meaning in value band, not infinity. (so also the test
+set). looks much better.
+
+got not much further than that, had to marvel at the acually working results
+and calibration plot. 'next steps' list from yesterday still stands.

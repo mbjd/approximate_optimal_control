@@ -771,7 +771,7 @@ def base_algo_params():
 
         # value band for training = [v_k / thin_data_denominator, v_next_target]
         'thin_data': True,
-        'thin_data_denominator': 5.,
+        'thin_data_denominator': 20,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',
@@ -813,7 +813,7 @@ def base_algo_params():
         # show figures in UI (blocking!)
         'showfigs': True,
 
-        'ipdb_interval': 0,
+        'ipdb_interval': 8,
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):

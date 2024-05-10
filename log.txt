@@ -4897,3 +4897,46 @@ set). looks much better.
 
 got not much further than that, had to marvel at the acually working results
 and calibration plot. 'next steps' list from yesterday still stands.
+
+
+
+
+2024-05-10
+
+enabling vx loss fadeout again: weakening the vx loss but with that staircase
+function hack to make it zero gradient so the optimiser won't cheat. put big
+parameter sweep on euler with huber loss parameters and vx loss fadeout. 
+
+from first 1v1 run though it starts looking like using no loss fadeout
+progresses more quickly. that doesn't mean with better approximation error
+though. that's something we should definitely also track more closely...
+
+interestingly pretty much all the loss function parameters seem to work! varied
+them both by +- 1 order of magnitude. the loss fadeout also seems to broadly
+work but not all the runs are started yet (it became the 'outermost' for loop
+in the dict combinations).
+
+
+
+
+
+concurrent MoE ideas, cannot stop myself. always had the idea until now that we
+can also include the "suboptimal" data to train the correspondign "hidden
+expert" -- this can be achieved by imposing the sobolev loss not on v=min(z)
+but v = z_i with i = argmin_i d(vx_label, z_x). 
+
+auxiliary loss terms will have to take care of 
+
+ a) also imposing the sobolev loss in a weaker or seldomly sampled form on the
+    other outputs, in case the closest one is already "fixed" by a lot of data and
+    will not come to the current sample
+ b) pushing up any spurious solutions that are lower than all other z's but not supported by any data.
+
+is this self conflicting? how can we distinguish between the case where a
+datapoint is (very) suboptimal, in which case we should ignore it, and one
+where a datapoint is actually optimal but there is a 100x lower random spurious
+solution?
+
+does this have some sort of theoretical basis given that the "solution
+manifold" has no self intersections when lifting to (x, vx) space? quite
+trivially actually because it is the solution of a smooth ode in that space...

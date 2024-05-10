@@ -8,6 +8,38 @@ import numpy as onp
 import scipy
 
 
+def u_star_general(x, costate, problem_params):
+
+    if problem_params['nu'] == 2:
+        return u_star_2d(x, costate, problem_params)
+    elif problem_params['nu'] == 1:
+        return u_star_1d(x, costate, problem_params)
+
+
+def u_star_1d(x, costate, problem_params): 
+
+    # did i really just delete that function? a bit dumb. 
+    # putting it together again as simplified case of 2d one. 
+    t = 0.
+    zero_u = np.zeros(problem_params['nu'])
+
+    # represent H(u) with its second order taylor poly -- by assumption they are equal :)
+    H_fct = lambda u: problem_params['l'](x, u) + costate.T @ problem_params['f'](x, u)
+    H0 = H_fct(zero_u)  # never needed this...
+    H_u = jax.jacobian(H_fct)(zero_u)
+    H_uu = jax.hessian(H_fct)(zero_u)
+
+    # solve linear system: 0 = dH/du = d/du (H0 + H_u u + u.T H_uu/2 u) = H_u + H_uu u
+    u_star_unconstrained = np.linalg.solve(H_uu, -H_u)
+
+    # now handle the constraints with the simple algo from notes (in overleaf idea dump).
+    lowerbounds = problem_params['U_interval'][0]
+    upperbounds = problem_params['U_interval'][1]
+
+    u_star = np.clip(u_star_unconstrained, lowerbounds, upperbounds)
+    return u_star
+
+
 def u_star_2d(x, costate, problem_params, smooth=False, debug_oups=False):
 
     # calculate:
@@ -499,7 +531,7 @@ def define_backward_solver(problem_params, algo_params):
         # RHS of the necessary conditions without the hessian.
         def pmp_rhs(state, costate):
 
-            u_star = u_star_2d(state, costate, problem_params)
+            u_star = u_star_general(state, costate, problem_params)
             nx = problem_params['nx']
 
             state_dot   =  jax.jacobian(H, argnums=2)(state, u_star, costate).reshape(nx)
@@ -510,7 +542,7 @@ def define_backward_solver(problem_params, algo_params):
 
 
         # we calculate this here one extra time, could be optimised
-        u_star = u_star_2d(x, vx, problem_params)
+        u_star = u_star_general(x, vx, problem_params)
 
         # calculate all the RHS terms
         v_dot = -problem_params['l'](x, u_star)
@@ -697,6 +729,7 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
 
     assert np.allclose(f(x_eq, u_eq), 0), '(x_eq, u_eq) does not seem to be an equilibrium'
 
+    # ipdb.set_trace()
     A = jax.jacobian(f, argnums=0)(x_eq, u_eq)
     B = jax.jacobian(f, argnums=1)(x_eq, u_eq).reshape((problem_params['nx'], problem_params['nu']))
     Q = jax.hessian(l, argnums=0)(x_eq, u_eq)

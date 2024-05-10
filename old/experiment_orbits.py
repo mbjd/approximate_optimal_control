@@ -29,7 +29,6 @@ def f(t, x, u):
 
     return mat @ x  # weird pseudo linear thing
 
-
 def l(t, x, u):
     Q = np.eye(2)
     err = x - np.array([0, 1])

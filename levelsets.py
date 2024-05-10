@@ -162,7 +162,7 @@ def testbed(problem_params, algo_params):
             def forwardsim_rhs(t, x, args):
 
                 lam_x = P_lqr @ (x - problem_params['x_eq'])  # <- for lqr instead
-                u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+                u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
                 return problem_params['f'](x, u)
 
 
@@ -210,8 +210,11 @@ def testbed(problem_params, algo_params):
         # Unif([0, 1]) ** (1/n).
 
         # copied from above but with higher value level
-        unitsphere_to_dV_linear = Proj_tangent.T @ np.linalg.inv(L_lqr_tangent) @ Proj_tangent * np.sqrt(algo_params['v_init']) * np.sqrt(2)
-        unitsphere_to_dV = lambda x: problem_params['project_M'](problem_params['x_eq'] + x.T @ unitsphere_to_dV_linear)
+        if problem_params['m'] is not None:
+            unitsphere_to_dV_linear = Proj_tangent.T @ np.linalg.inv(L_lqr_tangent) @ Proj_tangent * np.sqrt(algo_params['v_init']) * np.sqrt(2)
+            unitsphere_to_dV = lambda x: problem_params['project_M'](problem_params['x_eq'] + x.T @ unitsphere_to_dV_linear)
+        else:
+            unitsphere_to_dV = lambda x: x.T @ np.linalg.inv(L_lqr) * np.sqrt(algo_params['v_init']) * np.sqrt(2)
 
         x0s = jax.vmap(unitsphere_to_dV)(unitball_pts)
         sols = jax.vmap(forward_sim_lqr_until_value, in_axes=(0, None, None))(x0s, P_lqr, problem_params['V_f'])
@@ -232,6 +235,8 @@ def testbed(problem_params, algo_params):
     # test if it worked
     V_f = lambda x: 0.5 * x.T @ P_lqr @ x
     vfs = jax.vmap(V_f)(xfs)
+
+    # ipdb.set_trace()
 
     # this is not that precise in the manifold case.
     # nevertheless we continue and assume that for small enough V_f it will still kind of work :)
@@ -266,6 +271,7 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
+    ipdb.set_trace()
     # pl.figure('backward solver m(x)')
     # pl.plot(jax.vmap(jax.vmap(problem_params['m']))(sols_orig.ys['x']).T, c='black', alpha=.1)
     # pl.show()
@@ -273,7 +279,7 @@ def testbed(problem_params, algo_params):
     def l_of_y(y):
         x = y['x']
         vx = y['vx']
-        u = pontryagin_utils.u_star_2d(x, vx, problem_params)
+        u = pontryagin_utils.u_star_general(x, vx, problem_params)
         return problem_params['l'](x, u)
 
     l_of_y_vmapjit = jax.jit(jax.vmap(l_of_y))
@@ -554,7 +560,7 @@ def testbed(problem_params, algo_params):
 
             lam_x = jax.jacobian(v_fct)(x).squeeze()
             # lam_x = P_lqr @ x  # <- for lqr instead
-            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
             return problem_params['f'](x, u)
 
 
@@ -648,7 +654,7 @@ def testbed(problem_params, algo_params):
 
             lam_x = jax.jacobian(v_fct)(x).squeeze()
             # lam_x = P_lqr @ x  # <- for lqr instead
-            u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
+            u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
             return problem_params['f'](x, u)
 
 
@@ -1514,15 +1520,8 @@ def testbed(problem_params, algo_params):
 
     # keep this "hardcoded" here? put in algoparams? make some heuristic to
     # adapt based on data?
-    x_extent = np.array([
-        20,  20,  # x and y, [m]
-        1., 1.,   # sinPhi and cosPhi [1] (but irrelevant -- see sampling fct)
-        20,  20,  # vx and vy, [m/s]
-        20*np.pi  # omega [rad/s]
-    ])
-
     test_pts = algo_params['sample_states_batched'](
-        jax.random.PRNGKey(123), N_testpts, x_extent, log_min_scale=-2
+        jax.random.PRNGKey(123), N_testpts, problem_params['x_extent'], log_min_scale=-2
     )
 
     # use this to "mark" test points that AT SOME POINT were below the sigma limit.

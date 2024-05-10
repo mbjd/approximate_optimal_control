@@ -107,11 +107,18 @@ def generate_base_command(module, flags: Optional[Dict[str, Any]] = None, unbuff
     if flags is not None:
         assert isinstance(flags, dict), "Flags must be provided as dict"
         for flag, setting in flags.items():
+
+            # scrap this special treatment of bools.
+            # my argparse wants --flag=True not --flag
+            base_cmd += f" --{flag}={setting}"
+
+            '''
             if type(setting) == bool or type(setting) == np.bool_:
                 if setting:
                     base_cmd += f" --{flag}"
             else:
                 base_cmd += f" --{flag}={setting}"
+            '''
     return base_cmd
 
 

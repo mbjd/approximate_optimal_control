@@ -464,9 +464,11 @@ class nn_wrapper():
             # outliers?
 
 
-            # old version from 03b7942. 
+            # same as old version from 03b7942 when d=1
+            d = algo_params['v_loss_d']
             rel_err_sq = (v_rel_err)**2
-            rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+            # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+            rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
             underestimation = v_pred < y['v']
             v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
 
@@ -579,7 +581,9 @@ class nn_wrapper():
                 vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
 
                 # previously, in 03b7942 where milk and honey flows
-                lengthscale = 0.1
+                # this is NOT the same 'standard' parameterisation as above! 
+                d = algo_params['vx_loss_d']
+                lengthscale = d
                 vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
 
                 '''
@@ -624,6 +628,16 @@ class nn_wrapper():
                 # well-fitted labels the same as without the scaling.  probably
                 # though this offers no tangible advantage.
                 '''
+                if algo_params['vx_loss_fadeout']:
+                    # drop off vx loss at a "characteristic" 5% apparent suboptimality
+                    scaling = np.clip(np.exp(v_rel_err / 0.05), 0., 1.)
+
+                    # cheat autodiff
+                    L = 10000.
+                    scaling = np.floor(L * scaling) / L
+                    vx_label_loss = vx_label_loss * scaling
+
+
 
             lossterms['vx_rel_err'] = np.sqrt(vx_label_loss)
 

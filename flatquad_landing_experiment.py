@@ -683,7 +683,6 @@ def base_algo_params():
 
 
         # ODE SOLVER PARAMS
-        'pontryagin_solver_vxx': False,
         'pontryagin_solver_atol': 1e-4,
         'pontryagin_solver_rtol': 1e-4,
         'dtmin': 0.01,
@@ -703,11 +702,13 @@ def base_algo_params():
         # state space regions.
         'pontryagin_solver_T': 5.,
 
+        # (this was not used for a long time) 
         # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
         # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
         # hopefully the state space will still be sufficiently covered. In regions where ||vxx|| would
         # have been very high we will just have to accept the interpolation instead.
+        'pontryagin_solver_vxx': False,
         'vxx_max_norm': 1e4,
 
         # causes it not to quit when hitting maxsteps. probably still all subsequent
@@ -726,8 +727,8 @@ def base_algo_params():
         'nn_train_fraction': .98,
         'lr_staircase': True,
         'lr_staircase_steps': 8,
-        'lr_init': 0.02,
-        'lr_final': 0.0002,
+        'lr_init': 0.01,
+        'lr_final': 0.0001,
         'weight_decay': .005,
         'nn_warmstart_fraction': 1/3,
 
@@ -759,6 +760,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 500.,
 
+        'vx_loss_fadeout': True, 
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -906,9 +908,29 @@ if __name__ == '__main__':
 
     arg_types = (bool, int, float, str)
 
+    # thanks stackoverflow 
+    # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+    def _str_to_bool(s):
+        """Convert string to bool (in argparse context)."""
+        if s.lower() not in ['true', 'false']:
+            raise ValueError('Need bool; got %r' % s)
+        return {'true': True, 'false': False}[s.lower()]
+
+    def add_boolean_argument(parser, name, default=False):
+        """Add a boolean argument to an ArgumentParser instance."""
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
+            name, nargs='?', default=default, const=True, type=_str_to_bool)
+        group.add_argument('--no' + name, dest=name, action='store_false')
+
+
     for k in algo_params:
-        if type(algo_params[k]) in arg_types:
-            parser.add_argument(f'--{k}', type=type(algo_params[k]), default=algo_params[k])
+        t = type(algo_params[k])
+        if t in arg_types:
+            if t == bool:
+                add_boolean_argument(parser, f'--{k}', default=algo_params[k])
+            else:
+                parser.add_argument(f'--{k}', type=type(algo_params[k]), default=algo_params[k])
 
     commandline_args = parser.parse_args()
 
@@ -924,7 +946,7 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-
+    print(algo_params['vx_loss_fadeout'])
     levelsets.testbed(problem_params, algo_params)
 
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
-import flatquad_landing_experiment as exp
+import sys
 
+import flatquad_landing_experiment as exp
 from util import generate_run_commands, generate_base_command, dict_permutations, available_gpus
 
 PROJECT_NAME = 'flatquad'
@@ -22,25 +23,36 @@ flatquad_configs = {
     # 'vx_loss_d': [0.01, .05, .1, .5],
     # 'v_loss_d': [.01, .05, .1, .5],
 
-    'nn_type': ['leaky', 'softplus'],
-    'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
-    'weight_decay': [0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
-}
+    # 'nn_type': ['leaky', 'softplus'],
+    # 'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
+    # 'weight_decay': [0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
 
-'''
-flatquad_configs = {
-    'T_value_target': [1.],
-    'weight_decay': [.0001]
-}
-'''
+    'vx_loss_fadeout': [True, False],
 
+
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [False],
+    'wandbfigs': [True],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
 
 def main():
     command_list = []
     flags_combinations = dict_permutations(flatquad_configs)
 
+    # shitty argparse :)
+    do_print = len(sys.argv) > 1 and sys.argv[1] in ('-p', '--print')
+
     for flags in flags_combinations:
         cmd = generate_base_command(exp, flags=flags)
+        if do_print:
+            print(cmd)
         command_list.append(cmd)
 
     # submit jobs

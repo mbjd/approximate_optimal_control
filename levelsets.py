@@ -214,7 +214,7 @@ def testbed(problem_params, algo_params):
             unitsphere_to_dV_linear = Proj_tangent.T @ np.linalg.inv(L_lqr_tangent) @ Proj_tangent * np.sqrt(algo_params['v_init']) * np.sqrt(2)
             unitsphere_to_dV = lambda x: problem_params['project_M'](problem_params['x_eq'] + x.T @ unitsphere_to_dV_linear)
         else:
-            unitsphere_to_dV = lambda x: x.T @ np.linalg.inv(L_lqr) * np.sqrt(algo_params['v_init']) * np.sqrt(2)
+            unitsphere_to_dV = lambda x: problem_params['x_eq'] + x.T @ np.linalg.inv(L_lqr) * np.sqrt(algo_params['v_init']) * np.sqrt(2)
 
         x0s = jax.vmap(unitsphere_to_dV)(unitball_pts)
         sols = jax.vmap(forward_sim_lqr_until_value, in_axes=(0, None, None))(x0s, P_lqr, problem_params['V_f'])
@@ -233,16 +233,19 @@ def testbed(problem_params, algo_params):
 
 
     # test if it worked
-    V_f = lambda x: 0.5 * x.T @ P_lqr @ x
+    V_f = lambda x: 0.5 * (x - problem_params['x_eq']).T @ P_lqr @ (x - problem_params['x_eq'])
     vfs = jax.vmap(V_f)(xfs)
 
-    # ipdb.set_trace()
 
     # this is not that precise in the manifold case.
     # nevertheless we continue and assume that for small enough V_f it will still kind of work :)
     # assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
     pl.rcParams['figure.figsize'] = (16, 10)
+
+    # pl.figure()
+    # pl.plot(sols.ys[:, :, 0].flatten(), sols.ys[:, :, 1].flatten(), '.-')
+    # pl.show()
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
         problem_params, algo_params

@@ -75,7 +75,7 @@ def define_problem_params():
         'U_interval': [-0.2, 0.2],
 
         # the value level below which we accept the LQR solution as correct.
-        'V_f': 0.001,
+        'V_f': 0.0001,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -202,7 +202,7 @@ def base_algo_params():
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',
         # the value level we include in the initial learning round.
-        'v_init': 2.,
+        'v_init': .02,
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM

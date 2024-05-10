@@ -668,6 +668,14 @@ def define_problem_params():
         # we stray off the manifold due to numerical errors.
         'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
 
+        'x_extent': np.array([
+            20,  20,  # x and y, [m]
+            1., 1.,   # sinPhi and cosPhi [1] (but irrelevant -- see sampling fct)
+            20,  20,  # vx and vy, [m/s]
+            20*np.pi  # omega [rad/s]
+        ]),
+
+
     }
 
     return problem_params
@@ -760,7 +768,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 500.,
 
-        'vx_loss_fadeout': True, 
+        'inv_vx_loss_fadeout': 20., 
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -946,7 +954,6 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    print(algo_params['vx_loss_fadeout'])
     levelsets.testbed(problem_params, algo_params)
 
 

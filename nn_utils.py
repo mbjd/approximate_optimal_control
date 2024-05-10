@@ -628,14 +628,16 @@ class nn_wrapper():
                 # well-fitted labels the same as without the scaling.  probably
                 # though this offers no tangible advantage.
                 '''
-                if algo_params['vx_loss_fadeout']:
-                    # drop off vx loss at a "characteristic" 5% apparent suboptimality
-                    scaling = np.clip(np.exp(v_rel_err / 0.05), 0., 1.)
+                # drop off vx loss at a "characteristic" 5% apparent suboptimality
+                # if this is 0, scaling=1 always so nothing happens. 
+                # if small we have "slow" dropoff.
+                # if >1 we have dropoff smaller than 1.
+                scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
 
-                    # cheat autodiff
-                    L = 10000.
-                    scaling = np.floor(L * scaling) / L
-                    vx_label_loss = vx_label_loss * scaling
+                # cheat autodiff
+                L = 10000.
+                scaling = np.floor(L * scaling) / L
+                vx_label_loss = vx_label_loss * scaling
 
 
 

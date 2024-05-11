@@ -27,6 +27,58 @@ from operator import itemgetter
 
 
 
+def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, forward_sols, backward_sols, problem_params, algo_params):
+
+
+    ax = pl.subplot(311)
+    ax.set_aspect('equal')
+    pl.contourf(xx, yy, v_means, levels=np.linspace(0, 2 * vnext, 20))
+    pl.colorbar()
+    pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+    pl.xlabel('v mean')
+
+    ax = pl.subplot(312, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
+    rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
+    vmax_abs = np.max(np.abs(rel_vstds))
+
+    pl.contourf(xx, yy, np.tanh(rel_vstds), cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.colorbar()
+    pl.xlabel('previous log10(sigma_v / sigma_max)')
+    pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+
+    # now the proposals, forward & backward trajectories etc.
+    # this might become a bit messy...
+    pl.plot(proposals[:, 0], proposals[:, 1], 'x', c='green', label='proposals')
+    pl.plot(forward_sols.ys[:, :, 0].flatten(), forward_sols.ys[:, :, 1].flatten(), '.-', c='black', alpha=.5, label='forward sols')
+
+    pl.legend()
+
+
+    ax = pl.subplot(313, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
+    rel_vstds = np.log10(v_stds_new / sigma_max)  # so that <0 good and >0 bad
+    vmax_abs = np.max(np.abs(rel_vstds))
+
+    pl.contourf(xx, yy, np.tanh(rel_vstds), cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.colorbar()
+    pl.xlabel('new log10(sigma_v / sigma_max)')
+    pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+
+    pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.5, label='backward sols')
+    pl.legend()
+
+
+    # zoom in to the relevant part
+    is_relevant = v_means <= vnext * 2
+    pl.xlim([xx[is_relevant].min(), xx[is_relevant].max()])
+    pl.ylim([yy[is_relevant].min(), yy[is_relevant].max()])
+
+
+
+
 def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 
     # calibration plot = plot of true frequency of data in each confidence band
@@ -139,7 +191,7 @@ def testbed(problem_params, algo_params):
         assert rnd(L_lqr @ L_lqr.T, P_lqr) < 1e-6, 'cholesky decomposition wrong or inaccurate'
 
         # linear map from the hypersphere to the ellipse V_lqr(x) == V_f
-        unitsphere_to_dXf = lambda x: x.T @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
+        unitsphere_to_dXf = lambda x: problem_params['x_eq'] + x.T @ np.linalg.inv(L_lqr) * np.sqrt(problem_params['V_f']) * np.sqrt(2)
 
 
     # set xfs for initial batch of trajectories, depending on chosen
@@ -285,10 +337,12 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
+
     thetas = np.linspace(-np.pi, np.pi, 300)
     circle = np.array([np.sin(thetas), np.cos(thetas)]).T
     pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
-    pl.plot(*np.split(sols.ys.reshape(-1, 2), [1], axis=1), '.-', label='forward sols', alpha=.1)
+    if algo_params['initial_shooting'] == 'lqr':
+        pl.plot(*np.split(sols.ys.reshape(-1, 2), [1], axis=1), '.-', label='forward sols', alpha=.1)
     pl.plot(*np.split(sols_orig.ys['x'].reshape(-1, 2), [1], axis=1), '.-', label='backward sols', alpha=.1)
 
 
@@ -297,7 +351,7 @@ def testbed(problem_params, algo_params):
     pl.legend()
     pl.show()
 
-    # ipdb.set_trace()
+
 
 
 
@@ -748,6 +802,14 @@ def testbed(problem_params, algo_params):
 
         v_f = v_fct(x_f)
         vx_f = jax.jacobian(v_fct)(x_f)
+
+        v_f_lqr = V_f(x_f)
+        vx_f_lqr = jax.jacobian(V_f)(x_f)
+
+        # if v_f_lqr < problem_params['V_f'], use that information instead.
+        use_lqr = v_f_lqr < problem_params['V_f']
+        v_f = jax.lax.select(use_lqr, v_f_lqr, v_f)
+        vx_f = jax.lax.select(use_lqr, vx_f_lqr, vx_f)
 
         state_f = {
             'x': x_f,
@@ -1227,7 +1289,7 @@ def testbed(problem_params, algo_params):
         # mean has to be adjusted.
         metrics['oracle_mean_dist'] = np.nanmean(dists * is_finite) / np.nanmean(is_finite)
 
-        return backward_sols, metrics
+        return forward_sols, backward_sols, metrics
 
     def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
 
@@ -1819,7 +1881,7 @@ def testbed(problem_params, algo_params):
             proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, problem_params['x_extent'])
 
             # obtain optimal trajectories close to those points
-            backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
+            forward_sols_new, backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
 
             OK = oracle_metrics['oracle_frac_usable'] > 0.5
 
@@ -1880,6 +1942,15 @@ def testbed(problem_params, algo_params):
 
         # figure plotting :))
         if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['wandbfigs']:
+
+            fig = pl.figure('orbits all')
+            # ipdb.set_trace()
+            xs = ys = np.linspace(-2, 2, 201)
+            xx, yy = np.meshgrid(xs, ys)
+            plot_v_means, plot_v_stds = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), prev_params_sobolev_ens)
+            _, plot_v_stds_new = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), params_sobolev_ens)
+            orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
+
             fig = pl.figure('proposals')
             plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
             if algo_params['savefigs']:

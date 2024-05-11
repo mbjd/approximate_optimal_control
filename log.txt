@@ -4756,39 +4756,39 @@ last time. pushed old git state to euler from when (i think) it was working
 just as sanity check. but, it seems to work with that old state at least! (this
 one from may 2: 03b7942c)
 
-now I have a 1600 line diff to find the culprit, fml. what is in that diff? 
+now I have a 1600 line diff to find the culprit, fml. what is in that diff?
 
 
-interesting: 
+interesting:
 
  - nn_type not present at all, only vanilla softplus MLP without output
-   transformation. 
+   transformation.
 
- - algo_params differences (so beautiful table right): 
+ - algo_params differences (so beautiful table right):
    +-------------------------+----------------+----------------+
    | name                    | old            | new            |
-   +-------------------------+----------------+----------------+    
-   | seed                    | 0              | 32             |    
-   +-------------------------+----------------+----------------+    
-   | nn_type                 | None           | softplus       |    
-   +-------------------------+----------------+----------------+    
-   | thin_data               | True           | False          |    
-   +-------------------------+----------------+----------------+    
+   +-------------------------+----------------+----------------+
+   | seed                    | 0              | 32             |
+   +-------------------------+----------------+----------------+
+   | nn_type                 | None           | softplus       |
+   +-------------------------+----------------+----------------+
+   | thin_data               | True           | False          |
+   +-------------------------+----------------+----------------+
 
    BUT sweep over second_pruning_sigma shows that everything <= 5 fails, and I
-   settled for 3. why? 
+   settled for 3. why?
 
  - sobolev loss. prob most important. in outlier_loss_experiment=True branch:
    in v version:
-       cosmetically different version of the same thing, also without huber width parameter. or is it? 
+       cosmetically different version of the same thing, also without huber width parameter. or is it?
    in vx version:
-       parameterisation of pseudohuber loss with 
+       parameterisation of pseudohuber loss with
          lengthscale = 0.1
          vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
-       instead of "standard" one. also no scaling down of vx loss as v becomes wrong of any sort. 
-   
+       instead of "standard" one. also no scaling down of vx loss as v becomes wrong of any sort.
 
-trivial: 
+
+trivial:
  - removed old_params in experiment definition
  - v_nn wrapper api change (passing whole problem/algoparams now)
  - lipschtz_plot -> lipschitz_plot
@@ -4805,16 +4805,16 @@ trivial:
 trying right now to revert the loss function and nn changes in the new version
 to match the working, old one. hoping for the best! seeing in the first train
 plot the type of stagnation that is certainly fixed by making the activation
-function leaky, though. 
+function leaky, though.
 
 it appears to work like it used to! will surely need closer investigation of
 which of the loss function changes triggered the failure. after all my
 intuition says the loss functions are essentially the same, and the old ones a
 special case of the new ones. maybe this is wrong, maybe i also confused
 over/underestimation, maybe the "weakening vx loss" idea was fundamentally
-flawed. will surely try again. 
+flawed. will surely try again.
 
-next steps: 
+next steps:
 
  - plot loss distribution / huber outlier classification things for intutition
 
@@ -4825,10 +4825,10 @@ next steps:
    that rather be hardcoded instead of parameterising with sigma???
 
  - debug low oracle_frac_usable (like i set out to do a week ago too...)
- - try parameter sweep over loss function which is now working, maybe it will work better 
+ - try parameter sweep over loss function which is now working, maybe it will work better
    -> for that first reconcile old & new versions fully
- - try different variants of "throwing away outliers after training" 
- - try that "scaling down vx loss for suboptimal looking data" with artificial 0 gradient again, in isolation starting from working state :) 
+ - try different variants of "throwing away outliers after training"
+ - try that "scaling down vx loss for suboptimal looking data" with artificial 0 gradient again, in isolation starting from working state :)
 
 
  - do efficient-ish parameter search and accept the solution relatively soon
@@ -4845,13 +4845,13 @@ next steps:
 about low oracle_frac_usable (often it is initially good then deteriorates).
 the only reason why a trajectory is "unusable" is that the terminatingevent did
 not stop the integration. the terminatingevent in forward_sim_nn_until_value
-has the condition: 
+has the condition:
 
     (v_mean + 2 * v_std <= Vk) & (sigma <= sigma_max)
 
 meaning we stop once we are both very likely in the level set considered
 "known" AND also NN ensemble uncertainty is low enough. but it is not that
-useful to know more about those since if 
+useful to know more about those since if
 
 looking at forward sims visually. even within the "known" set many don't arrive
 at all :( wat do? even for much lower value level sets it often fails. not just
@@ -4864,7 +4864,7 @@ or the value band [v_k/100, v_next_target] was used. doing a random local run
 with [v_k/5, v_next_target] instead. seems to somehow work nicely!
 approximation seems to be a lot better around the level set, kind of
 unsurprising. is at step 10, v_k = 625 right now and up to that point always
-reached value target seemingly without problems! 
+reached value target seemingly without problems!
 
 
 
@@ -4886,10 +4886,10 @@ maybe this is a small piece of the puzzle? wie dem auch sei, not in this thesis
 
 2024-05-09
 
-plotting cdfs of loss functions w/ individual terms. not sure how to interpret. 
+plotting cdfs of loss functions w/ individual terms. not sure how to interpret.
 
 it seems that at the largest relative vx errors DO flatten out a bit which to
-me smells like a sign that the huber linear region is doing its job. 
+me smells like a sign that the huber linear region is doing its job.
 
 calibration plot used ALL data up until now, changed it so it only includes the
 data we trained on, meaning in value band, not infinity. (so also the test
@@ -4905,7 +4905,7 @@ and calibration plot. 'next steps' list from yesterday still stands.
 
 enabling vx loss fadeout again: weakening the vx loss but with that staircase
 function hack to make it zero gradient so the optimiser won't cheat. put big
-parameter sweep on euler with huber loss parameters and vx loss fadeout. 
+parameter sweep on euler with huber loss parameters and vx loss fadeout.
 
 from first 1v1 run though it starts looking like using no loss fadeout
 progresses more quickly. that doesn't mean with better approximation error
@@ -4923,9 +4923,9 @@ in the dict combinations).
 concurrent MoE ideas, cannot stop myself. always had the idea until now that we
 can also include the "suboptimal" data to train the correspondign "hidden
 expert" -- this can be achieved by imposing the sobolev loss not on v=min(z)
-but v = z_i with i = argmin_i d(vx_label, z_x). 
+but v = z_i with i = argmin_i d(vx_label, z_x).
 
-auxiliary loss terms will have to take care of 
+auxiliary loss terms will have to take care of
 
  a) also imposing the sobolev loss in a weaker or seldomly sampled form on the
     other outputs, in case the closest one is already "fixed" by a lot of data and
@@ -4940,3 +4940,14 @@ solution?
 does this have some sort of theoretical basis given that the "solution
 manifold" has no self intersections when lifting to (x, vx) space? quite
 trivially actually because it is the solution of a smooth ode in that space...
+
+
+
+2024-05-11
+
+spending some more time getting orbits to work. had to fight for quite some
+time against forward sims only slowly going to lower level set, with a long
+detour. am thinking that the culprit is lqr guided initial sampling which
+neglects certain regions of the state space but makes the nn a bit too
+confident there. uniform shooting at least densely fills some regions and
+doesn't cover others at all.

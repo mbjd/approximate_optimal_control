@@ -340,7 +340,9 @@ def testbed(problem_params, algo_params):
 
 
         # alternatively: fix number of points needed for estimation, take top-k that many points.
-        N_est = 256
+        # N_est = 256
+        N_est = algo_params['initial_batchsize']
+        # ipdb.set_trace()
 
         # for each trajectory, the index pointing to its largest v below v_upper.
         top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
@@ -1162,9 +1164,10 @@ def testbed(problem_params, algo_params):
             True
         )
 
-        all_ms = jax.vmap(jax.vmap(problem_params['m']))(forward_sols.ys)
-        trajectory_max_m = np.abs(all_ms * (all_ms < np.inf)).max(axis=1)
-        metrics['oracle_forward_max_m'] = trajectory_max_m.max()
+        if problem_params['m'] is not None:
+            all_ms = jax.vmap(jax.vmap(problem_params['m']))(forward_sols.ys)
+            trajectory_max_m = np.abs(all_ms * (all_ms < np.inf)).max(axis=1)
+            metrics['oracle_forward_max_m'] = trajectory_max_m.max()
 
         xfs = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(forward_sols)
 
@@ -1208,8 +1211,9 @@ def testbed(problem_params, algo_params):
             usable_xfs, vmap_nn_params, v_upper, problem_params, algo_params
         )
 
-        all_ms = jax.vmap(jax.vmap(problem_params['m']))(backward_sols.ys['x'])
-        metrics['oracle_backward_max_m'] = np.abs(all_ms * (all_ms < np.inf)).max()
+        if problem_params['m'] is not None:
+            all_ms = jax.vmap(jax.vmap(problem_params['m']))(backward_sols.ys['x'])
+            metrics['oracle_backward_max_m'] = np.abs(all_ms * (all_ms < np.inf)).max()
 
         # find out how close we got.
         # ys['x'].shape == (N_proposals, N_steps, nx)
@@ -1723,7 +1727,6 @@ def testbed(problem_params, algo_params):
     v_nn_unnormalised = v_nn
 
     # first non-nan index
-    ipdb.set_trace()
     sol_idx = np.argmax(~np.isnan(sols_orig.ys['v']))
     sol = jax.tree_util.tree_map(itemgetter(sol_idx), sols_orig)
 
@@ -1813,7 +1816,7 @@ def testbed(problem_params, algo_params):
 
             # propose interesting points
             proposal_key, key = jax.random.split(key)
-            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, x_extent)
+            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, problem_params['x_extent'])
 
             # obtain optimal trajectories close to those points
             backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
@@ -1899,20 +1902,21 @@ def testbed(problem_params, algo_params):
             if algo_params['wandb'] and algo_params['wandbfigs']:
                 wandb.log({'trajectory' : wandb.Image(fig)}, step=k)
 
-            fig = pl.figure('manifold')
-            plot_manifold(v_nn, params_sobolev_ens, problem_params)
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'manifold' : wandb.Image(fig)}, step=k)
+            if problem_params['m'] is not None:
+                fig = pl.figure('manifold')
+                plot_manifold(v_nn, params_sobolev_ens, problem_params)
+                if algo_params['wandb'] and algo_params['wandbfigs']:
+                    wandb.log({'manifold' : wandb.Image(fig)}, step=k)
 
-            fig = pl.figure('decision boundary')
-            plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'decision_boundary' : wandb.Image(fig)}, step=k)
+            # fig = pl.figure('decision boundary')
+            # plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
+            # if algo_params['wandb'] and algo_params['wandbfigs']:
+            #     wandb.log({'decision_boundary' : wandb.Image(fig)}, step=k)
 
-            fig = pl.figure(f'value lines, iter {k}')
-            plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
+            # fig = pl.figure(f'value lines, iter {k}')
+            # plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
+            # if algo_params['wandb'] and algo_params['wandbfigs']:
+            #     wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
 
 
             # sift out the data that we used during training.

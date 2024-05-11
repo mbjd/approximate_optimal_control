@@ -669,6 +669,7 @@ class nn_wrapper():
             vx_loss = np.sum( (vx_pred - y['vx'])**2 )
             vx_loss = vx_loss / (1 + np.linalg.norm(y['vx']))**2
 
+
             # regular R^n state space.
             lossterms['vx'] = vx_loss
 

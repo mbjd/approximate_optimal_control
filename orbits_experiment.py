@@ -152,9 +152,9 @@ def base_algo_params():
         'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.00001,
         'weight_decay': .001,
-        'nn_warmstart_fraction': 1/3,
+        'nn_warmstart_fraction': 1.,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
@@ -192,12 +192,12 @@ def base_algo_params():
 
         # the uncertainty bound we wish to satisfy.
         # sigma_max(mu) = simga_max_abs + simga_max_rel * mu
-        'sigma_max_abs': 0.1,
-        'sigma_max_rel': 0.01,
+        'sigma_max_abs': 0.5,
+        'sigma_max_rel': 0.05,
 
         # value band for training = [v_k / thin_data_denominator, v_next_target]
         'thin_data': False,
-        'thin_data_denominator': 20,
+        'thin_data_denominator': 10,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'uniform',
@@ -206,8 +206,8 @@ def base_algo_params():
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'initial_batchsize': 128,
-        'active_learning_batchsize': 8,
+        'initial_batchsize': 64,
+        'active_learning_batchsize': 32,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.

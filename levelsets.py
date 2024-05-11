@@ -29,6 +29,8 @@ from operator import itemgetter
 
 def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, forward_sols, backward_sols, problem_params, algo_params):
 
+    thetas = np.linspace(-np.pi, np.pi, 300)
+    circle = np.array([np.sin(thetas), np.cos(thetas)]).T
 
     ax = pl.subplot(311)
     ax.set_aspect('equal')
@@ -36,6 +38,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     pl.colorbar()
     pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
     pl.xlabel('v mean')
+    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
     ax = pl.subplot(312, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
@@ -47,6 +50,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     pl.colorbar()
     pl.xlabel('previous log10(sigma_v / sigma_max)')
     pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
     # now the proposals, forward & backward trajectories etc.
     # this might become a bit messy...
@@ -66,6 +70,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     pl.colorbar()
     pl.xlabel('new log10(sigma_v / sigma_max)')
     pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
     pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.5, label='backward sols')
     pl.legend()

@@ -66,8 +66,8 @@ def plot_loss_distribution(all_ys, aux_mean):
     # aux_mean: dictionary of auxiliary outputs from loss function, containing
     # individual loss function terms, meaned across axis 0 (NN ensemble)
 
-    # plot all the cdfs. 
-    def plotcdf(data, **pl_kwargs): 
+    # plot all the cdfs.
+    def plotcdf(data, **pl_kwargs):
         assert len(data.shape) == 1
         pl.semilogx(data.sort(), np.linspace(0, 1, data.shape[0]), **pl_kwargs)
 
@@ -163,6 +163,8 @@ def testbed(problem_params, algo_params):
 
                 lam_x = P_lqr @ (x - problem_params['x_eq'])  # <- for lqr instead
                 u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
+
+                # u = -K_lqr @ (x - problem_params['x_eq'])
                 return problem_params['f'](x, u)
 
 
@@ -226,6 +228,13 @@ def testbed(problem_params, algo_params):
         xfs_unprojected = jax.vmap(lambda sol: sol.ys[sol.stats['num_accepted_steps']])(sols)
         xfs = jax.vmap(problem_params['project_M'])(xfs_unprojected)
 
+        # mark the ones that stopped due to time or step limit as unusable
+        # because only the ones stopped due to DiscreteTerminatingEvent reached
+        # the low value sublevel set where we accept the LQR solution.
+        stopped_bc_terminatingevent = sols.result == 1
+        xfs = xfs.at[~stopped_bc_terminatingevent].set(np.nan)
+
+
     else:
 
         name = algo_params['initial_shooting']
@@ -256,8 +265,10 @@ def testbed(problem_params, algo_params):
         # P_lqr = hessian of value fct.
         # everything else follows from usual differentiation rules.
 
-        v_f = 0.5 * x_f.T @ P_lqr @ x_f
-        vx_f = P_lqr @ x_f
+        # V_f = lambda x: 0.5 * (x - problem_params['x_eq']).T @ P_lqr @ (x - problem_params['x_eq'])
+        v_f = V_f(x_f)
+        vx_f = jax.jacobian(V_f)(x_f)
+
 
         state_f = {
             'x': x_f,
@@ -274,7 +285,22 @@ def testbed(problem_params, algo_params):
 
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
-    ipdb.set_trace()
+    thetas = np.linspace(-np.pi, np.pi, 300)
+    circle = np.array([np.sin(thetas), np.cos(thetas)]).T
+    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
+    pl.plot(*np.split(sols.ys.reshape(-1, 2), [1], axis=1), '.-', label='forward sols', alpha=.1)
+    pl.plot(*np.split(sols_orig.ys['x'].reshape(-1, 2), [1], axis=1), '.-', label='backward sols', alpha=.1)
+
+
+    pl.ylim([0.9, 1.1]); pl.xlim([-0.3, 0.3])
+
+    pl.legend()
+    pl.show()
+
+    # ipdb.set_trace()
+
+
+
     # pl.figure('backward solver m(x)')
     # pl.plot(jax.vmap(jax.vmap(problem_params['m']))(sols_orig.ys['x']).T, c='black', alpha=.1)
     # pl.show()
@@ -604,7 +630,7 @@ def testbed(problem_params, algo_params):
 
         visualiser.plot_trajectories_meshcat(solsdict)
 
-        # also plot initial values. 
+        # also plot initial values.
         pl.figure('meshcat sims: initial v mean/std')
         v_means, v_stds = v_meanstds(x0s, nn_params)
         ts = np.linspace(0, 1, x0s.shape[0])
@@ -612,7 +638,7 @@ def testbed(problem_params, algo_params):
         pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
         pl.legend()
         pl.show()
-        
+
         # would be cool to additionally plot actually incurred control cost...
 
 
@@ -1274,7 +1300,7 @@ def testbed(problem_params, algo_params):
 
         elif algo_params['pruning_strategy'] == 'lipschitz':
 
-            # instead do this anyway to get a feel for the behaviour of those lipschitz constants. 
+            # instead do this anyway to get a feel for the behaviour of those lipschitz constants.
 
             # Pruning based both on both V and Vx being Lipschitz, or similar.
             # for more see log 2024-04-24, or idea dump, PruneAndTrain.
@@ -1296,12 +1322,12 @@ def testbed(problem_params, algo_params):
             # close to our celebrated watersheds, making NN fitting easier. I
             # dunno, maybe we can also drop this step though.
 
-            # i kinda prefer to think of 2 and 3 as one step though. like: 
+            # i kinda prefer to think of 2 and 3 as one step though. like:
             # for each pair of points i, j:
             #  - if lipschitz upper bound of i at j > v_j: mark j suboptimal
             #  - conversely too
-            #  - if both are still not labeled suboptimal AND they jointly violate the 
-            #    vx lipschitz bound, remove them both. 
+            #  - if both are still not labeled suboptimal AND they jointly violate the
+            #    vx lipschitz bound, remove them both.
 
             # pruning based on already knowing a better solution.
             nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
@@ -1352,9 +1378,9 @@ def testbed(problem_params, algo_params):
             pruning_metrics['N_points_pruning'] = remaining.sum()
             pruning_metrics['frac_suboptimal_V_lip'] = suboptimal_V_lipschitz.mean()
 
-            # also, the vx lipschitz constant gives us another upper bound -- 
+            # also, the vx lipschitz constant gives us another upper bound --
             # considering these two jointly could give an even better bound
-            # assume form of the upper bound: 
+            # assume form of the upper bound:
             #     V(x2) <= V(x1) + Vx(x1) (x2-x1) + C/2 || x2 - x1 ||^2
 
             # the gradient of this upper bound is Vx(x1) + C (x2 - x1). this
@@ -1362,12 +1388,12 @@ def testbed(problem_params, algo_params):
             # the lipschitz condition tight for any two points. Thus the upper
             # bound holds for our value function, with C = L_vx. Thus, if this
             # upper bound is dissatisfied for some pair of points, we may also
-            # consider the higher-value one suboptimal. reorder: 
+            # consider the higher-value one suboptimal. reorder:
             #     V(x2) - V(x1) <= Vx(x1) (x2-x1) + C/2 || x2 - x1 ||^2
             # if this does not hold, we consider the datapoint at x2 suboptimal
 
 
-            # flip x1 and x2 to operate over rows like before. 
+            # flip x1 and x2 to operate over rows like before.
             #     V(x1) - V(x2) <= Vx(x2) (x1-x2) + C/2 || x1 - x2 ||^2
             # if this does not hold, we consider the datapoint at x1 suboptimal
 
@@ -1384,17 +1410,17 @@ def testbed(problem_params, algo_params):
             # print(f'    marking {suboptimal_Vx_lipschitz.sum()} / {suboptimal_Vx_lipschitz.size} points suboptimal')
             pruning_metrics['frac_suboptimal_Vx_lip'] = suboptimal_Vx_lipschitz.mean()
 
-            # 'collect' the results of these two types of lipschitz comparisons. 
+            # 'collect' the results of these two types of lipschitz comparisons.
             is_suboptimal_primary = np.logical_or(suboptimal_V_lipschitz, suboptimal_Vx_lipschitz)
             print(f'both: marking {is_suboptimal_primary.sum()} / {is_suboptimal_primary.size} points suboptimal')
 
             # finally, we want to remove "conflicting" vx data that violates
-            # the vx lipschitz condition itself, which reads: 
+            # the vx lipschitz condition itself, which reads:
             #     || Vx(x1) - Vx(x2) || <= L_vx ||x1 - x2||
             vx_diffs = all_ys_remaining['vx'][:, None] - all_ys_remaining['vx'][None, :]
             violates_vx_lipschitz = np.linalg.norm(vx_diffs, axis=-1) > L_vx * x_diffnorms
-            
-            # ... but only at points which we have not already marked suboptimal. 
+
+            # ... but only at points which we have not already marked suboptimal.
             violates_vx_lipschitz_relevant = violates_vx_lipschitz.at[is_suboptimal_primary, :].set(False)
             violates_vx_lipschitz_relevant = violates_vx_lipschitz_relevant.at[:, is_suboptimal_primary].set(False)
 
@@ -1483,7 +1509,7 @@ def testbed(problem_params, algo_params):
         # here we just assume we know everything up to the next v target. may not be true!
 
         '''
-        # udpated plan: throw out everything which: 
+        # udpated plan: throw out everything which:
         #  - any huber loss classifies as an outlier
         #  - also is in the current value level slice (otherwise we might end up removing more and more old data making the function "artificially" smooth)
 
@@ -1646,7 +1672,7 @@ def testbed(problem_params, algo_params):
 
 
 
-    # choose initial value level. 
+    # choose initial value level.
 
     v_k = algo_params['v_init']
 
@@ -1696,7 +1722,9 @@ def testbed(problem_params, algo_params):
     # no normalisation anywhere anymore
     v_nn_unnormalised = v_nn
 
-    sol_idx = 20
+    # first non-nan index
+    ipdb.set_trace()
+    sol_idx = np.argmax(~np.isnan(sols_orig.ys['v']))
     sol = jax.tree_util.tree_map(itemgetter(sol_idx), sols_orig)
 
     if algo_params['showfigs']:
@@ -1719,8 +1747,9 @@ def testbed(problem_params, algo_params):
         means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(sols_orig.ys['x'], params_sobolev_ens)
         plot_calibration(sols_orig.ys, means, stds)
 
-        pl.figure('manifold')
-        plot_manifold(v_nn, params_sobolev_ens, problem_params)
+        if problem_params['m'] is not None:
+            pl.figure('manifold')
+            plot_manifold(v_nn, params_sobolev_ens, problem_params)
 
         pl.show()
 
@@ -1773,8 +1802,8 @@ def testbed(problem_params, algo_params):
         # set next value target
         v_next_target = set_value_target(all_ys, v_k)
 
-        # not sure if this step size cutting down is smart at all. 
-        # TODO think about case when this never quits. is that even salvageable in any way? 
+        # not sure if this step size cutting down is smart at all.
+        # TODO think about case when this never quits. is that even salvageable in any way?
 
         OK = False
         i = 0
@@ -1821,12 +1850,12 @@ def testbed(problem_params, algo_params):
 
 
         # metric tracking :)
-        
-        # if a key is repeated apparently the latter one is used. but don't repeat keys! 
+
+        # if a key is repeated apparently the latter one is used. but don't repeat keys!
         full_logdict = {
-            **{ 'vk': v_k, 'v_next_target': v_next_target, }, 
+            **{ 'vk': v_k, 'v_next_target': v_next_target, },
             **pruning_metrics,
-            **proposal_metrics, 
+            **proposal_metrics,
             **estimator_metrics,
             **oracle_metrics,
         }
@@ -1886,7 +1915,7 @@ def testbed(problem_params, algo_params):
                 wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
 
 
-            # sift out the data that we used during training. 
+            # sift out the data that we used during training.
             v_cutoff = v_k / algo_params['thin_data_denominator'] if algo_params['thin_data'] else 0.
             is_in_band = np.logical_and(all_ys['v'] <= v_next_target, all_ys['v'] >= v_cutoff)
             is_unusable = np.logical_or(all_ys['v'] == np.inf, np.isnan(all_ys['v']))
@@ -1914,7 +1943,7 @@ def testbed(problem_params, algo_params):
             #         jax.vmap(
             #             jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None,None)),
             #             in_axes=(None, 0, None, None, None)
-            #         ), 
+            #         ),
             #         in_axes=(None, None, 0, None, None)
             #     )(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 

@@ -47,7 +47,7 @@ def define_problem_params():
         rotspeed = x[0]**2 + x[1]**2 - 1
         vpenalty = (x[0]**2 + x[1]**2 - 1)**2
         inp_penalty = 10 * u**2
-        return (vpenalty + 0.1 * distpenalty + inp_penalty).reshape()
+        return 100 * (vpenalty + 0.1 * distpenalty + inp_penalty).reshape()
 
 
 
@@ -75,7 +75,7 @@ def define_problem_params():
         'U_interval': [-0.2, 0.2],
 
         # the value level below which we accept the LQR solution as correct.
-        'V_f': 0.0001,
+        'V_f': 0.01,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -86,7 +86,7 @@ def define_problem_params():
         # in this case only the unit circle for angle parameterisation.
         # / 2 so its jacobian is normalised.
         # 'm': lambda x: (x[2]**2 + x[3]**2 - 1) / 2,
-        'm': None, 
+        'm': None,
 
         # projection operation onto the manifold -- great for resetting if
         # we stray off the manifold due to numerical errors.
@@ -124,9 +124,9 @@ def base_algo_params():
         # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x
         # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
         # state space regions.
-        'pontryagin_solver_T': 5.,
+        'pontryagin_solver_T': 10.,
 
-        # (this was not used for a long time) 
+        # (this was not used for a long time)
         # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
         # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
@@ -169,8 +169,8 @@ def base_algo_params():
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': [1., 10.],
 
-        # width of the quadratic regions in smoothed huber loss. 
-        'vx_loss_d': 0.1, 
+        # width of the quadratic regions in smoothed huber loss.
+        'vx_loss_d': 0.1,
         'v_loss_d': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -181,10 +181,10 @@ def base_algo_params():
         # just an additional weak loss term that makes the value function
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
-        'prior_strength': 0.01,
+        'prior_strength': 0.0,
         'v_prior': 500.,
 
-        'inv_vx_loss_fadeout': 20., 
+        'inv_vx_loss_fadeout': 20.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -202,11 +202,11 @@ def base_algo_params():
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',
         # the value level we include in the initial learning round.
-        'v_init': .02,
+        'v_init': 5.,
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'initial_batchsize': 32,
+        'initial_batchsize': 128,
         'active_learning_batchsize': 8,
 
         # the max. time horizon by which we aim to grow the known level set
@@ -316,7 +316,7 @@ if __name__ == '__main__':
 
     arg_types = (bool, int, float, str)
 
-    # thanks stackoverflow 
+    # thanks stackoverflow
     # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
     def _str_to_bool(s):
         """Convert string to bool (in argparse context)."""

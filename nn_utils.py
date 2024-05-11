@@ -389,25 +389,29 @@ class nn_wrapper():
         # and less of a bayesian-inspired functional prior type story. but
         # if it works who am I to judge (myself...) even outside of the
         # manifold!
-        v_prior = algo_params['v_prior']
-        pushup_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
-        v_pred = self.nn.apply(params, pushup_x)
-        # alternatively: only penalise too small v's, not too high.
-        # v_prior - v_pred > 0 <=> v_prior > v_pred which is bad.
-        # conversely if <0 (then the 0 is chosen instead) we overestimate which is good.
-        # prior_loss = np.maximum(0, v_prior - v_pred)
-        # smooth version for nicer plots hehehe
-        pushup_loss = jax.nn.softplus(v_prior - v_pred)
+        if algo_params['prior_strength'] > 0:
 
-        # smoothness_loss = 0
+            v_prior = algo_params['v_prior']
+            pushup_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
+            v_pred = self.nn.apply(params, pushup_x)
+            # alternatively: only penalise too small v's, not too high.
+            # v_prior - v_pred > 0 <=> v_prior > v_pred which is bad.
+            # conversely if <0 (then the 0 is chosen instead) we overestimate which is good.
+            # prior_loss = np.maximum(0, v_prior - v_pred)
+            # smooth version for nicer plots hehehe
+            pushup_loss = jax.nn.softplus(v_prior - v_pred)
 
 
-        prior_loss = pushup_loss # + smoothness_loss
 
-        total_loss = original_loss + algo_params['prior_strength'] * prior_loss
-        loss_terms['pushup_prior'] = pushup_loss
-        # loss_terms['smoothness_prior'] = smoothness_loss
-        # loss_terms['prior'] = prior_loss
+            prior_loss = pushup_loss
+
+            total_loss = original_loss + algo_params['prior_strength'] * prior_loss
+            loss_terms['pushup_prior'] = pushup_loss
+
+        else:
+            # no prior loss. mostly not needed for simpler R^n state spaces.
+            total_loss = original_loss
+
 
         return total_loss, loss_terms
 
@@ -489,7 +493,7 @@ class nn_wrapper():
             #      v_pred - v_label > 0
             #      v_pred > v_label
             #      we predict a large v but know from data that there is a lower one
-            #      we want to push the prediction down aggressively. 
+            #      we want to push the prediction down aggressively.
             # this checks out. and in the opposite case we only want to push it
             # up a bit because the data is probably suboptimal.
 
@@ -581,7 +585,7 @@ class nn_wrapper():
                 vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
 
                 # previously, in 03b7942 where milk and honey flows
-                # this is NOT the same 'standard' parameterisation as above! 
+                # this is NOT the same 'standard' parameterisation as above!
                 d = algo_params['vx_loss_d']
                 lengthscale = d
                 vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
@@ -605,12 +609,12 @@ class nn_wrapper():
                 # the vx loss is less and less important as we enter the
                 # underestimation regime (data probably suboptimal), which is
                 # then made "invisible" to the gradient based optimiser by
-                # quantising the modulation to a small grid, e.g. like this: 
+                # quantising the modulation to a small grid, e.g. like this:
                 # scaling = (some smooth function of y['v'] - v_pred)
                 # scaling = L * (floor(scaling)) / L
 
                 # again we want: if rel_err > 0 then scaling = 1
-                # for rel_err < 0 it should drop off. 
+                # for rel_err < 0 it should drop off.
 
                 # cut off the gradient path sneakily, so sgd will not push the
                 # function towards overestimation to lower loss due to this scaling
@@ -629,7 +633,7 @@ class nn_wrapper():
                 # though this offers no tangible advantage.
                 '''
                 # drop off vx loss at a "characteristic" 5% apparent suboptimality
-                # if this is 0, scaling=1 always so nothing happens. 
+                # if this is 0, scaling=1 always so nothing happens.
                 # if small we have "slow" dropoff.
                 # if >1 we have dropoff smaller than 1.
                 scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
@@ -661,6 +665,9 @@ class nn_wrapper():
             lossterms['vx_reg'] = vx_reg_loss
             lossterms['vx_label'] = vx_label_loss
         else:
+
+            vx_loss = np.sum( (vx_pred - y['vx'])**2 )
+            vx_loss = vx_loss / (1 + np.linalg.norm(y['vx']))**2
 
             # regular R^n state space.
             lossterms['vx'] = vx_loss

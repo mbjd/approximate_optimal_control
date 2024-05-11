@@ -710,7 +710,7 @@ def base_algo_params():
         # state space regions.
         'pontryagin_solver_T': 5.,
 
-        # (this was not used for a long time) 
+        # (this was not used for a long time)
         # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
         # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
         # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
@@ -753,8 +753,8 @@ def base_algo_params():
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
         'nn_sobolev_weights': [1., 10.],
 
-        # width of the quadratic regions in smoothed huber loss. 
-        'vx_loss_d': 0.1, 
+        # width of the quadratic regions in smoothed huber loss.
+        'vx_loss_d': 0.1,
         'v_loss_d': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -768,7 +768,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 500.,
 
-        'inv_vx_loss_fadeout': 20., 
+        'inv_vx_loss_fadeout': 20.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -916,7 +916,7 @@ if __name__ == '__main__':
 
     arg_types = (bool, int, float, str)
 
-    # thanks stackoverflow 
+    # thanks stackoverflow
     # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
     def _str_to_bool(s):
         """Convert string to bool (in argparse context)."""

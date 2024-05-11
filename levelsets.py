@@ -343,18 +343,19 @@ def testbed(problem_params, algo_params):
     sols_orig = jax.vmap(solve_backward_lqr, in_axes=(0, None))(xfs, algo_params)
 
 
-    thetas = np.linspace(-np.pi, np.pi, 300)
-    circle = np.array([np.sin(thetas), np.cos(thetas)]).T
-    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
-    if algo_params['initial_shooting'] == 'lqr':
-        pl.plot(*np.split(sols.ys.reshape(-1, 2), [1], axis=1), '.-', label='forward sols', alpha=.1)
-    pl.plot(*np.split(sols_orig.ys['x'].reshape(-1, 2), [1], axis=1), '.-', label='backward sols', alpha=.1)
+    if problem_params['system_name'] == 'orbits' and algo_params['showfigs']:
+        thetas = np.linspace(-np.pi, np.pi, 300)
+        circle = np.array([np.sin(thetas), np.cos(thetas)]).T
+        pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
+        if algo_params['initial_shooting'] == 'lqr':
+            pl.plot(*np.split(sols.ys.reshape(-1, 2), [1], axis=1), '.-', label='forward sols', alpha=.1)
+        pl.plot(*np.split(sols_orig.ys['x'].reshape(-1, 2), [1], axis=1), '.-', label='backward sols', alpha=.1)
 
 
-    pl.ylim([0.9, 1.1]); pl.xlim([-0.3, 0.3])
+        pl.ylim([0.9, 1.1]); pl.xlim([-0.3, 0.3])
 
-    pl.legend()
-    pl.show()
+        pl.legend()
+        pl.show()
 
 
 
@@ -1948,13 +1949,14 @@ def testbed(problem_params, algo_params):
         # figure plotting :))
         if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['wandbfigs']:
 
-            fig = pl.figure('orbits all')
-            # ipdb.set_trace()
-            xs = ys = np.linspace(-2, 2, 201)
-            xx, yy = np.meshgrid(xs, ys)
-            plot_v_means, plot_v_stds = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), prev_params_sobolev_ens)
-            _, plot_v_stds_new = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), params_sobolev_ens)
-            orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
+            if problem_params['system_name'] == 'orbits':
+                fig = pl.figure('orbits all')
+                # ipdb.set_trace()
+                xs = ys = np.linspace(-2, 2, 201)
+                xx, yy = np.meshgrid(xs, ys)
+                plot_v_means, plot_v_stds = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), prev_params_sobolev_ens)
+                _, plot_v_stds_new = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), params_sobolev_ens)
+                orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
 
             fig = pl.figure('proposals')
             plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
@@ -1984,15 +1986,16 @@ def testbed(problem_params, algo_params):
                 if algo_params['wandb'] and algo_params['wandbfigs']:
                     wandb.log({'manifold' : wandb.Image(fig)}, step=k)
 
-            # fig = pl.figure('decision boundary')
-            # plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
-            # if algo_params['wandb'] and algo_params['wandbfigs']:
-            #     wandb.log({'decision_boundary' : wandb.Image(fig)}, step=k)
+            if problem_params['system_name'] == 'flatquad':
+                fig = pl.figure('decision boundary')
+                plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
+                if algo_params['wandb'] and algo_params['wandbfigs']:
+                    wandb.log({'decision_boundary' : wandb.Image(fig)}, step=k)
 
-            # fig = pl.figure(f'value lines, iter {k}')
-            # plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
-            # if algo_params['wandb'] and algo_params['wandbfigs']:
-            #     wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
+                fig = pl.figure(f'value lines, iter {k}')
+                plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
+                if algo_params['wandb'] and algo_params['wandbfigs']:
+                    wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
 
 
             # sift out the data that we used during training.

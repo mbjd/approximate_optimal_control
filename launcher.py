@@ -27,11 +27,13 @@ flatquad_configs = {
     # 'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
     # 'weight_decay': [0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
 
-    'inv_vx_loss_fadeout': [0, 1, 5, 10, 20, 50, 10000],
+    # 'inv_vx_loss_fadeout': [0, 1, 5, 10, 20, 50, 10000],
+    'inv_vx_loss_fadeout': [1, 5, 10, 20],
 
-    # parameter that worked +- 1 order of magnitude. 
-    'vx_loss_d': [0.01, 0.03, 0.1, 0.3, 1.], 
-    'v_loss_d': [0.1, 0.3, 1., 3., 10.],
+
+    # parameter that worked +- 1 order of magnitude.
+    # 'vx_loss_d': [0.01, 0.03, 0.1, 0.3, 1.],
+    # 'v_loss_d': [0.1, 0.3, 1., 3., 10.],
 
 
 

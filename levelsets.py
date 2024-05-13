@@ -1007,13 +1007,15 @@ def testbed(problem_params, algo_params):
             # concentrated around equilibrium here too
 
             print('did not find enough points!')
-            ipdb.set_trace()
+            if all_valueband_pts.shape[0] < algo_params['active_learning_batchsize']:
+                raise ValueError('this is definitely not going to work')
+            # ipdb.set_trace()
 
             # one possibility: "pad" the points with the ones that are not
             # within the value interval necessarily, but above the lower bound.
-            N_missing = N_pts_desired - all_valueband_pts.shape[0]
-            arr, idx = jax.lax.top_k(-v_means - np.inf * (v_means < value_interval[0]), N_missing)
-            all_valueband_pts = np.concatenate([all_valueband_pts, x_pts[idx]], axis=0)
+            # N_missing = N_pts_desired - all_valueband_pts.shape[0]
+            # arr, idx = jax.lax.top_k(-v_means - np.inf * (v_means < value_interval[0]), N_missing)
+            # all_valueband_pts = np.concatenate([all_valueband_pts, x_pts[idx]], axis=0)
 
 
         all_valueband_pts = all_valueband_pts[0:N_pts_desired, :]
@@ -1134,7 +1136,7 @@ def testbed(problem_params, algo_params):
                 proposal = all_valueband_pts[proposal_idx]
 
                 # adaptive kernel scales with extent of value levelset.
-                lengthscales = 0.25 * data_ranges
+                lengthscales = 0.5 * data_ranges
 
                 k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscales)**2))
 

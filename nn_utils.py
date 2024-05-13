@@ -843,8 +843,8 @@ class nn_wrapper():
         # we want: total_iters * batchsize == N_epochs * N_datapts. therefore:
         total_iters = (N_epochs * N_datapts) // batchsize
 
-        if total_iters < 2000:
-            total_iters = 2000
+        if total_iters < 20000:
+            total_iters = 20000
 
         # exponential decay. this will go down from lr_init to lr_final over
         # the whole training duration.

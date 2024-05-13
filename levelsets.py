@@ -36,7 +36,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     ax.set_aspect('equal')
     pl.contourf(xx, yy, v_means, levels=np.linspace(0, 2 * vnext, 20))
     pl.colorbar()
-    pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+    pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
     pl.xlabel('v mean')
     pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
@@ -49,7 +49,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     pl.contourf(xx, yy, np.tanh(rel_vstds), cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()
     pl.xlabel('previous log10(sigma_v / sigma_max)')
-    pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+    pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
     pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
     # now the proposals, forward & backward trajectories etc.
@@ -69,7 +69,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     pl.contourf(xx, yy, np.tanh(rel_vstds), cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()
     pl.xlabel('new log10(sigma_v / sigma_max)')
-    pl.contour(xx, yy, v_means, levels=[vk, vnext], colors='black')
+    pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
     pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
     pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.5, label='backward sols')
@@ -1076,11 +1076,11 @@ def testbed(problem_params, algo_params):
                 #  - no clue tbh.
                 # probably this should be part of algo_params.
                 lengthscale = .5
-                k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
+                # k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
+                k = lambda x, y: np.exp(-np.sum(np.abs((x-y) / lengthscale)))
 
                 # then we just scale everything by 1-that kernel?
                 weights = jax.vmap(lambda x: 1 - k(x, proposal))(all_valueband_pts)
-
                 carry = sigmas * weights
 
                 # oup = (proposal_idx, carry)  # just to look at the data :)
@@ -1273,7 +1273,7 @@ def testbed(problem_params, algo_params):
 
         # generous upper bound for value we're interested in rn.
         # integration of trajectories stops once we pass this threshold.
-        v_upper = v_next + 10 * (v_next - v_k)
+        v_upper = v_next + 50 * (v_next - v_k)
 
         backward_sols = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None, None))(
             usable_xfs, vmap_nn_params, v_upper, problem_params, algo_params
@@ -1516,6 +1516,11 @@ def testbed(problem_params, algo_params):
 
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
+
+        if algo_params['include_future_data']:
+            # just randomly throw in a bit more data for training.
+            v_upper_train = v_upper + (v_upper - v_lower)
+            in_band = (all_ys['v'] <= v_upper_train)
 
 
         if algo_params['thin_data']:

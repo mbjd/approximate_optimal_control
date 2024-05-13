@@ -152,7 +152,7 @@ def base_algo_params():
         'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.00001,
+        'lr_final': 0.0001,
         'weight_decay': .001,
         'nn_warmstart_fraction': 1.,
 
@@ -208,6 +208,7 @@ def base_algo_params():
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 64,
         'active_learning_batchsize': 32,
+        'include_future_data': True,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
@@ -215,7 +216,7 @@ def base_algo_params():
 
         'vk_estimator': 'k_exceptions',
 
-        'proposal_strategy': 'max_kernel',
+        'proposal_strategy': 'uniform_uncertain',
         'pruning_strategy': 'conservative',
         'L_v': np.inf,
         'L_vx': 2000,

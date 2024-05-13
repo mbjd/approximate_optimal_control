@@ -736,7 +736,7 @@ def base_algo_params():
         'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.001,
         'weight_decay': .005,
         'nn_warmstart_fraction': 1/3,
 
@@ -792,10 +792,11 @@ def base_algo_params():
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 256,
         'active_learning_batchsize': 256,
+        'include_future_data': True,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
-        'T_value_target': 1.,
+        'T_value_target': 3.,
 
         'vk_estimator': 'k_exceptions',
 

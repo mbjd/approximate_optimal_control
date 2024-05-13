@@ -207,17 +207,17 @@ def base_algo_params():
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 64,
-        'active_learning_batchsize': 64,
+        'active_learning_batchsize': 32,
         'include_future_data': True,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
-        'T_value_target': 3.,
+        'T_value_target': 1.,
 
         'vk_estimator': 'k_exceptions',
 
         'proposal_sampling_distribution': 'uniform',
-        'proposal_strategy': 'max_kernel',
+        'proposal_strategy': 'max_kernel_adaptive',
         'pruning_strategy': 'conservative',
         'L_v': np.inf,
         'L_vx': 2000,

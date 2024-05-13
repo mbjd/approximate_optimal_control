@@ -1095,12 +1095,13 @@ def testbed(problem_params, algo_params):
 
                 k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
 
-                # this multiplication by .5 makes everything look nicer in low dims.
-                # it will sample repeatedly from high-uncertainty regions but not exctly at the same point.
-                # in higher dims, i think it is less smart to do this because there always enough
+                # this multiplication by .5 makes everything look nicer in low
+                # dims. it will sample repeatedly from high-uncertainty regions
+                # but not exctly at the same point. in higher dims, i think it
+                # is less smart to do this because there always enough
                 # different high-uncertainty points to choose from.
                 # k = lambda x, y: 0.5 * np.exp(-np.sum(((x-y) / lengthscale)**2))
-                #1. = lambda x, y: 0.75 * np.exp(-np.sum(((x-y) / lengthscale)**2))
+                # k = lambda x, y: 0.75 * np.exp(-np.sum(((x-y) / lengthscale)**2))
 
                 # k = lambda x, y: np.exp(-np.sum(np.abs((x-y) / lengthscale)))
 
@@ -1119,6 +1120,37 @@ def testbed(problem_params, algo_params):
             final_carry, oups = jax.lax.scan(scan_fct, sigma_relative, None, length=N_proposals)
             proposal_idxs = oups
 
+        if proposal_strategy == 'max_kernel_adaptive':
+
+            # same as above, but adapts the size of the kernel (roughly) to
+            # the extent of the data set.
+
+            data_ranges = all_valueband_pts.ptp(axis=0)
+
+            def scan_fct(sigmas, inp):
+
+                # find max sigma.
+                proposal_idx = np.argmax(sigmas)
+                proposal = all_valueband_pts[proposal_idx]
+
+                # adaptive kernel scales with extent of value levelset.
+                lengthscales = 0.25 * data_ranges
+
+                k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscales)**2))
+
+                weights = jax.vmap(lambda x: 1 - k(x, proposal))(all_valueband_pts)
+
+                carry = sigmas * weights
+
+                # oup = (proposal_idx, carry)  # just to look at the data :)
+                oup = proposal_idx
+
+                return carry, oup
+
+            sigma_relative = v_stds / sigma_maxs
+
+            final_carry, oups = jax.lax.scan(scan_fct, sigma_relative, None, length=N_proposals)
+            proposal_idxs = oups
 
 
         elif proposal_strategy == 'max_sigma_and_uniform':
@@ -1232,10 +1264,13 @@ def testbed(problem_params, algo_params):
 
 
         proposed_states = all_valueband_pts[proposal_idxs]
-        pl.figure('proposals akshualliyiieh')
-        pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
-        pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
-        pl.show()
+
+        # oops did many of these on euler. but i think it just ignores it
+        if algo_params['showfigs']:
+            pl.figure('proposals akshualliyiieh')
+            pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
+            pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
+            pl.show()
 
         return proposed_states, v_means[proposal_idxs], v_stds[proposal_idxs], metrics
 

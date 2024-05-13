@@ -29,18 +29,29 @@ from operator import itemgetter
 
 def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, forward_sols, backward_sols, problem_params, algo_params):
 
-    thetas = np.linspace(-np.pi, np.pi, 300)
-    circle = np.array([np.sin(thetas), np.cos(thetas)]).T
+    # subplots:
+    #  nn value function & relevant levelsets     |     uncertainty with proposal samples & proposals
+    #  uncertainty with forward trajs             |     uncertainty with backward trajs.
 
-    ax = pl.subplot(311)
+    ax = pl.subplot(221)
     ax.set_aspect('equal')
+    # plot value
     pl.contourf(xx, yy, v_means, levels=np.linspace(0, 2 * vnext, 20))
     pl.colorbar()
-    pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
-    pl.xlabel('v mean')
-    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
 
-    ax = pl.subplot(312, sharex=ax, sharey=ax)
+    def plot_common():
+        # plot level sets
+        pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
+        # plot circle
+        thetas = np.linspace(-np.pi, np.pi, 300)
+        circle = np.array([np.sin(thetas), np.cos(thetas)]).T
+        pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
+
+    plot_common()
+    pl.xlabel('v mean')
+
+    # now the proposals. proposal samples ('pool') not yet \o/
+    ax = pl.subplot(222, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
     sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
     rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
@@ -48,19 +59,26 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
 
     pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()
-    pl.xlabel('previous log10(sigma_v / sigma_max)')
-    pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
-    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
+    pl.xlabel('proposals, previous log10(sigma_v / sigma_max)')
+    plot_common()
 
-    # now the proposals, forward & backward trajectories etc.
-    # this might become a bit messy...
-    pl.plot(proposals[:, 0], proposals[:, 1], 'x', c='green', label='proposals')
-    pl.plot(forward_sols.ys[:, :, 0].flatten(), forward_sols.ys[:, :, 1].flatten(), '.-', c='black', alpha=.5, label='forward sols')
+    # forward trajectories
+    ax = pl.subplot(223, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
+    rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
+    vmax_abs = np.max(np.abs(rel_vstds))
+
+    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.colorbar()
+    pl.plot(forward_sols.ys[:, :, 0].flatten(), forward_sols.ys[:, :, 1].flatten(), '.-', c='black', alpha=.3, label='forward sols')
+    pl.xlabel('forward trajectories, previous log10(sigma_v / sigma_max)')
+    plot_common()
 
     pl.legend()
 
-
-    ax = pl.subplot(313, sharex=ax, sharey=ax)
+    # backward trajectories :)
+    ax = pl.subplot(224, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
     sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
     rel_vstds = np.log10(v_stds_new / sigma_max)  # so that <0 good and >0 bad
@@ -68,12 +86,11 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
 
     pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()
-    pl.xlabel('new log10(sigma_v / sigma_max)')
-    pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
-    pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
-
-    pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.5, label='backward sols')
+    pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.3, label='backward sols')
+    pl.xlabel('backward trajectories, new log10(sigma_v / sigma_max)')
+    plot_common()
     pl.legend()
+
 
 
     # zoom in to the relevant part
@@ -1083,7 +1100,7 @@ def testbed(problem_params, algo_params):
                 # in higher dims, i think it is less smart to do this because there always enough
                 # different high-uncertainty points to choose from.
                 # k = lambda x, y: 0.5 * np.exp(-np.sum(((x-y) / lengthscale)**2))
-                # k = lambda x, y: 0.75 * np.exp(-np.sum(((x-y) / lengthscale)**2))
+                #1. = lambda x, y: 0.75 * np.exp(-np.sum(((x-y) / lengthscale)**2))
 
                 # k = lambda x, y: np.exp(-np.sum(np.abs((x-y) / lengthscale)))
 

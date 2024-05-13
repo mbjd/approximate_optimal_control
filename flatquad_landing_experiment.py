@@ -796,7 +796,7 @@ def base_algo_params():
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
-        'T_value_target': 3.,
+        'T_value_target': 1.,
 
         'vk_estimator': 'k_exceptions',
 

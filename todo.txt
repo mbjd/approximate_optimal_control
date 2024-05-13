@@ -118,20 +118,27 @@ implementation, mid/low importance.
 
 - system state as dict too? probably not worth the effort though.
 
+  (done, unclear if advantageous, ditched again)
 - instead of uniform backward shooting for initialisation, try to get a
   better trajectory distribution by forward simulating with the LQR
   solution, starting from uniformly distributed points inside some LQR
   value level set (= ellipsoid), and then backward shooting from there.
 
+  (done, calling function with ONLY data from relevant value band)
 - in the calibration plot exclude nan/inf points to make the plots look
   better
 
+  (done, using projection after each step now)
 - improve the manifold stuff a bit. during forward simulation, we do
   sometimes stray off the manifold into the ambient space, by a LOT. if
   this is only the case for the simulations that don't reach the lower set
   anyway it's not a problem. Otherwise, we should fix it -- if we evaluate
   NN ensemble mean/std (significantly) outside of the manifold, it is
   meaningless...
+
+- adapt kernel length scale (in proposal) to current data extent?
+  or use some cosine distance type kernel in the first place?
+
 
 
 

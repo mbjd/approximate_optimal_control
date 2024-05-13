@@ -736,7 +736,7 @@ def base_algo_params():
         'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.001,
+        'lr_final': 0.0001,
         'weight_decay': .005,
         'nn_warmstart_fraction': 1/3,
 
@@ -784,7 +784,7 @@ def base_algo_params():
         'thin_data_denominator': 20,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
-        'initial_shooting': 'lqr',
+        'initial_shooting': 'uniform',
         # the value level we include in the initial learning round.
         'v_init': 50,
 
@@ -800,6 +800,7 @@ def base_algo_params():
 
         'vk_estimator': 'k_exceptions',
 
+        'proposal_sampling_distribution': 'uniform',
         'proposal_strategy': 'max_kernel',
         'pruning_strategy': 'conservative',
         'L_v': np.inf,

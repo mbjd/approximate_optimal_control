@@ -16,10 +16,10 @@ def u_star_general(x, costate, problem_params):
         return u_star_1d(x, costate, problem_params)
 
 
-def u_star_1d(x, costate, problem_params): 
+def u_star_1d(x, costate, problem_params):
 
-    # did i really just delete that function? a bit dumb. 
-    # putting it together again as simplified case of 2d one. 
+    # did i really just delete that function? a bit dumb.
+    # putting it together again as simplified case of 2d one.
     t = 0.
     zero_u = np.zeros(problem_params['nu'])
 

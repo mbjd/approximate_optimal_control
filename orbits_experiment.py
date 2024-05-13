@@ -92,7 +92,7 @@ def define_problem_params():
         # we stray off the manifold due to numerical errors.
         'project_M': lambda x: x,
 
-        'x_extent': np.array([10, 10]),
+        'x_extent': np.array([4, 4]),
     }
 
     return problem_params
@@ -207,7 +207,7 @@ def base_algo_params():
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 64,
-        'active_learning_batchsize': 32,
+        'active_learning_batchsize': 16,
         'include_future_data': True,
 
         # the max. time horizon by which we aim to grow the known level set
@@ -216,7 +216,8 @@ def base_algo_params():
 
         'vk_estimator': 'k_exceptions',
 
-        'proposal_strategy': 'uniform_uncertain',
+        'proposal_sampling_distribution': 'uniform',
+        'proposal_strategy': 'max_kernel',
         'pruning_strategy': 'conservative',
         'L_v': np.inf,
         'L_vx': 2000,

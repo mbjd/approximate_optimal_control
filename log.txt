@@ -4951,3 +4951,14 @@ detour. am thinking that the culprit is lqr guided initial sampling which
 neglects certain regions of the state space but makes the nn a bit too
 confident there. uniform shooting at least densely fills some regions and
 doesn't cover others at all.
+
+
+
+2024-05-13
+
+new insight. difficulties in getting the right proposals in orbits example
+were caused by nonuniform (origin-concentrated) sampling. the "fast" states
+which we would not urgently need data at are very densely covered in
+samples, while the "slower" ones where we want proposals are not. setting
+log_min_scale=0 in the sampling code fixes it but that would certainly
+destroy the flatquad example. what do?

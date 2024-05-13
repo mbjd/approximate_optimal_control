@@ -46,7 +46,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
     vmax_abs = np.max(np.abs(rel_vstds))
 
-    pl.contourf(xx, yy, np.tanh(rel_vstds), cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()
     pl.xlabel('previous log10(sigma_v / sigma_max)')
     pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
@@ -66,7 +66,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     rel_vstds = np.log10(v_stds_new / sigma_max)  # so that <0 good and >0 bad
     vmax_abs = np.max(np.abs(rel_vstds))
 
-    pl.contourf(xx, yy, np.tanh(rel_vstds), cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()
     pl.xlabel('new log10(sigma_v / sigma_max)')
     pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
@@ -925,7 +925,7 @@ def testbed(problem_params, algo_params):
         return v_next
 
 
-    def propose_pts(key, v_k, v_next, vmap_nn_params, x_extent):
+    def propose_pts(key, v_k, v_next, vmap_nn_params, sample_fct):
 
         value_interval = [v_k, v_next]
 
@@ -951,9 +951,8 @@ def testbed(problem_params, algo_params):
 
             newkey, key = jax.random.split(key)
 
-            x_pts = algo_params['sample_states_batched'](
-                newkey, 100000, x_extent, log_min_scale=-2
-            )
+            # sampling function, especially extent now fixed outside.
+            x_pts = sample_fct(newkey, 100000)
 
             # what kind of points do we propose? we want points x such that:
             # - x is withing the value band V_{k+1} \ V_k
@@ -1076,11 +1075,21 @@ def testbed(problem_params, algo_params):
                 #  - no clue tbh.
                 # probably this should be part of algo_params.
                 lengthscale = .5
-                # k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
-                k = lambda x, y: np.exp(-np.sum(np.abs((x-y) / lengthscale)))
+
+                k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
+
+                # this multiplication by .5 makes everything look nicer in low dims.
+                # it will sample repeatedly from high-uncertainty regions but not exctly at the same point.
+                # in higher dims, i think it is less smart to do this because there always enough
+                # different high-uncertainty points to choose from.
+                # k = lambda x, y: 0.5 * np.exp(-np.sum(((x-y) / lengthscale)**2))
+                # k = lambda x, y: 0.75 * np.exp(-np.sum(((x-y) / lengthscale)**2))
+
+                # k = lambda x, y: np.exp(-np.sum(np.abs((x-y) / lengthscale)))
 
                 # then we just scale everything by 1-that kernel?
                 weights = jax.vmap(lambda x: 1 - k(x, proposal))(all_valueband_pts)
+
                 carry = sigmas * weights
 
                 # oup = (proposal_idx, carry)  # just to look at the data :)
@@ -1204,7 +1213,12 @@ def testbed(problem_params, algo_params):
             print('warning -- had too few points to sammple, resorting to choice(replace=True)')
 
 
+
         proposed_states = all_valueband_pts[proposal_idxs]
+        pl.figure('proposals akshualliyiieh')
+        pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
+        pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
+        pl.show()
 
         return proposed_states, v_means[proposal_idxs], v_stds[proposal_idxs], metrics
 
@@ -1888,8 +1902,28 @@ def testbed(problem_params, algo_params):
             print(f'estimated v_k = {v_k:.3f}, next target = {v_next_target:.3f}')
 
             # propose interesting points
+
+            if algo_params['proposal_sampling_distribution'] == 'uniform_scale_mixture':
+                # this is the approach used initially. works for flatquad, fails for orbits with too few samples appearing
+                # in the interesting regions where we don't have data. maybe similar things happen with flatquad too but
+                # are fixed by brute-forcing a high active learning batchsize.
+                sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, problem_params['x_extent'], log_min_scale=-2)
+            elif algo_params['proposal_sampling_distribution'] == 'uniform':
+                # instead, we want an actual uniform distribution. to make sure we still hit the interesting region appropriately,
+                # we set the extent based on the data we curently have.
+                # still this can bite us in the ass if test_pts suffer from similar issues of not covering the interesting "edge" regions
+                # where we would want new data most urgently. hopefully the factor of 1.5 fixes this \o/ (while increasing sampling iters by 1.5**nx...)
+                is_in_Vnext = v_means <= v_next_target
+                inside_xs = test_pts * is_in_Vnext[:, None]
+                # data extent in sampling fct is with respect to x_eq!
+                data_extent = np.abs(inside_xs - problem_params['x_eq'][None, :]).max(axis=0)
+                print(f'data extent: {data_extent}')
+                sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, data_extent * 1.5, log_min_scale=0)
+            else:
+                raise ValueError(f'unknown proposal sampling distribution {algo_params["proposal_sampling_distribution"]}')
+
             proposal_key, key = jax.random.split(key)
-            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, problem_params['x_extent'])
+            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, sample_fct)
 
             # obtain optimal trajectories close to those points
             forward_sols_new, backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)

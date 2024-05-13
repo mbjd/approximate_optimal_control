@@ -1055,7 +1055,7 @@ def testbed(problem_params, algo_params):
             # the ones that are closer which maybe we should do first to even reach the far points
             _, proposal_idxs = jax.lax.top_k(v_stds / sigma_maxs, N_proposals)
 
-        if proposal_strategy == 'max_kernel':
+        elif proposal_strategy == 'max_kernel':
 
             # very experimental implementation. we choose the max sigma
             # point, then assume that close sigmas decrease based on that
@@ -1120,7 +1120,7 @@ def testbed(problem_params, algo_params):
             final_carry, oups = jax.lax.scan(scan_fct, sigma_relative, None, length=N_proposals)
             proposal_idxs = oups
 
-        if proposal_strategy == 'max_kernel_adaptive':
+        elif proposal_strategy == 'max_kernel_adaptive':
 
             # same as above, but adapts the size of the kernel (roughly) to
             # the extent of the data set.

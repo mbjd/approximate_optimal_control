@@ -28,7 +28,8 @@ flatquad_configs = {
     # 'weight_decay': [0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
 
     # 'inv_vx_loss_fadeout': [0, 1, 5, 10, 20, 50, 10000],
-    'inv_vx_loss_fadeout': [1, 5, 10, 20],
+    'inv_vx_loss_fadeout': [10, 20, 30],
+    'proposal_strategy': ['max_kernel', 'max_kernel_adaptive', 'uniform_uncertain'],
 
 
     # parameter that worked +- 1 order of magnitude.

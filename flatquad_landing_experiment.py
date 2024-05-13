@@ -726,19 +726,17 @@ def base_algo_params():
 
 
         # NN ARCHITECTURE & TRAINING
-        # big question: should we aim for over- or underparameterisation?
-        # 'nn_layerdims': (256, 16),
         'nn_type': 'leaky',
-        'nn_layerdims': (64, 64, 64),
+        'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,
-        'nn_N_epochs': 512,
+        'nn_N_epochs': 1024,
         'nn_train_fraction': .98,
         'lr_staircase': True,
         'lr_staircase_steps': 8,
-        'lr_init': 0.01,
+        'lr_init': 0.02,
         'lr_final': 0.0001,
         'weight_decay': .005,
-        'nn_warmstart_fraction': 1/8,
+        'nn_warmstart_fraction': 1/2,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
@@ -754,8 +752,8 @@ def base_algo_params():
         'nn_sobolev_weights': [1., 10.],
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.01,
-        'v_loss_d': 1.,
+        'vx_loss_d': 0.1,
+        'v_loss_d': 0.05,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -768,7 +766,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 500.,
 
-        'inv_vx_loss_fadeout': 10.,
+        'inv_vx_loss_fadeout': 50.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -781,7 +779,7 @@ def base_algo_params():
 
         # value band for training = [v_k / thin_data_denominator, v_next_target]
         'thin_data': True,
-        'thin_data_denominator': 10,
+        'thin_data_denominator': 5,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',
@@ -790,8 +788,8 @@ def base_algo_params():
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'initial_batchsize': 256,
-        'active_learning_batchsize': 256,
+        'initial_batchsize': 512,
+        'active_learning_batchsize': 512,
         'include_future_data': False,
 
         # the max. time horizon by which we aim to grow the known level set

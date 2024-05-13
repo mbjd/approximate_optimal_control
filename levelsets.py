@@ -416,6 +416,7 @@ def testbed(problem_params, algo_params):
         '''
 
 
+        '''
         # alternatively: fix number of points needed for estimation, take top-k that many points.
         # N_est = 256
         N_est = algo_params['initial_batchsize']
@@ -437,6 +438,20 @@ def testbed(problem_params, algo_params):
         all_ls = l_of_y_vmapjit(ys_final)
         min_l = np.nanmin(all_ls)
         print(f'min l: {min_l:.3f}')
+        '''
+
+        # yet another alternative: from each trajectory find the highest-v
+        # point below v_upper not constant size but let's not care about those
+        # superficialities
+
+        # same as above
+        all_traj_idx = np.arange(all_ys['v'].shape[0])
+        top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
+        ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], all_ys)
+
+        # but now caluclate all those l(x, u). 
+        ls = jax.vmap(l_of_y)(ys_top)
+        min_l = np.nanmin(ls)
 
         return min_l
 
@@ -1136,7 +1151,7 @@ def testbed(problem_params, algo_params):
                 proposal = all_valueband_pts[proposal_idx]
 
                 # adaptive kernel scales with extent of value levelset.
-                lengthscales = 0.5 * data_ranges
+                lengthscales = (1/4) * data_ranges
 
                 k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscales)**2))
 

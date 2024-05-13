@@ -1969,7 +1969,6 @@ def testbed(problem_params, algo_params):
                 inside_xs = test_pts * is_in_Vnext[:, None]
                 # data extent in sampling fct is with respect to x_eq!
                 data_extent = np.abs(inside_xs - problem_params['x_eq'][None, :]).max(axis=0)
-                print(f'data extent: {data_extent}')
                 sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, data_extent * 1.5, log_min_scale=0)
             else:
                 raise ValueError(f'unknown proposal sampling distribution {algo_params["proposal_sampling_distribution"]}')

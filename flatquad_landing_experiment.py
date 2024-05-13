@@ -731,14 +731,14 @@ def base_algo_params():
         'nn_type': 'leaky',
         'nn_layerdims': (32, 32, 32),
         'nn_batchsize': 32,
-        'nn_N_epochs': 1024,
+        'nn_N_epochs': 128,
         'nn_train_fraction': .98,
         'lr_staircase': True,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
         'lr_final': 0.0001,
         'weight_decay': .005,
-        'nn_warmstart_fraction': 1/3,
+        'nn_warmstart_fraction': 1/2,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
@@ -754,7 +754,7 @@ def base_algo_params():
         'nn_sobolev_weights': [1., 10.],
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.1,
+        'vx_loss_d': 0.01,
         'v_loss_d': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -768,7 +768,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 500.,
 
-        'inv_vx_loss_fadeout': 20.,
+        'inv_vx_loss_fadeout': 10.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -781,7 +781,7 @@ def base_algo_params():
 
         # value band for training = [v_k / thin_data_denominator, v_next_target]
         'thin_data': True,
-        'thin_data_denominator': 20,
+        'thin_data_denominator': 10,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'uniform',
@@ -790,9 +790,9 @@ def base_algo_params():
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'initial_batchsize': 256,
-        'active_learning_batchsize': 256,
-        'include_future_data': True,
+        'initial_batchsize': 512,
+        'active_learning_batchsize': 512,
+        'include_future_data': False,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.

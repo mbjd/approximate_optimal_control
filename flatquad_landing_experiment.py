@@ -731,12 +731,12 @@ def base_algo_params():
         # 'nn_layerdims': (32, 32, 32, 32),
         # 'nn_layerdims': (128, 8),
         'nn_batchsize': 32,
-        'nn_N_epochs': 1024,
+        'nn_N_epochs': 2048,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.02,
+        'lr_init': 0.05,
         'lr_final': 0.0001,
         'weight_decay': .005,
 
@@ -756,8 +756,8 @@ def base_algo_params():
         'nn_sobolev_weights': [1., 1.],
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.01,
-        'v_loss_d': 0.01,
+        'vx_loss_d': 0.1,
+        'v_loss_d': 0.1,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.

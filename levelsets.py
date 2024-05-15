@@ -132,7 +132,7 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
 
 
 
-def plot_loss_distribution(all_ys, aux_mean):
+def plot_loss_distribution(all_ys, loss_means):
 
     # to get insight on the loss distribution. this will ONLY evaluate the loss
     # at the predicted mean, and ignore std. dev. maybe this is not exactly
@@ -146,8 +146,8 @@ def plot_loss_distribution(all_ys, aux_mean):
         assert len(data.shape) == 1
         pl.semilogx(data.sort(), np.linspace(0, 1, data.shape[0]), **pl_kwargs)
 
-    for k in aux_mean:
-        plotcdf(aux_mean[k].flatten(), label=k)
+    for k in loss_means:
+        plotcdf(loss_means[k].flatten(), label=k)
 
     pl.legend()
 
@@ -1652,7 +1652,7 @@ def testbed(problem_params, algo_params):
             )
 
         # mean of the last couple iterations.
-        final_trainloss = oups_sobolev_ens['train_loss_terms']['total_loss'].mean(axis=0)[-100:].mean()
+        final_trainloss = oups_sobolev_ens['lossterms']['total_loss'].mean(axis=0)[-100:].mean()
 
         # and loss over test set.
         test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
@@ -1661,7 +1661,6 @@ def testbed(problem_params, algo_params):
         pruning_metrics['final_trainloss'] = final_trainloss
         pruning_metrics['final_testloss'] = final_testloss
 
-        ipdb.set_trace()
 
         # second pruning step. very trivial: remove everything likely to be suboptimal
         # here we just assume we know everything up to the next v target. may not be true!
@@ -1676,24 +1675,29 @@ def testbed(problem_params, algo_params):
         '''
 
 
+        # evaluate all this stuff again yolo
         v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
+        vx_means_trained, vx_stds_trained = vx_meanstds(usable_ys['x'], params_sobolev_ens)
+        ipdb.set_trace()
 
-        # idea for other strategy: remove points at least x % above nn mean value?
-        sigma_cutoff = algo_params['second_pruning_sigma']
+        # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred. 
+        # this means: in_axes = (None, 0, 0, 0, None, None)
 
-        # # if label is MUCH higher than function, consider it suboptimal.
-        # # these boolean indices obviously wrt. the training&test data, usable_ys
-        # is_suboptimal_nn_train = usable_ys['v'] > v_means_trained + sigma_cutoff * v_stds_trained
+        all_losses, all_auxs = jax.vmap(v_nn.sobolev_loss_inner, in_axes = (None, 0, 0, 0, None, None))(
+            key, usable_ys, v_means_trained, vx_means_trained, problem_params, algo_params
+        )
 
-        # # as usable_ys = all_ys[bool_train_idx] (modulo tree_map) we can modify the original array like this:
-        # is_suboptimal_nn_full = np.zeros_like(is_suboptimal, dtype=bool).at[bool_train_idx].set(is_suboptimal_nn_train)
+        v_outliers = all_auxs['v_loss_linear']
+        print(f'v outliers:      {100*v_outliers.mean():.3f}%')
+        vx_outliers = all_auxs['vx_loss_linear']
+        print(f'vx outliers:     {100*vx_outliers.mean():.3f}%')
+        print(f'either outliers: {100*(vx_outliers|v_outliers).mean():.3f}%')
+        print(f'both outliers:   {100*(vx_outliers&v_outliers).mean():.3f}%')
 
-        # # does this or and cumsum commute?
-        # # probably yes.
-        # is_suboptimal_either = np.logical_or(is_suboptimal, is_suboptimal_nn_full)
-        # is_suboptimal_final = np.cumsum(is_suboptimal_either, axis=1) > 0
+        # this is a boolean array wrt the indices in usable_ys. 
+        is_outlier = all_auxs['vx_loss_linear'] & all_auxs['v_loss_linear']
 
-        # is_suboptimal = is_suboptimal_final
+
 
         frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
         print(f'fraction suboptimal after training: {frac_suboptimal:.4f}')
@@ -2135,17 +2139,12 @@ def testbed(problem_params, algo_params):
 
             # calculate it again \o/ easier than reusing data in smart ways.
 
-            all_losses, aux = jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, relevant_ys, params_sobolev_ens, problem_params, algo_params)
+            all_losses, aux = jax.vmap(
+                jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)),
+                in_axes=(None, None, 0, None, None)
+            )(key, relevant_ys, params_sobolev_ens, problem_params, algo_params)
 
-            # all_losses, aux = jax.vmap(
-            #         jax.vmap(
-            #             jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None,None)),
-            #             in_axes=(None, 0, None, None, None)
-            #         ),
-            #         in_axes=(None, None, 0, None, None)
-            #     )(key, all_ys, params_sobolev_ens, problem_params, algo_params)
-
-            aux_mean = jtm(lambda z: z.mean(axis=0), aux)
+            aux_mean = jtm(lambda z: z.mean(axis=0), aux['lossterms'])
             plot_loss_distribution(all_ys, aux_mean)
 
             if algo_params['savefigs']:

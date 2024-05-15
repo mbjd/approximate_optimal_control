@@ -294,6 +294,7 @@ class my_nn_flax(nn.Module):
             x = nn.Dense(features=self.output_dim)(x)
 
         return x.squeeze()
+    
 
 
 class nn_wrapper():
@@ -454,8 +455,8 @@ class nn_wrapper():
 
         aux_output = dict()
 
-        outlier_loss_experiment = True
-        if outlier_loss_experiment:
+        huber_losses = True
+        if huber_losses:
 
             # quick & dirty experimentation with the idea I've had for a
             # long time now. basically, make the loss a smooth huber-type
@@ -556,7 +557,7 @@ class nn_wrapper():
             vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
 
 
-            if outlier_loss_experiment:
+            if huber_losses:
                 # second part of the puzzle. vx loss that cares less about
                 # outliers. again a smooth huber type function. this time
                 # with a lengthscale parameter!

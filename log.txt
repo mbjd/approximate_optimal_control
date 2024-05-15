@@ -5007,3 +5007,14 @@ new idea which will definitely fix all my headaches (TM):
 
 then do a parameter sweep on the size of all these huber regions, and maybe
 sobolev weights again?
+
+going to implement it in two stages. First: 
+ - classify outliers/non-outliers after training, train again with only non-outliers
+   but same (huber) loss. 
+
+if that works great. 
+
+second stage: if not, we *might* make it better by having quadratic loss for
+already accepted data? but if we throw out the outliers then everything should
+stay in the quadratic region anyway... maybe doing that will improve problems
+with uncertainty increasing again in lower level sets.

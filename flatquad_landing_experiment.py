@@ -728,18 +728,22 @@ def base_algo_params():
         # NN ARCHITECTURE & TRAINING
         'nn_type': 'leaky',
         'nn_layerdims': (32, 32, 32),
+        # 'nn_layerdims': (32, 32, 32, 32),
+        # 'nn_layerdims': (128, 8),
         'nn_batchsize': 32,
         'nn_N_epochs': 1024,
         'nn_train_fraction': .98,
-        'lr_staircase': True,
+
+        'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.02,
         'lr_final': 0.0001,
         'weight_decay': .005,
-        'nn_warmstart_fraction': 1/2,
 
         'nn_ensemble_size': 4,
+
         'nn_warm_start': True,
+        'nn_warmstart_fraction': 1/2,
 
         'nn_progressbar': True,
 
@@ -749,11 +753,11 @@ def base_algo_params():
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
         # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': [1., 10.],
+        'nn_sobolev_weights': [1., 1.],
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.1,
-        'v_loss_d': 0.05,
+        'vx_loss_d': 0.01,
+        'v_loss_d': 0.01,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -764,9 +768,9 @@ def base_algo_params():
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
         'prior_strength': 0.01,
-        'v_prior': 500.,
+        'v_prior': 50.,
 
-        'inv_vx_loss_fadeout': 50.,
+        'inv_vx_loss_fadeout': 0.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -779,7 +783,7 @@ def base_algo_params():
 
         # value band for training = [v_k / thin_data_denominator, v_next_target]
         'thin_data': True,
-        'thin_data_denominator': 5,
+        'thin_data_denominator': 10,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',
@@ -788,8 +792,8 @@ def base_algo_params():
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
-        'initial_batchsize': 512,
-        'active_learning_batchsize': 512,
+        'initial_batchsize': 128,
+        'active_learning_batchsize': 128,
         'include_future_data': False,
 
         # the max. time horizon by which we aim to grow the known level set
@@ -801,8 +805,6 @@ def base_algo_params():
         'proposal_sampling_distribution': 'uniform',
         'proposal_strategy': 'max_kernel_adaptive',
         'pruning_strategy': 'conservative',
-        'L_v': np.inf,
-        'L_vx': 2000,
 
         'second_pruning_sigma': 5.,
 

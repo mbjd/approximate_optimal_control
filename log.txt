@@ -4962,3 +4962,30 @@ which we would not urgently need data at are very densely covered in
 samples, while the "slower" ones where we want proposals are not. setting
 log_min_scale=0 in the sampling code fixes it but that would certainly
 destroy the flatquad example. what do?
+
+
+
+
+2024-05-14
+
+almost finished section on manifold -> Rn reduction! so proud. 
+
+was sad that the whole night's euler runs were not very successful. had
+suspicion that pushup prior (soft constraint that v>500 at the problematic
+point) was too strong. weakening it to v>50, and also way decreased vx normal
+regularisation. let's see. 
+
+
+lessons from this morning's euler sweep: 
+ - inv_vx_loss_fadeout=0 is the only one that EVER goes above vk=1000
+ - v_loss_d and vx_loss_d barely matter at all 
+ - weight decay .003 better than .001 but not all results in yet
+ - proposal_strategy seems absolutely irrelevant
+
+
+currently trying (locally) the "opposite" strategy from before: making v loss
+stronger and vx loss weaker. the hope is that the asymmetric v loss can keep v
+"correct" (= at the minimum of all local solutions) without being pushed off by
+the stronger vx loss. and vx will hopefully also be somewhat correct with just
+a weak loss term, after all they should both work in harmony whereever there is
+a clear, smooth unique solution.

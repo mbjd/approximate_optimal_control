@@ -397,9 +397,9 @@ class nn_wrapper():
             # alternatively: only penalise too small v's, not too high.
             # v_prior - v_pred > 0 <=> v_prior > v_pred which is bad.
             # conversely if <0 (then the 0 is chosen instead) we overestimate which is good.
-            # prior_loss = np.maximum(0, v_prior - v_pred)
+            pushup_loss = np.maximum(0, v_prior - v_pred)
             # smooth version for nicer plots hehehe
-            pushup_loss = jax.nn.softplus(v_prior - v_pred)
+            # pushup_loss = jax.nn.softplus(v_prior - v_pred)
 
 
 
@@ -586,15 +586,16 @@ class nn_wrapper():
 
                 # previously, in 03b7942 where milk and honey flows
                 # this is NOT the same 'standard' parameterisation as above!
-                d = algo_params['vx_loss_d']
-                lengthscale = d
-                vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
+                # d = algo_params['vx_loss_d']
+                # lengthscale = d
+                # vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
 
-                '''
+
                 # same parameterisation as above: d = size of the quadratic region
                 # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
                 d = algo_params['vx_loss_d']
                 vx_label_loss = d**2 * 2 * (np.sqrt(1 + vx_label_loss/d**2) - 1)
+                '''
 
 
                 rel_err = (v_pred - y['v'] ) / y['v']
@@ -637,6 +638,9 @@ class nn_wrapper():
                 # if small we have "slow" dropoff.
                 # if >1 we have dropoff smaller than 1.
                 scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
+
+                # impose vx loss only if v_nn is in 5% ish range of nn v.
+                # scaling = np.exp(-(v_rel_err / 0.05)**2)
 
                 # cheat autodiff
                 L = 10000.

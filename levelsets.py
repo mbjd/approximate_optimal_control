@@ -19,6 +19,7 @@ import meshcat
 import meshcat.geometry as geom
 import meshcat.transformations as tf
 
+import os
 import ipdb
 import time
 import tqdm
@@ -1034,7 +1035,7 @@ def testbed(problem_params, algo_params):
 
 
         all_valueband_pts = all_valueband_pts[0:N_pts_desired, :]
-        assert all_valueband_pts.shape == (N_pts_desired, problem_params['nx'])
+        # assert all_valueband_pts.shape == (N_pts_desired, problem_params['nx'])
 
         # ~~~ find a sensible subset of those points to use as proposals ~~~
 
@@ -1233,7 +1234,7 @@ def testbed(problem_params, algo_params):
             # but generally we prefer no replacement (otw the same point is repeated!)
             do_replace = N_proposals > N_uncertain
 
-            proposal_idxs = jax.random.choice(key, N_pts_desired, shape=(N_proposals,), replace=do_replace, p=ps)
+            proposal_idxs = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=do_replace, p=ps)
 
         # these two "softmax" strategies can be understood as an interpolation
         # between uniform_among_uncertain (= softmax_but_only_uncertain as the
@@ -1285,8 +1286,23 @@ def testbed(problem_params, algo_params):
         # oops did many of these on euler. but i think it just ignores it
         if algo_params['showfigs']:
             pl.figure('proposals akshualliyiieh')
-            pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
-            pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
+            if problem_params['nx'] == 2:
+                pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
+                pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
+            elif problem_params['nx'] == 7:
+                pl.subplot(131)
+                # x/y
+                pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
+                pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
+                pl.subplot(132)
+                # vx/vy
+                pl.plot(all_valueband_pts[:, 4], all_valueband_pts[:, 5], '.', label='all points')
+                pl.plot(proposed_states[:, 4], proposed_states[:, 5], 'o', label='proposed points')
+                pl.subplot(133)
+                # Phi/omega
+                x_to_phi = jax.vmap(lambda x: np.arctan2(x[2], x[3]))
+                pl.plot(x_to_phi(all_valueband_pts), all_valueband_pts[:, 6], '.', label='all points')
+                pl.plot(x_to_phi(proposed_states), proposed_states[:, 6], 'o', label='proposed points')
             pl.show()
 
         return proposed_states, v_means[proposal_idxs], v_stds[proposal_idxs], metrics
@@ -1415,26 +1431,6 @@ def testbed(problem_params, algo_params):
             is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
 
 
-        elif algo_params['pruning_strategy'] == 'conservative_bidirectional':
-
-            # same as conservative_past, but also remove points that are a
-            # bit in the future wrt the suboptimal points.
-
-            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
-            trajectory_outside_levelset = v_lower < all_ys['v']
-
-            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
-            is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
-
-            T_future = 0.5
-
-            raise NotImplementedError('untested & probably does the wrong thing')
-            # [np.inf if no point is suboptimal in trajectory, else time of first suboptimal point for trajectory in trajectories]
-            t_suboptimal = np.where(is_suboptimal, all_ys['t'], np.inf)
-
-            # TODO finish
-
-
 
         elif algo_params['pruning_strategy'] == 'generous':
 
@@ -1455,6 +1451,7 @@ def testbed(problem_params, algo_params):
 
         elif algo_params['pruning_strategy'] == 'lipschitz':
 
+            raise NotImplementedError()
             # instead do this anyway to get a feel for the behaviour of those lipschitz constants.
 
             # Pruning based both on both V and Vx being Lipschitz, or similar.
@@ -1939,12 +1936,22 @@ def testbed(problem_params, algo_params):
 
         # start a new wandb run to track this script
         projectname = 'levelsets_' + problem_params['system_name']
+
+
+        if 'SCRATCH' in os.environ:
+            # assume we are on euler, save wandb files in scratch! 
+            save_dir = os.environ['SCRATCH']
+        else:
+            # for quick local runs we don't have too much data
+            save_dir = '.'
+
         wandb.init(
             # set the wandb project where this run will be logged
             project=projectname,
 
             # track hyperparameters and run metadata
-            config=algo_params_clean
+            config=algo_params_clean,
+            dir=save_dir,
         )
 
         nn_params_artefact = wandb.Artifact('nn_params', type='model')

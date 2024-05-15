@@ -1591,9 +1591,6 @@ def testbed(problem_params, algo_params):
         # keep suboptimal points marked suboptimal
         is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
 
-        frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
-        print(f'fraction suboptimal before training: {frac_suboptimal:.4f}')
-
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
 
@@ -1604,7 +1601,6 @@ def testbed(problem_params, algo_params):
 
 
         if algo_params['thin_data']:
-
             # much simpler strategy: just exclude way past data.
             v_cutoff = v_lower / algo_params['thin_data_denominator']
             in_band = in_band & (v_cutoff <= all_ys['v'])
@@ -1662,9 +1658,6 @@ def testbed(problem_params, algo_params):
         pruning_metrics['final_testloss'] = final_testloss
 
 
-        # second pruning step. very trivial: remove everything likely to be suboptimal
-        # here we just assume we know everything up to the next v target. may not be true!
-
         '''
         # udpated plan: throw out everything which:
         #  - any huber loss classifies as an outlier
@@ -1678,7 +1671,7 @@ def testbed(problem_params, algo_params):
         # evaluate all this stuff again yolo
         v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
         vx_means_trained, vx_stds_trained = vx_meanstds(usable_ys['x'], params_sobolev_ens)
-        ipdb.set_trace()
+        # ipdb.set_trace()
 
         # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred. 
         # this means: in_axes = (None, 0, 0, 0, None, None)
@@ -1694,13 +1687,58 @@ def testbed(problem_params, algo_params):
         print(f'either outliers: {100*(vx_outliers|v_outliers).mean():.3f}%')
         print(f'both outliers:   {100*(vx_outliers&v_outliers).mean():.3f}%')
 
-        # this is a boolean array wrt the indices in usable_ys. 
-        is_outlier = all_auxs['vx_loss_linear'] & all_auxs['v_loss_linear']
+        # these boolean idxs are all with respect to usable_ys. 
+        is_outlier = all_auxs['vx_loss_linear'] | all_auxs['v_loss_linear']  # is & better here?
+        is_new = (v_lower <= usable_ys['v']) & (usable_ys['v'] <= v_upper)
 
+        new_suboptimal = is_outlier & is_new
+        # old_suboptimal = is_suboptimal[bool_train_idx]
 
+        # now: update the full is_suboptimal array with these new indices
+        # is_suboptimal[bool_train_idx] = new_suboptimal
+        # (by construction of train idx, is_suboptimal[bool_train_idx] == False
+        is_suboptimal = is_suboptimal.at[bool_train_idx].set(new_suboptimal)
 
-        frac_suboptimal = (is_suboptimal & (all_ys['v'] < np.inf)).sum() / (all_ys['v'] < np.inf).sum()
-        print(f'fraction suboptimal after training: {frac_suboptimal:.4f}')
+        # then the cumsum thing
+        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+
+        # then second training run.
+        # TODO last thing: switch huber loss to quadratic loss here. 
+
+        # TODO after that: find out if we can skimp on initial epochs with
+        # large lr here, probably yes
+
+        bool_train_idx = in_band & ~is_suboptimal
+        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
+        train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=algo_params['nn_train_fraction'])
+        init_key, key = jax.random.split(key)
+        params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+
+        if warmstart:
+            # continue from previous params, only last portion of training.
+            params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble_warmstarted(
+                train_key, train_ys, params_sobolev_ens, problem_params, algo_params
+            )
+        else:
+            # training from scratch
+            params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble(
+                train_key, train_ys, problem_params, algo_params
+            )
+
+        # mean of the last couple iterations.
+        # ipdb.set_trace()
+        final_trainloss = oups_sobolev_ens_new['lossterms']['total_loss'].mean(axis=0)[-100:].mean()
+
+        # and loss over test set.
+        test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
+        final_testloss = np.mean(test_losses)
+
+        pruning_metrics['final_trainloss_second'] = final_trainloss
+        pruning_metrics['final_testloss_second'] = final_testloss
+        # ipdb.set_trace()
+
+        # all these shapes are (N_nn_ensemble, N_trainsteps) -- ofc we want the secon
+        oups_sobolev_ens = jtm(lambda a, b: np.concatenate([a, b], axis=1), oups_sobolev_ens, oups_sobolev_ens_new)
 
         return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, pruning_metrics
 

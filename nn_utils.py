@@ -450,40 +450,33 @@ class nn_wrapper():
         # 1 + x = smoothed max(1, x)
         # replace the 1 with the smallest order of magnitude we want to be
         # accurate at.
-        v_rel_err = (v_pred - y['v']) / (1 + y['v'])
-        v_loss  = (v_rel_err) ** 2
 
         aux_output = dict()
 
-        huber_losses = True
-        if huber_losses:
 
-            # quick & dirty experimentation with the idea I've had for a
-            # long time now. basically, make the loss a smooth huber-type
-            # function for underestimation (= we accept outliers if label >
-            # prediction) but a squared error for overestimation.
+        # for the ones we already know we might as well use quadratic loss. 
+        # use_quadratic_loss = y['v'] <= v_k
+        use_quadratic_loss = False
 
-            # lengthscale of the quadratic region of this smooth huber
-            # function is about 1. relative error is also about 1 initially
-            # and much less at the end of training. if so, the linear
-            # region of the huber function never becomes active. we should
-            # probably shrink the quadratic region to tolerate closer
-            # outliers?
+        # asymmetric, smooth huber type loss function. 
+        # penalises overestimation heavily, underestimation less.
+        d = algo_params['v_loss_d']
+        v_rel_err = (v_pred - y['v']) / (1 + y['v'])
+        rel_err_sq = (v_rel_err)**2
+        # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
+        rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
+        underestimation = v_pred < y['v']
 
+        # v_loss_huber = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
+        v_loss_huber = jax.lax.select(underestimation, rel_err_smoothhuber, rel_err_sq)
 
-            # same as old version from 03b7942 when d=1
-            d = algo_params['v_loss_d']
-            rel_err_sq = (v_rel_err)**2
-            # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
-            rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
-            underestimation = v_pred < y['v']
-            v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
+        # also output a flag that says whether we are in the linear-ish
+        # region (-> outlier) or not (not outlier)
+        smooth_huber_linear = rel_err_sq / d**2 > 1
+        aux_output['v_loss_linear'] = underestimation & smooth_huber_linear
 
-            # also output a flag that says whether we are in the linear-ish
-            # region (-> outlier) or not (not outlier)
-            smooth_huber_linear = rel_err_sq / d**2 > 1
-            aux_output['v_loss_linear'] = underestimation & smooth_huber_linear
-
+        # v_loss = use_quadratic_loss * rel_err_sq + ~use_quadratic_loss * rel_err_sq
+        v_loss = jax.lax.select(use_quadratic_loss, rel_err_sq, rel_err_smoothhuber)
 
 
         lossterms = dict()
@@ -532,65 +525,62 @@ class nn_wrapper():
             # orthogonal projection to tangent space at current x
             P_tangent = np.eye(problem_params['nx']) - P_normal
 
-            # we multiply these projections from the RIHGT. because the inner product we want to
-            # describe is <vx, P vec> = vx.T P vec. Then we just penalise the whole linear operator
-            # vx.T P instead of the inner product with some random ass vec.
-            # but it doesn't even matter because both of these projections are symmetric \o/
+            # we multiply these projections from the RIHGT. because the inner
+            # product we want to describe is <vx, P vec> = vx.T P vec. Then we
+            # just penalise the whole linear operator vx.T P instead of the
+            # inner product with some random ass vec. corresponds to
+            # identifying members of T*xM with vectors in Rn. but it doesn't
+            # even matter because orthogonal projections are symmetric \o/
 
             # really this is just a particular matrix norm applied to the
             # vx error:
             # || vx_error.T @ P_tangent ||^2 = || P_tangent @ vx_error ||^2
             # = <P vx_err, P vx_err> = vx_err.T @ P.T @ P @ vx_err
             # = || vx_err ||_{P.T@P}^2
-            vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
-
-            # try this scaling similar to v.
-            # vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx']))
-            # second one should be more "correct" but maybe only scaling by the sqrt of it
-            # is somehow not bad too?
-            vx_label_loss = vx_label_loss / (1 + np.linalg.norm(y['vx'] @ P_tangent))**2
-
-            # elementwise scaling instead?
+            # vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
 
             proj_label = y['vx'] @ P_tangent
-            square_scalings = 1 + np.square(proj_label)
-            vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
+            # square_scalings = 1 + np.square(proj_label)
+            # vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
+
+            # smooth huber version instead. 
+            # second part of the puzzle. vx loss that cares less about
+            # outliers. again a smooth huber type function. this time
+            # with a lengthscale parameter!
+
+            vx_label_loss_quadratic = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
+
+            # previously, in 03b7942 where milk and honey flows
+            # this is NOT the same 'standard' parameterisation as above!
+            # d = algo_params['vx_loss_d']
+            # lengthscale = d
+            # vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
 
 
-            if huber_losses:
-                # second part of the puzzle. vx loss that cares less about
-                # outliers. again a smooth huber type function. this time
-                # with a lengthscale parameter!
+            # same parameterisation as above: d = size of the quadratic region
+            # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
+            d = algo_params['vx_loss_d']
+            vx_label_loss_huber = d**2 * 2 * (np.sqrt(1 + vx_label_loss_quadratic/d**2) - 1)
+            # as d->infty this reduces to the quadratic loss vx_label_loss_quadratic.
 
-                vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
+            smooth_huber_linear = vx_label_loss_huber / d**2 > 1
+            aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
 
-                # previously, in 03b7942 where milk and honey flows
-                # this is NOT the same 'standard' parameterisation as above!
-                # d = algo_params['vx_loss_d']
-                # lengthscale = d
-                # vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
+            # vx_label_loss = vx_label_loss_quadratic * use_quadratic_loss + vx_label_loss_huber * ~use_quadratic_loss
+            vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
 
+            # if this is 0, scaling=1 always so nothing happens.
+            # if small we have "slow" dropoff.
+            # if >1 we have dropoff smaller than 1.
+            scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
 
-                # same parameterisation as above: d = size of the quadratic region
-                # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
-                d = algo_params['vx_loss_d']
-                vx_label_loss = d**2 * 2 * (np.sqrt(1 + vx_label_loss/d**2) - 1)
+            # impose vx loss only if v_nn is in 5% ish range of nn v.
+            # scaling = np.exp(-(v_rel_err / 0.05)**2)
 
-                smooth_huber_linear = vx_label_loss / d**2 > 1
-                aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
-
-                # if this is 0, scaling=1 always so nothing happens.
-                # if small we have "slow" dropoff.
-                # if >1 we have dropoff smaller than 1.
-                scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
-
-                # impose vx loss only if v_nn is in 5% ish range of nn v.
-                # scaling = np.exp(-(v_rel_err / 0.05)**2)
-
-                # cheat autodiff
-                L = 10000.
-                scaling = np.floor(L * scaling) / L
-                vx_label_loss = vx_label_loss * scaling
+            # cheat autodiff
+            L = 10000.
+            scaling = np.floor(L * scaling) / L
+            vx_label_loss = vx_label_loss * scaling
 
 
 

@@ -452,6 +452,8 @@ class nn_wrapper():
         v_rel_err = (v_pred - y['v']) / (1 + y['v'])
         v_loss  = (v_rel_err) ** 2
 
+        aux_output = dict()
+
         outlier_loss_experiment = True
         if outlier_loss_experiment:
 
@@ -476,39 +478,16 @@ class nn_wrapper():
             underestimation = v_pred < y['v']
             v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
 
-            '''
-            # corresponds to the size of the quadratic region in the smoothed
-            # huber loss. equal to delta from:
-            # https://en.wikipedia.org/wiki/Huber_loss#Pseudo-Huber_loss_function
-            # dl(x)/dx at x->inf = 2*d i think
-            d = algo_params['v_loss_d']
+            # also output a flag that says whether we are in the linear-ish
+            # region (-> outlier) or not (not outlier)
+            smooth_huber_linear = rel_err_sq / d**2 > 1
+            aux_output['v_loss_linear'] = underestimation & smooth_huber_linear
 
-            rel_err = (v_pred - y['v']) / (1 + y['v'])
-            # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
-            # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
-
-            # loss as function of rel. error
-            asym_loss = lambda re: jax.lax.select(re > 0, re**2, d**2 * 2 * (np.sqrt(1 + (re/d)**2) - 1))
-            # sanity check: re > 0 is equivalent to:
-            #      v_pred - v_label > 0
-            #      v_pred > v_label
-            #      we predict a large v but know from data that there is a lower one
-            #      we want to push the prediction down aggressively.
-            # this checks out. and in the opposite case we only want to push it
-            # up a bit because the data is probably suboptimal.
-
-            # v_loss = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
-            v_loss = asym_loss(rel_err)
-
-            # this function (namely: (v_pred - y['v']) -> errsq_asymmetric)
-            # looks to have continuous first, second, and third derivative,
-            # with the fourth one becoming discontinuous. thanks desmos :)
-            '''
 
 
         lossterms = dict()
         lossterms['v'] = v_loss
-        lossterms['v_rel_err'] = v_rel_err
+        # lossterms['v_rel_err'] = v_rel_err
         # lossterms['vx'] = vx_loss
 
         nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
@@ -595,45 +574,10 @@ class nn_wrapper():
                 # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
                 d = algo_params['vx_loss_d']
                 vx_label_loss = d**2 * 2 * (np.sqrt(1 + vx_label_loss/d**2) - 1)
-                '''
 
+                smooth_huber_linear = vx_label_loss / d**2 > 1
+                aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
 
-                rel_err = (v_pred - y['v'] ) / y['v']
-
-                # we switch the vx loss off entirely for "too high" v.
-                # but in a nondifferentiable way so sgd won't cheat
-                # scaling = np.where(y['v'] > v_pred * 1.05, 0., 1.)
-                #         = np.where(y['v'] >
-                # vx_label_loss = vx_label_loss * scaling
-
-                # this scaling could also come from a smooth "modulation" where
-                # the vx loss is less and less important as we enter the
-                # underestimation regime (data probably suboptimal), which is
-                # then made "invisible" to the gradient based optimiser by
-                # quantising the modulation to a small grid, e.g. like this:
-                # scaling = (some smooth function of y['v'] - v_pred)
-                # scaling = L * (floor(scaling)) / L
-
-                # again we want: if rel_err > 0 then scaling = 1
-                # for rel_err < 0 it should drop off.
-
-                # cut off the gradient path sneakily, so sgd will not push the
-                # function towards overestimation to lower loss due to this scaling
-                scaling = np.clip(np.exp(rel_err / 0.05), 0., 1.)
-                L = 10000.
-                scaling = np.floor(L * scaling) / L
-
-                vx_label_loss = vx_label_loss * scaling
-
-                # other idea to continue this: instead of modulating the vx
-                # loss, modulate its d parameter, the width of the quadratic
-                # region. this will have essentially the same effect in the
-                # outlier regime, but instead of weakening the loss in the
-                # quadratic region, it decreases it, keeping the behaviour for
-                # well-fitted labels the same as without the scaling.  probably
-                # though this offers no tangible advantage.
-                '''
-                # drop off vx loss at a "characteristic" 5% apparent suboptimality
                 # if this is 0, scaling=1 always so nothing happens.
                 # if small we have "slow" dropoff.
                 # if >1 we have dropoff smaller than 1.
@@ -649,7 +593,7 @@ class nn_wrapper():
 
 
 
-            lossterms['vx_rel_err'] = np.sqrt(vx_label_loss)
+            # lossterms['vx_rel_err'] = np.sqrt(vx_label_loss)
 
 
 
@@ -744,7 +688,8 @@ class nn_wrapper():
 
             lossterms['total_loss'] = loss
 
-            return loss, lossterms
+            aux_output['lossterms'] = lossterms
+            return loss, aux_output
 
         else:
             raise ValueError('nn sobolev weight must be an array of shape (3,) (including vxx) or (2,) (without vxx)')
@@ -915,18 +860,11 @@ class nn_wrapper():
             ys_batch = jax.tree_util.tree_map(lambda node: node[batch_idx], ys)
 
             # do the thing!!1!1!!1!
-            opt_state_new, nn_params_new, loss_terms = update_step(
+            opt_state_new, nn_params_new, aux_output = update_step(
                 k_loss, ys_batch, opt_state, nn_params
             )
 
-            aux_output = {
-                'lr': lr_schedule(opt_state[0].count),
-                'train_loss_terms': loss_terms,
-                # outputting ALL params here is possible but not recommended.
-                # will use huge memory and slow everything down (update, it seems equally fast during training...)
-                # anyway vmapping the whole trainign procedure gives much better model diversity out of the box.
-                # 'params': nn_params_new,
-            }
+            aux_output['lr'] = lr_schedule(opt_state[0].count)
 
             # if given, calculate test loss.
             # probably quite expensive to do this every iteration though...
@@ -936,16 +874,16 @@ class nn_wrapper():
                 # k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
 
                 if algo_params['prior_strength'] > 0:
-                    test_loss, test_loss_terms = self.sobolev_loss_with_prior_batch_mean(
+                    test_loss, test_aux_output = self.sobolev_loss_with_prior_batch_mean(
                         k_test, nn_params_new, ys_test, v_prior, prior_extent, problem_params, algo_params
                     )
 
                 else:
-                    test_loss, test_loss_terms = self.sobolev_loss_batch_mean(
+                    test_loss, test_aux_output = self.sobolev_loss_batch_mean(
                         k_test, nn_params_new, ys_test, problem_params, algo_params
                     )
 
-                aux_output['test_loss_terms'] = test_loss_terms
+                aux_output['test_loss_terms'] = test_aux_output['lossterms']
 
             new_carry = (nn_params_new, opt_state_new, k_new)
             return new_carry, aux_output

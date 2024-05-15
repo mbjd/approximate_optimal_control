@@ -37,6 +37,8 @@ flatquad_configs = {
 
     # parameter that worked +- 1 order of magnitude.
     'vx_loss_d': [0.001, 0.003, 0.01, 0.03, 0.1], # , 0.03, 0.1, 0.3, 1.],
+    #             ^^^^^ shit
+
     # 'active_learning_batchsize': [32, 64, 128, 256, 512],
 
 

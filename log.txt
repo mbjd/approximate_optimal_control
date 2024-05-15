@@ -4989,3 +4989,21 @@ stronger and vx loss weaker. the hope is that the asymmetric v loss can keep v
 the stronger vx loss. and vx will hopefully also be somewhat correct with just
 a weak loss term, after all they should both work in harmony whereever there is
 a clear, smooth unique solution.
+
+
+2024-05-14
+
+new idea which will definitely fix all my headaches (TM): 
+ - use quadratic loss for data in "known" set, huber loss only for new data
+   -> this will require passing vk into all training & loss functions
+
+ - after training, consider all data that falls into the linear huber region to
+   be suboptimal. this will also mark data as suboptimal that might be optimal,
+   but where it is "too hard" to find a smooth approximation, which we would expect 
+   close to watersheds. 
+
+ - then maybe perform a second training run, shorter, with only the remaining data? 
+   to remove the bad influence of the gradient of "wrong" costates. 
+
+then do a parameter sweep on the size of all these huber regions, and maybe
+sobolev weights again?

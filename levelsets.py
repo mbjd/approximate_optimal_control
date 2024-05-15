@@ -1661,6 +1661,7 @@ def testbed(problem_params, algo_params):
         pruning_metrics['final_trainloss'] = final_trainloss
         pruning_metrics['final_testloss'] = final_testloss
 
+        ipdb.set_trace()
 
         # second pruning step. very trivial: remove everything likely to be suboptimal
         # here we just assume we know everything up to the next v target. may not be true!

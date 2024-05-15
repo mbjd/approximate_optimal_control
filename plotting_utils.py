@@ -363,6 +363,7 @@ def plot_nn_train_outputs(outputs, subsample=256):
     # (only ensemble tested though. if single, reshape everything (N,) -> (1, N)? )
 
     # if single, act as if it was an ensemble (with 1 member).
+
     if len(outputs['lr'].shape) == 1:
         outputs = jax.tree_util.tree_map(lambda n: n[None, :], outputs)
 
@@ -372,7 +373,7 @@ def plot_nn_train_outputs(outputs, subsample=256):
 
     # then, make everything flat for easy plotting, including the "iters" array for the x axis
     # also NaN in the last spot to break up lines.
-    outputs['iters'] = np.kron(np.ones((N_ensemble, 1)), np.arange(N_steps))
+    outputs['iters'] = np.kron(np.ones((N_ensemble, 1), dtype=int), np.arange(N_steps))
 
     if subsample != 1:
         # makes the plots easier to view & less resource hungry
@@ -388,9 +389,7 @@ def plot_nn_train_outputs(outputs, subsample=256):
         # remove the last bit to make evenly divisible
         N_steps = N_chunks * subsample
         outputs = jax.tree_util.tree_map(lambda n: n[:, 0:N_steps], outputs)
-
         outputs = jax.tree_util.tree_map(lambda n: n.reshape(N_ensemble, N_chunks, chunklen).mean(axis=2), outputs)
-
 
 
 
@@ -398,6 +397,7 @@ def plot_nn_train_outputs(outputs, subsample=256):
     outputs = jax.tree_util.tree_map(lambda n: n.reshape(-1), outputs)
 
     has_test = 'test_loss_terms' in outputs
+    assert has_test == False, 'not supported anymore here'
 
     # if there is test data we want 2 subplots. otherwise just 1.
     if has_test:
@@ -405,12 +405,13 @@ def plot_nn_train_outputs(outputs, subsample=256):
 
     pl.semilogy(outputs['iters'], outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.5)
 
-    for k in outputs['train_loss_terms']:
-        pl.semilogy(outputs['iters'], outputs['train_loss_terms'][k], alpha=.3, label=f'train {k}')
+    for k in outputs['lossterms']:
+        pl.semilogy(outputs['iters'], outputs['lossterms'][k], alpha=.3, label=f'train {k}')
     pl.legend()
     pl.grid('on')
     pl.ylim([1e-5, 1e3])
 
+    '''
     if has_test:
         pl.subplot(212, sharex=ax, sharey=ax)
         for k in outputs['test_loss_terms']:
@@ -433,6 +434,7 @@ def plot_nn_train_outputs(outputs, subsample=256):
         pl.ylim([1e-5, 1e3])
         pl.grid('on')
         pl.legend()
+    '''
 
 
 

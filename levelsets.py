@@ -464,7 +464,7 @@ def testbed(problem_params, algo_params):
 
     def select_train_pts(value_interval, sols):
 
-        # this is basically repeated in prune_and_train_simple, should we always just use that one?
+        # this is basically repeated in prune_and_train, should we always just use that one?
 
         # (old) ideas for additional functionality:
         # - include not only strictly the value interval, but at least n_min pts from each trajectory.
@@ -1396,7 +1396,7 @@ def testbed(problem_params, algo_params):
 
         return forward_sols, backward_sols, metrics
 
-    def prune_and_train_simple(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
+    def prune_and_train(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
 
         # what if we first do a simpler version of this prune_and_train thing?
         # consisting of just one step instead of a loop with sub-valuesteps.
@@ -2021,7 +2021,7 @@ def testbed(problem_params, algo_params):
         # prune suboptimal data & train NN
         prev_params_sobolev_ens = params_sobolev_ens
         train_key, key = jax.random.split(key)
-        params_sobolev_ens, oups, is_suboptimal, pruning_metrics = prune_and_train_simple(
+        params_sobolev_ens, oups, is_suboptimal, pruning_metrics = prune_and_train(
             train_key,
             params_sobolev_ens,
             all_ys,

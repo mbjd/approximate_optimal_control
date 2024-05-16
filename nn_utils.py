@@ -286,6 +286,23 @@ class my_nn_flax(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+        
+        '''
+        if x.shape == (2,): 
+            # some classic old feature engineering :) 
+            # x = np.concatenate(
+                    # [x, np.array([np.arctan2(x[0], x[1]), np.arctan2(x[1], x[0])]), np.sum(np.square(x))]
+            # )
+            # x = np.concatenate(
+                    # [x, np.sum(np.square(x)), x/np.linalg.norm(x)]
+            # )
+            # don't even tell it about the original state, preposterous
+            x = np.concatenate(
+                    [np.sum(np.square(x)), x/np.linalg.norm(x)]
+            )
+        '''
+
+
         for feat in self.features:
             x = nn.Dense(features=feat)(x)
             x = nn.softplus(x)
@@ -487,7 +504,7 @@ class nn_wrapper():
         # nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
         nn_sobolev_weights = np.array([algo_params['nn_sobolev_weight_v'], algo_params['nn_sobolev_weight_vx']])
 
-        if not algo_params['nn_sobolev_weight_vxx'] == 0.:
+        if 'nn_sobolev_weight_vxx' in algo_params and algo_params['nn_sobolev_weight_vxx'] != 0.:
             raise NotImplementedError('vxx loss is stale code, do not use')
 
         if problem_params['m'] is not None:
@@ -529,30 +546,10 @@ class nn_wrapper():
             # orthogonal projection to tangent space at current x
             P_tangent = np.eye(problem_params['nx']) - P_normal
 
-            # we multiply these projections from the RIHGT. because the inner
-            # product we want to describe is <vx, P vec> = vx.T P vec. Then we
-            # just penalise the whole linear operator vx.T P instead of the
-            # inner product with some random ass vec. corresponds to
-            # identifying members of T*xM with vectors in Rn. but it doesn't
-            # even matter because orthogonal projections are symmetric \o/
-
-            # really this is just a particular matrix norm applied to the
-            # vx error:
-            # || vx_error.T @ P_tangent ||^2 = || P_tangent @ vx_error ||^2
-            # = <P vx_err, P vx_err> = vx_err.T @ P.T @ P @ vx_err
-            # = || vx_err ||_{P.T@P}^2
-            # vx_label_loss = np.sum( ((vx_pred - y['vx']) @ P_tangent)**2 )
-
             proj_label = y['vx'] @ P_tangent
-            # square_scalings = 1 + np.square(proj_label)
-            # vx_label_loss = np.sum( (vx_pred @ P_tangent - proj_label)**2 / square_scalings )
-
-            # smooth huber version instead. 
-            # second part of the puzzle. vx loss that cares less about
-            # outliers. again a smooth huber type function. this time
-            # with a lengthscale parameter!
 
             vx_label_loss_quadratic = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
+
 
             # previously, in 03b7942 where milk and honey flows
             # this is NOT the same 'standard' parameterisation as above!
@@ -588,11 +585,6 @@ class nn_wrapper():
 
 
 
-            # lossterms['vx_rel_err'] = np.sqrt(vx_label_loss)
-
-
-
-
 
             vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
 
@@ -609,85 +601,40 @@ class nn_wrapper():
             lossterms['vx_label'] = vx_label_loss
         else:
 
-            vx_loss = np.sum( (vx_pred - y['vx'])**2 )
-            vx_loss = vx_loss / (1 + np.linalg.norm(y['vx']))**2
+            vx_label_loss_quadratic =  np.sum( (vx_pred - y['vx'])**2 ) / (1 + np.linalg.norm(y['vx']))**2
 
+            # repetiton of the code from manifold case :(
+            # takes regular quadratic loss, transforms it into "huber" loss and applies scaling
+            d = algo_params['vx_loss_d']
+            vx_label_loss_huber = d**2 * 2 * (np.sqrt(1 + vx_label_loss_quadratic/d**2) - 1)
+            smooth_huber_linear = vx_label_loss_huber / d**2 > 1
+            aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
+            vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
+
+            scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
+            L = 10000.
+            scaling = np.floor(L * scaling) / L
+            vx_label_loss = vx_label_loss * scaling
 
             # regular R^n state space.
-            lossterms['vx'] = vx_loss
 
-        # if there are three weights they are for (v, vx, vxx). if only two, (v, vx).
-        if nn_sobolev_weights.shape == (3,):
-
-            raise NotImplementedError()
-            # this code is stale at this point.
-            # not adapted yet to new lossterms dict.
-
-            # instead of calculating the whole hessian (of v_pred wrt x) and comparing
-            # it with y['vxx'], we instead compute the hessian vector product in a
-            # random direction, inspired by https://arxiv.org/pdf/1706.04859.pdf.
-
-            # the hvp is not the second directional derivative. If the hvp is
-            # H d (a vector), the second directional derivative would be d.T H d (scalar).
-
-            # the hvp has intuitive meaning if we drop one level of differentiation. say
-            # lambda(x) = vx(x) is the costate function. Then vxx(x) is the gradient of that,
-            # Dx lambda(x). Thus the value hvp is just the directional derivative of the costate
-            # function in a random direction. should be great :)
-
-            # is there some catch to do with data normalisation? are some directions
-            # "more likely" than others here? dunno really.
-
-            # random vector on unit sphere.
-            # would it be just as good to just choose one of the basis vectors [0, .., 1, .., 0]?
-            # then we basically extract one column of the hessian. that idea is also mentioned here:
-            # https://www.semanticscholar.org/reader/6edc6ff5a92567ff119f69266c291bab1285357f
-
-            direction = jax.random.normal(key, shape=(self.input_dim,))
-            direction = direction / np.linalg.norm(direction)
-
-            # as 'training datapoint' the simple hessian-vector product.
-            # it has the same size as the costate which seems reasonable.
-            hvp_label = y['vxx'] @ direction
-
-            # https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html#hessian-vector-products-with-grad-of-grad
-            # tbh i have no clue how this works
-            f = lambda x: self.nn.apply(params, x)
-            hvp_pred = jax.grad( lambda x: np.vdot( jax.grad(f)(x), direction ) )(y['x'])
-
-            # the naive way for comparison. seems to be correct :)
-            # hvp_pred_naive = jax.hessian(self.nn.apply, argnums=1)(params, y['x']) @ direction
-            # print(rnd(hvp_pred, hvp_pred_naive))
-
-            vxx_loss = np.sum((hvp_label - hvp_pred)**2)
-
-            # make convex combination by normalising weights.
-            # multiplying this by a constant is the same as adjusting the learning rate so
-            # we might as well take that degree of freedom away.
-
-            normalised_weights = nn_sobolev_weights / np.sum(nn_sobolev_weights)
-
-            sobolev_losses = np.array([v_loss, vx_loss, vxx_loss])
-
-            # we can have two outputs, the first of which is the one being differentiated if we use
-            # jax.value_and_grad(..., has_aux=True) later.
-            return normalised_weights @ sobolev_losses, sobolev_losses
+            vx_loss = vx_label_loss
+            lossterms['vx_label'] = vx_loss
 
 
-        elif nn_sobolev_weights.shape == (2,):
 
-            normalised_weights = nn_sobolev_weights / np.sum(nn_sobolev_weights)
-            sobolev_losses = np.array([v_loss, vx_loss])
+        assert nn_sobolev_weights.shape == (2,)
 
-            loss = normalised_weights @ sobolev_losses
+        normalised_weights = nn_sobolev_weights / np.sum(nn_sobolev_weights)
+        sobolev_losses = np.array([v_loss, vx_loss])
 
-            lossterms['total_loss'] = loss
+        loss = normalised_weights @ sobolev_losses
 
-            aux_output['lossterms'] = lossterms
-            return loss, aux_output
+        lossterms['total_loss'] = loss
+        aux_output['lossterms'] = lossterms
 
-        else:
-            raise ValueError('nn sobolev weight must be an array of shape (3,) (including vxx) or (2,) (without vxx)')
+        return loss, aux_output
+
 
 
     # vmap the loss across a batch and get its mean.

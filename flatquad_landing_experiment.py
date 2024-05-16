@@ -758,7 +758,7 @@ def base_algo_params():
         'nn_sobolev_weight_vxx': 0.,
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.5,
+        'vx_loss_d': 1.0,
         'v_loss_d': 0.1,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -808,7 +808,7 @@ def base_algo_params():
 
         'proposal_sampling_distribution': 'uniform',
         'proposal_strategy': 'max_kernel_adaptive',
-        'proposal_kernel_scaling': 1.,
+        'proposal_kernel_scaling': .5,
 
 
         'second_pruning_sigma': 5.,

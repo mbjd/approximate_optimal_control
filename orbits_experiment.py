@@ -104,7 +104,7 @@ def base_algo_params():
     algo_params = {
 
         # PRNG seed
-        'seed': 0,
+        'seed': 1,
 
         # ODE SOLVER PARAMS
         'pontryagin_solver_atol': 1e-4,
@@ -147,13 +147,13 @@ def base_algo_params():
         'nn_type': 'leaky',
         'nn_layerdims': (16, 16, 16),
         'nn_batchsize': 32,
-        'nn_N_epochs': 1024,
+        'nn_N_epochs': 2048,
         'nn_train_fraction': .98,
-        'lr_staircase': True,
+        'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.01,
+        'lr_init': 0.05,
         'lr_final': 0.0001,
-        'weight_decay': .001,
+        'weight_decay': .005,
         'nn_warmstart_fraction': 1.,
 
         'nn_ensemble_size': 4,
@@ -166,12 +166,12 @@ def base_algo_params():
         # mostly we care about representing vx with great accuracy,
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
-        # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': [1., 10.],
+        'nn_sobolev_weight_v': 1.,
+        'nn_sobolev_weight_vx': 10.,
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.1,
-        'v_loss_d': 1.,
+        'vx_loss_d': 1.,
+        'v_loss_d': 0.2,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -184,7 +184,7 @@ def base_algo_params():
         'prior_strength': 0.0,
         'v_prior': 500.,
 
-        'inv_vx_loss_fadeout': 20.,
+        'inv_vx_loss_fadeout': 0.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -200,24 +200,26 @@ def base_algo_params():
         'thin_data_denominator': 10,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
-        'initial_shooting': 'uniform',
+        'initial_shooting': 'lqr',
         # the value level we include in the initial learning round.
-        'v_init': 5.,
+        'v_init': 1.,
 
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 64,
-        'active_learning_batchsize': 32,
-        'include_future_data': True,
+        'active_learning_batchsize': 64,
+        'include_future_data': False,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
-        'T_value_target': 1.,
+        'T_value_target': 2.,
 
         'vk_estimator': 'k_exceptions',
 
         'proposal_sampling_distribution': 'uniform',
         'proposal_strategy': 'max_kernel_adaptive',
+        'proposal_kernel_scaling': 0.3,
+
         'pruning_strategy': 'conservative',
         'L_v': np.inf,
         'L_vx': 2000,

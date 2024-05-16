@@ -287,7 +287,7 @@ class my_nn_flax(nn.Module):
     @nn.compact
     def __call__(self, x):
         
-        '''
+        # '''
         if x.shape == (2,): 
             # some classic old feature engineering :) 
             # x = np.concatenate(
@@ -300,7 +300,7 @@ class my_nn_flax(nn.Module):
             x = np.concatenate(
                     [np.sum(np.square(x)), x/np.linalg.norm(x)]
             )
-        '''
+        # '''
 
 
         for feat in self.features:

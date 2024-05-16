@@ -5018,3 +5018,22 @@ second stage: if not, we *might* make it better by having quadratic loss for
 already accepted data? but if we throw out the outliers then everything should
 stay in the quadratic region anyway... maybe doing that will improve problems
 with uncertainty increasing again in lower level sets.
+
+more ideas: 
+ - first run keep that idea with decreasing vx loss when it looks suboptimal. 
+   second one not, keep the whole loss nice and convex. 
+
+finding lots of hyperparams that don't work (i.e. are stuck at 200-500). local
+small experiment: T_value_target=1/4? seems to improve at first glance. 
+
+
+
+2024-05-16
+
+tuning insights: 
+
+sobolev vx weight from 1 to 100 is fine, lower bad (with v weight 1)
+small inv_vx_loss_fadeout makes no difference
+
+making huge sweep with lr_final vs weight decay. the interplay of the two 
+is basically our smoothness assumption so it should be interesting. 

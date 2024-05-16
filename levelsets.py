@@ -2124,53 +2124,52 @@ def testbed(problem_params, algo_params):
         # figure plotting :))
         if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['wandbfigs']:
 
+
+            # get this boring stuff done once and for all, never confusing any names anymore
+            class plot_saver():
+
+                def __init__(self, name):
+                    self.name = name
+
+                def __enter__(self):
+                    pl.figure(self.name)
+
+                def __exit__(self, exception_type, exception_value, exception_traceback):
+                    if algo_params['savefigs']:
+                        pl.savefig(f'tmp/{self.name}_{k:04d}.png')
+                    if algo_params['wandb'] and algo_params['wandbfigs']:
+                        wandb.log({self.name : wandb.Image(fig)}, step=k)
+
+
             if problem_params['system_name'] == 'orbits':
-                fig = pl.figure('orbits all')
-                # ipdb.set_trace()
-                xs = ys = np.linspace(-2, 2, 201)
-                xx, yy = np.meshgrid(xs, ys)
-                plot_v_means, plot_v_stds = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), prev_params_sobolev_ens)
-                _, plot_v_stds_new = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), params_sobolev_ens)
-                orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
+                with plot_saver('orbits_all'):
+                    xs = ys = np.linspace(-2, 2, 201)
+                    xx, yy = np.meshgrid(xs, ys)
+                    plot_v_means, plot_v_stds = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), prev_params_sobolev_ens)
+                    _, plot_v_stds_new = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), params_sobolev_ens)
+                    orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
 
-            fig = pl.figure('proposals')
-            plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
-            if algo_params['savefigs']:
-                pl.savefig(f'tmp/meanstds_{k:04d}.png')
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'proposals' : wandb.Image(fig)}, step=k)
+            with plot_saver('meanstds'):
+                plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
 
-            fig = pl.figure(f'nn training iter {k}')
-            plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)
-            pl.ylim([1e-4, 1e3])
-            if algo_params['savefigs']:
-                pl.savefig(f'tmp/trainplot_{k:04d}.png')
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'trainplot' : wandb.Image(fig)}, step=k)
+            with plot_saver('training'):
+                plotting_utils.plot_nn_train_outputs(all_oups, subsample=64)
+                pl.ylim([1e-4, 1e3])
 
-            fig = pl.figure(f'random trajectory, iter {k}')
-            plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
-            if algo_params['savefigs']:
-                pl.savefig(f'tmp/trajectory_{k:04d}.png')
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'trajectory' : wandb.Image(fig)}, step=k)
+            with plot_saver('trajectory'):
+                plotting_utils.plot_trajectory_vs_nn_ensemble(sol, params_sobolev_ens, v_nn_unnormalised)
 
             if problem_params['m'] is not None:
-                fig = pl.figure('manifold')
-                plot_manifold(v_nn, params_sobolev_ens, problem_params)
-                if algo_params['wandb'] and algo_params['wandbfigs']:
-                    wandb.log({'manifold' : wandb.Image(fig)}, step=k)
+                with plot_saver('manifold'):
+                    plot_manifold(v_nn, params_sobolev_ens, problem_params)
 
             if problem_params['system_name'] == 'flatquad':
-                fig = pl.figure('decision boundary')
-                plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
-                if algo_params['wandb'] and algo_params['wandbfigs']:
-                    wandb.log({'decision_boundary' : wandb.Image(fig)}, step=k)
 
-                fig = pl.figure(f'value lines, iter {k}')
-                plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
-                if algo_params['wandb'] and algo_params['wandbfigs']:
-                    wandb.log({'value_lines' : wandb.Image(fig)}, step=k)
+                with plot_saver('decision_boundary'):
+                    plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
+
+                with plot_saver('value_lines'):
+                    plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
 
 
             # sift out the data that we used during training.
@@ -2179,38 +2178,23 @@ def testbed(problem_params, algo_params):
             is_unusable = np.logical_or(all_ys['v'] == np.inf, np.isnan(all_ys['v']))
             is_relevant = (~is_suboptimal) & (~is_unusable) & is_in_band
 
-            fig = pl.figure(f'nn calibration, iter {k}')
+            with plot_saver('nn_calibration'):
 
-            relevant_ys = jtm(lambda node: node[is_relevant], all_ys)
-            means, stds = v_meanstds(relevant_ys['x'], params_sobolev_ens)
-            vx_means, vx_stds = vx_meanstds(relevant_ys['x'], params_sobolev_ens)
-            plot_calibration(relevant_ys, means, stds)
-
-            if algo_params['savefigs']:
-                pl.savefig(f'tmp/calibration_{k:04d}.png')
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'calibration' : wandb.Image(fig)}, step=k)
-
-            pl.figure(f'loss distributions, iter {k}')
-
-            # calculate it again \o/ easier than reusing data in smart ways.
-
-            all_losses, aux = jax.vmap(
-                jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)),
-                in_axes=(None, None, 0, None, None)
-            )(key, relevant_ys, params_sobolev_ens, problem_params, algo_params)
-
-            aux_mean = jtm(lambda z: z.mean(axis=0), aux['lossterms'])
-            plot_loss_distribution(all_ys, aux_mean)
-
-            if algo_params['savefigs']:
-                pl.savefig(f'tmp/calibration_{k:04d}.png')
-            if algo_params['wandb'] and algo_params['wandbfigs']:
-                wandb.log({'calibration' : wandb.Image(fig)}, step=k)
+                relevant_ys = jtm(lambda node: node[is_relevant], all_ys)
+                means, stds = v_meanstds(relevant_ys['x'], params_sobolev_ens)
+                vx_means, vx_stds = vx_meanstds(relevant_ys['x'], params_sobolev_ens)
+                plot_calibration(relevant_ys, means, stds)
 
 
+            with plot_saver('loss_distributions'):
 
+                all_losses, aux = jax.vmap(
+                    jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)),
+                    in_axes=(None, None, 0, None, None)
+                )(key, relevant_ys, params_sobolev_ens, problem_params, algo_params)
 
+                aux_mean = jtm(lambda z: z.mean(axis=0), aux['lossterms'])
+                plot_loss_distribution(all_ys, aux_mean)
 
 
             if algo_params['showfigs']:

@@ -104,7 +104,7 @@ def base_algo_params():
     algo_params = {
 
         # PRNG seed
-        'seed': 1,
+        'seed': 0,
 
         # ODE SOLVER PARAMS
         'pontryagin_solver_atol': 1e-4,
@@ -153,7 +153,7 @@ def base_algo_params():
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
         'lr_final': 0.0001,
-        'weight_decay': .005,
+        'weight_decay': .001,
         'nn_warmstart_fraction': 1.,
 
         'nn_ensemble_size': 4,
@@ -182,9 +182,9 @@ def base_algo_params():
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
         'prior_strength': 0.01,
-        'v_prior': 50.,
+        'v_prior': 200.,
 
-        'inv_vx_loss_fadeout': 0.,
+        'inv_vx_loss_fadeout': 5.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -208,7 +208,7 @@ def base_algo_params():
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 64,
         'active_learning_batchsize': 64,
-        'include_future_data': False,
+        'include_future_data': True,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.
@@ -218,7 +218,7 @@ def base_algo_params():
 
         'proposal_sampling_distribution': 'uniform',
         'proposal_strategy': 'max_kernel_adaptive',
-        'proposal_kernel_scaling': 0.3,
+        'proposal_kernel_scaling': 0.5,
 
         'pruning_strategy': 'conservative',
         'L_v': np.inf,

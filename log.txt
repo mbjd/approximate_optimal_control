@@ -5035,5 +5035,19 @@ tuning insights:
 sobolev vx weight from 1 to 100 is fine, lower bad (with v weight 1)
 small inv_vx_loss_fadeout makes no difference
 
-making huge sweep with lr_final vs weight decay. the interplay of the two 
-is basically our smoothness assumption so it should be interesting. 
+had an error in min_l estmator - would always give too low min_l later in the
+algo due to wrongly including early trajectories stopping at way too low v. 
+
+orbits example works nicely with less weight decay. is weight decay actually
+hurting (increasing) uncertainty artificially? could be if it "overpowers" the
+gradient at low lr / significant weight decay. 
+
+making huge sweep with lr_final vs weight decay for flatquad example to find
+out. the interplay of the two is basically our smoothness assumption so it
+should be interesting. 
+
+if any of this turns out to work for flatquad as well: very nice!!! this may be
+the point where we stop fiddling with the algo. otherwise, last option that
+will probably work but make everything more cumbersome: sweep up the value band
+instead of learning it all at once, basically the old prune_and_train_substeps
+thing, but including the "new" "outlier removal" in between. goodnight <3

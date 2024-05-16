@@ -484,7 +484,11 @@ class nn_wrapper():
         # lossterms['v_rel_err'] = v_rel_err
         # lossterms['vx'] = vx_loss
 
-        nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
+        # nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
+        nn_sobolev_weights = np.array([algo_params['nn_sobolev_weight_v'], algo_params['nn_sobolev_weight_vx']])
+
+        if not algo_params['nn_sobolev_weight_vxx'] == 0.:
+            raise NotImplementedError('vxx loss is stale code, do not use')
 
         if problem_params['m'] is not None:
 
@@ -775,7 +779,6 @@ class nn_wrapper():
         # make sure it is of correct shape?
         testset_exists = ys_test is not None
 
-        # does this still make sense?
         N_datapts = ys['x'].shape[0]
         batchsize = algo_params['nn_batchsize']
         N_epochs = algo_params['nn_N_epochs']

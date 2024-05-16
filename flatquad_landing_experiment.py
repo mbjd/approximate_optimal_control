@@ -752,11 +752,13 @@ def base_algo_params():
         # mostly we care about representing vx with great accuracy,
         # the other two can be thought of as "hints"/priors/inductive biases
         # to fit the correct vx function.
-        # 'nn_sobolev_weights': np.array([0.1, 1., 0.001]),
-        'nn_sobolev_weights': [1., 1.],
+        # update: vxx not used anymore, leave it at 0 or update lots of code
+        'nn_sobolev_weight_v': 1.,
+        'nn_sobolev_weight_vx': 1.,
+        'nn_sobolev_weight_vxx': 0.,
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 0.1,
+        'vx_loss_d': 0.5,
         'v_loss_d': 0.1,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -770,7 +772,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 50.,
 
-        'inv_vx_loss_fadeout': 0.,
+        'inv_vx_loss_fadeout': 0.1,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample

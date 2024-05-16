@@ -287,7 +287,7 @@ class my_nn_flax(nn.Module):
     @nn.compact
     def __call__(self, x):
         
-        # '''
+        '''
         if x.shape == (2,): 
             # some classic old feature engineering :) 
             # x = np.concatenate(
@@ -300,7 +300,7 @@ class my_nn_flax(nn.Module):
             x = np.concatenate(
                     [np.sum(np.square(x)), x/np.linalg.norm(x)]
             )
-        # '''
+        '''
 
 
         for feat in self.features:
@@ -410,7 +410,23 @@ class nn_wrapper():
         if algo_params['prior_strength'] > 0:
 
             v_prior = algo_params['v_prior']
-            pushup_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
+
+            # ugly hardcoded things: where do we need the prior? 
+            if problem_params['nx'] == 7 and problem_params['system_name'] == 'flatquad':
+
+                # small region around problematic "upside down" state
+                pushup_x = np.array([0, 0, 0, -1., 0, 0, 0]) + jax.random.normal(prior_key, shape=(problem_params['nx'],)) * 0.1
+
+            elif problem_params['nx'] == 2 and problem_params['system_name'] == 'orbits':
+
+                # large-ish circle around the equilibrium
+                pushup_x = jax.random.normal(prior_key, shape=(problem_params['nx'],))
+                pushup_x = 3 * pushup_x / np.linalg.norm(pushup_x)  + problem_params['x_eq']
+
+            else:
+
+                raise ValueError('invalid configuration - no prior loss known')
+
             v_pred = self.nn.apply(params, pushup_x)
             # alternatively: only penalise too small v's, not too high.
             # v_prior - v_pred > 0 <=> v_prior > v_pred which is bad.
@@ -577,6 +593,12 @@ class nn_wrapper():
 
             # impose vx loss only if v_nn is in 5% ish range of nn v.
             # scaling = np.exp(-(v_rel_err / 0.05)**2)
+
+            scaling = jax.lax.select(
+                v_rel_err > 0,
+                np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
+                1.
+            )
 
             # cheat autodiff
             L = 10000.

@@ -181,8 +181,8 @@ def base_algo_params():
         # just an additional weak loss term that makes the value function
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
-        'prior_strength': 0.0,
-        'v_prior': 500.,
+        'prior_strength': 0.01,
+        'v_prior': 50.,
 
         'inv_vx_loss_fadeout': 0.,
 

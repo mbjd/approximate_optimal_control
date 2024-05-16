@@ -450,9 +450,14 @@ def testbed(problem_params, algo_params):
         top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
         ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], all_ys)
 
+        # but only use the trajectories that did not yet stop. 
+        # = trajectories that have some v > v_upper. 
+        crosses_v_upper = ((all_ys['v'] >= v_upper) & (all_ys['v'] < np.inf)).any(axis=1)
+
         # but now caluclate all those l(x, u). 
         ls = jax.vmap(l_of_y)(ys_top)
-        min_l = np.nanmin(ls)
+        ls_relevant = ls + np.nan * (~crosses_v_upper)
+        min_l = np.nanmin(ls_relevant)
 
         return min_l
 

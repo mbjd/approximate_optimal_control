@@ -1111,7 +1111,9 @@ def testbed(problem_params, algo_params):
                 # probably this should be part of algo_params.
                 lengthscale = .5
 
-                k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscale)**2))
+                # kernel_scaling < 1 will cause more samples to come from the uncertain region 
+                # and less of a uniform distribution. 
+                k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscale)**2))
 
                 # this multiplication by .5 makes everything look nicer in low
                 # dims. it will sample repeatedly from high-uncertainty regions
@@ -1154,7 +1156,7 @@ def testbed(problem_params, algo_params):
                 # adaptive kernel scales with extent of value levelset.
                 lengthscales = (1/4) * data_ranges
 
-                k = lambda x, y: np.exp(-np.sum(((x-y) / lengthscales)**2))
+                k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscales)**2))
 
                 weights = jax.vmap(lambda x: 1 - k(x, proposal))(all_valueband_pts)
 
@@ -1714,15 +1716,20 @@ def testbed(problem_params, algo_params):
         init_key, key = jax.random.split(key)
         params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
+        # shorter second training run, just to find an equilibrium of data vs weight decay.
+        algo_params_second = algo_params.copy()
+        algo_params_second['lr_init'] = algo_params['lr_final'] * 2
+        algo_params_second['nn_N_epochs'] = algo_params['nn_N_epochs'] / 4
+
         if warmstart:
             # continue from previous params, only last portion of training.
             params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble_warmstarted(
-                train_key, train_ys, params_sobolev_ens, problem_params, algo_params
+                train_key, train_ys, params_sobolev_ens, problem_params, algo_params_second
             )
         else:
             # training from scratch
             params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble(
-                train_key, train_ys, problem_params, algo_params
+                train_key, train_ys, problem_params, algo_params_second
             )
 
         # mean of the last couple iterations.

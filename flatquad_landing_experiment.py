@@ -754,7 +754,7 @@ def base_algo_params():
         # to fit the correct vx function.
         # update: vxx not used anymore, leave it at 0 or update lots of code
         'nn_sobolev_weight_v': 1.,
-        'nn_sobolev_weight_vx': 1.,
+        'nn_sobolev_weight_vx': 10.,
         'nn_sobolev_weight_vxx': 0.,
 
         # width of the quadratic regions in smoothed huber loss.
@@ -804,9 +804,12 @@ def base_algo_params():
 
         'vk_estimator': 'k_exceptions',
 
+        'pruning_strategy': 'conservative',
+
         'proposal_sampling_distribution': 'uniform',
         'proposal_strategy': 'max_kernel_adaptive',
-        'pruning_strategy': 'conservative',
+        'proposal_kernel_scaling': 1.,
+
 
         'second_pruning_sigma': 5.,
 

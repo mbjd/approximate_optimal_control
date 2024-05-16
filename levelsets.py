@@ -442,7 +442,7 @@ def testbed(problem_params, algo_params):
         '''
 
         # yet another alternative: from each trajectory find the highest-v
-        # point below v_upper not constant size but let's not care about those
+        # point below v_upper. not constant size but let's not care about those
         # superficialities
 
         # same as above
@@ -1237,6 +1237,12 @@ def testbed(problem_params, algo_params):
             do_replace = N_proposals > N_uncertain
 
             proposal_idxs = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=do_replace, p=ps)
+
+        elif proposal_strategy == 'uniform_all':
+
+            # just uniform subsample of proposals yolo
+
+            proposal_idxs = jax.random.choice(key, all_valueband_pts.shape[0], shape=(N_proposals,), replace=False)
 
         # these two "softmax" strategies can be understood as an interpolation
         # between uniform_among_uncertain (= softmax_but_only_uncertain as the

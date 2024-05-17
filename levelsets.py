@@ -57,6 +57,7 @@ def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, f
     sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
     rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
     vmax_abs = np.max(np.abs(rel_vstds))
+    pl.plot(*proposals.T, 'x', c='black', alpha=.1, label='proposals')
 
     pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
     pl.colorbar()

@@ -2136,13 +2136,13 @@ def testbed(problem_params, algo_params):
                     self.name = name
 
                 def __enter__(self):
-                    pl.figure(self.name)
+                    self.fig = pl.figure(self.name)
 
                 def __exit__(self, exception_type, exception_value, exception_traceback):
                     if algo_params['savefigs']:
                         pl.savefig(f'tmp/{self.name}_{k:04d}.png')
                     if algo_params['wandb'] and algo_params['wandbfigs']:
-                        wandb.log({self.name : wandb.Image(fig)}, step=k)
+                        wandb.log({self.name : wandb.Image(self.fig)}, step=k)
 
 
             if problem_params['system_name'] == 'orbits':

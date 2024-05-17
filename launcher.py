@@ -30,14 +30,14 @@ flatquad_configs = {
 
     'inv_vx_loss_fadeout': [0.],
     'proposal_strategy': ['max_kernel_adaptive', 'uniform_uncertain', 'uniform_all'],
-    
+
     # 'T_value_target': [0.1, 0.3, 1., 2., 3.],
     # 'proposal_kernel_scaling': [0.1, 1.],
     # 'include_future_data': ['True', 'False'],
     # 'thin_data_denominator': [10, 5, 3, 2],
 
 
-    'vx_loss_d': [ 0.1, 0.3 ], 
+    'vx_loss_d': [ 0.1, 0.3 ],
 
     # 'active_learning_batchsize': [32, 64, 128, 256, 512],
 

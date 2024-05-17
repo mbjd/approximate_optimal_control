@@ -450,11 +450,11 @@ def testbed(problem_params, algo_params):
         top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
         ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], all_ys)
 
-        # but only use the trajectories that did not yet stop. 
-        # = trajectories that have some v > v_upper. 
+        # but only use the trajectories that did not yet stop.
+        # = trajectories that have some v > v_upper.
         crosses_v_upper = ((all_ys['v'] >= v_upper) & (all_ys['v'] < np.inf)).any(axis=1)
 
-        # but now caluclate all those l(x, u). 
+        # but now caluclate all those l(x, u).
         ls = jax.vmap(l_of_y)(ys_top)
         ls_relevant = ls + np.nan * (~crosses_v_upper)
         min_l = np.nanmin(ls_relevant)
@@ -1116,8 +1116,8 @@ def testbed(problem_params, algo_params):
                 # probably this should be part of algo_params.
                 lengthscale = .5
 
-                # kernel_scaling < 1 will cause more samples to come from the uncertain region 
-                # and less of a uniform distribution. 
+                # kernel_scaling < 1 will cause more samples to come from the uncertain region
+                # and less of a uniform distribution.
                 k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscale)**2))
 
                 # this multiplication by .5 makes everything look nicer in low
@@ -1651,11 +1651,13 @@ def testbed(problem_params, algo_params):
 
         if warmstart:
             # continue from previous params, only last portion of training.
+            # since we are doing this sweep, can we do EVERYTHING with tiny learning rate instead?
             params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_warmstarted(
-                train_key, train_ys, params_sobolev_ens, problem_params, algo_params
+                train_key, train_ys, v_lower, v_upper, params_sobolev_ens, problem_params, algo_params
             )
         else:
             # training from scratch
+            raise NotImplementedError('are you sure? not really doing this anymore. plz implement v sweep here too')
             params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
                 train_key, train_ys, problem_params, algo_params
             )
@@ -1686,7 +1688,7 @@ def testbed(problem_params, algo_params):
         vx_means_trained, vx_stds_trained = vx_meanstds(usable_ys['x'], params_sobolev_ens)
         # ipdb.set_trace()
 
-        # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred. 
+        # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred.
         # this means: in_axes = (None, 0, 0, 0, None, None)
 
         all_losses, all_auxs = jax.vmap(v_nn.sobolev_loss_inner, in_axes = (None, 0, 0, 0, None, None))(
@@ -1700,7 +1702,7 @@ def testbed(problem_params, algo_params):
         print(f'either outliers: {100*(vx_outliers|v_outliers).mean():.3f}%')
         print(f'both outliers:   {100*(vx_outliers&v_outliers).mean():.3f}%')
 
-        # these boolean idxs are all with respect to usable_ys. 
+        # these boolean idxs are all with respect to usable_ys.
         is_outlier = all_auxs['vx_loss_linear'] | all_auxs['v_loss_linear']  # is & better here?
         is_new = (v_lower <= usable_ys['v']) & (usable_ys['v'] <= v_upper)
 
@@ -1716,7 +1718,7 @@ def testbed(problem_params, algo_params):
         is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
         # then second training run.
-        # TODO last thing: switch huber loss to quadratic loss here. 
+        # TODO last thing: switch huber loss to quadratic loss here.
 
         # TODO after that: find out if we can skimp on initial epochs with
         # large lr here, probably yes
@@ -1729,16 +1731,18 @@ def testbed(problem_params, algo_params):
 
         # shorter second training run, just to find an equilibrium of data vs weight decay.
         algo_params_second = algo_params.copy()
-        algo_params_second['lr_init'] = algo_params['lr_final'] * 2
-        algo_params_second['nn_N_epochs'] = algo_params['nn_N_epochs'] / 4
+        algo_params_second['lr_init'] = algo_params['lr_final']
+        algo_params_second['nn_N_epochs'] = algo_params['nn_N_epochs'] / 8
 
         if warmstart:
             # continue from previous params, only last portion of training.
+            # also don't do the sweep anymore -- always sample up to v_upper.
             params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble_warmstarted(
-                train_key, train_ys, params_sobolev_ens, problem_params, algo_params_second
+                train_key, train_ys, v_upper, v_upper, params_sobolev_ens, problem_params, algo_params_second
             )
         else:
             # training from scratch
+            raise NotImplementedError('are you sure? not really doing this anymore. plz implement v sweep here too')
             params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble(
                 train_key, train_ys, problem_params, algo_params_second
             )
@@ -1931,10 +1935,10 @@ def testbed(problem_params, algo_params):
 
     train_key, key = jax.random.split(key)
 
-    # without evaluating on the test set at every loop. that makes it quite slow
-    # nowadays we just trust it.
+    # initial NN training.
+    # v_k both times for uniform (not sweep-style) minibatch sampling.
     params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-        train_key, train_ys, problem_params, algo_params
+        train_key, train_ys, v_k, v_k, problem_params, algo_params
     )
 
     # no normalisation anywhere anymore
@@ -2000,7 +2004,7 @@ def testbed(problem_params, algo_params):
 
 
         if 'SCRATCH' in os.environ:
-            # assume we are on euler, save wandb files in scratch! 
+            # assume we are on euler, save wandb files in scratch!
             save_dir = os.environ['SCRATCH']
         else:
             # for quick local runs we don't have too much data

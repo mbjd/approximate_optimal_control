@@ -286,10 +286,10 @@ class my_nn_flax(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        
+
         '''
-        if x.shape == (2,): 
-            # some classic old feature engineering :) 
+        if x.shape == (2,):
+            # some classic old feature engineering :)
             # x = np.concatenate(
                     # [x, np.array([np.arctan2(x[0], x[1]), np.arctan2(x[1], x[0])]), np.sum(np.square(x))]
             # )
@@ -311,7 +311,7 @@ class my_nn_flax(nn.Module):
             x = nn.Dense(features=self.output_dim)(x)
 
         return x.squeeze()
-    
+
 
 
 class nn_wrapper():
@@ -411,7 +411,7 @@ class nn_wrapper():
 
             v_prior = algo_params['v_prior']
 
-            # ugly hardcoded things: where do we need the prior? 
+            # ugly hardcoded things: where do we need the prior?
             if problem_params['nx'] == 7 and problem_params['system_name'] == 'flatquad':
 
                 # small region around problematic "upside down" state
@@ -487,11 +487,11 @@ class nn_wrapper():
         aux_output = dict()
 
 
-        # for the ones we already know we might as well use quadratic loss. 
+        # for the ones we already know we might as well use quadratic loss.
         # use_quadratic_loss = y['v'] <= v_k
         use_quadratic_loss = False
 
-        # asymmetric, smooth huber type loss function. 
+        # asymmetric, smooth huber type loss function.
         # penalises overestimation heavily, underestimation less.
         d = algo_params['v_loss_d']
         v_rel_err = (v_pred - y['v']) / (1 + y['v'])
@@ -690,8 +690,8 @@ class nn_wrapper():
 
 
 
-    @filter_jit
-    def train_sobolev(self, key, ys, nn_params, problem_params, algo_params, ys_test=None):
+    # @filter_jit
+    def train_sobolev(self, key, ys, vk, vnext, nn_params, problem_params, algo_params, ys_test=None):
 
         '''
         new training method. main changes wrt self.train:
@@ -776,6 +776,20 @@ class nn_wrapper():
                 staircase=algo_params['lr_staircase']
         )
 
+        lr_schedule_exp = lr_schedule
+
+        # if we do a sweep from vk to vnext (and don't circumvent it by setting vk=vnext)
+        # then we want constant, low learning rate instead.
+
+        # this only works when disabling the outer jit's, otherwise jax thinks it can
+        # treat vk, vnext as traced values but they will hit this python dynamism here.
+        # if we circumvent the dynamism here, it will instead hit it at
+        # ./venv/lib/python3.10/site-packages/optax/schedules/_schedule.py:209
+
+        if algo_params['nn_value_sweep'] and vnext > vk:
+            lr_schedule = optax.constant_schedule(algo_params['lr_final'])
+
+
         if algo_params['weight_decay'] > 0:
             # default weight_decay=0.0001
             optim = optax.adamw(learning_rate=lr_schedule, weight_decay=algo_params['weight_decay'])
@@ -813,42 +827,65 @@ class nn_wrapper():
 
 
         def f_scan(carry, input_slice):
-            # unpack the 'carry' state
-            nn_params, opt_state, k = carry
 
-            k_batch, k_loss, k_test, k_new = jax.random.split(k, 4)
+            # unpack the 'carry' state
+            nn_params, opt_state, key = carry
+
+            batch_key, loss_key, test_key, new_key = jax.random.split(key, 4)
 
             # obtain minibatch
-            batch_idx = jax.random.choice(k_batch, N_datapts, (batchsize,))
+            # here we could specify something like p ~ v <= v_sweep...
+            # would neatly fit in the input_slice which atm is not used...
+            if algo_params['nn_value_sweep']:
+
+                # sample with non-uniform probabilities
+                # sadly, doing this with linspace on the outside and then having
+                #     v_upper = input_slice
+                # here breaks jax_tqdm. so instead we pass the step k in here and
+                # calculate v_upper like this:
+                step = input_slice
+                frac = step / total_iters
+                v_upper = frac * vnext + (1-frac) * vk
+
+                do_sample = ys['v'] <= v_upper
+                ps = do_sample / do_sample.sum()
+                batch_idx = jax.random.choice(batch_key, N_datapts, (batchsize,), p=ps)
+
+            else:
+                batch_idx = jax.random.choice(batch_key, N_datapts, (batchsize,))
+
             ys_batch = jax.tree_util.tree_map(lambda node: node[batch_idx], ys)
 
             # do the thing!!1!1!!1!
             opt_state_new, nn_params_new, aux_output = update_step(
-                k_loss, ys_batch, opt_state, nn_params
+                loss_key, ys_batch, opt_state, nn_params
             )
 
             aux_output['lr'] = lr_schedule(opt_state[0].count)
+
+            if algo_params['nn_value_sweep']:
+                aux_output['v_sweep'] = v_upper
 
             # if given, calculate test loss.
             # probably quite expensive to do this every iteration though...
             # this if is "compile time"
             if ys_test is not None:
 
-                # k_test = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
+                # test_key = jax.random.PRNGKey(0)  # just one sample. nicer plots :)
 
                 if algo_params['prior_strength'] > 0:
                     test_loss, test_aux_output = self.sobolev_loss_with_prior_batch_mean(
-                        k_test, nn_params_new, ys_test, v_prior, prior_extent, problem_params, algo_params
+                        test_key, nn_params_new, ys_test, v_prior, prior_extent, problem_params, algo_params
                     )
 
                 else:
                     test_loss, test_aux_output = self.sobolev_loss_batch_mean(
-                        k_test, nn_params_new, ys_test, problem_params, algo_params
+                        test_key, nn_params_new, ys_test, problem_params, algo_params
                     )
 
                 aux_output['test_loss_terms'] = test_aux_output['lossterms']
 
-            new_carry = (nn_params_new, opt_state_new, k_new)
+            new_carry = (nn_params_new, opt_state_new, new_key)
             return new_carry, aux_output
 
         if algo_params['nn_progressbar']:
@@ -856,7 +893,7 @@ class nn_wrapper():
             # NOT ANYMORE thanks patrick!!
             # https://github.com/mbjd/approximate_optimal_control/issues/1
             f_scan = jax_tqdm.scan_tqdm(n=total_iters)(f_scan)
-            pass
+
 
 
         # the training loop!
@@ -870,8 +907,8 @@ class nn_wrapper():
         return nn_params, outputs
 
 
-    @filter_jit
-    def train_sobolev_ensemble(self, key, ys, problem_params, algo_params, ys_test=None):
+    # @filter_jit
+    def train_sobolev_ensemble(self, key, ys, vk, vnext, problem_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with different prng key.
         # now the key affects both initialisation and batch selection for each nn.
@@ -883,13 +920,13 @@ class nn_wrapper():
         vmap_params_init = jax.vmap(self.nn.init, in_axes=(0, None))(init_keys, np.zeros(problem_params['nx']))
 
         # to trick around the optional argument. there is probably a neater way...
-        train_with_key_and_params = lambda k, params_init: self.train_sobolev(k, ys, params_init, problem_params, algo_params, ys_test=ys_test)
+        train_with_key_and_params = lambda k, params_init: self.train_sobolev(k, ys, vk, vnext, params_init, problem_params, algo_params, ys_test=ys_test)
 
         return jax.vmap(train_with_key_and_params, in_axes=(0, 0))(train_keys, vmap_params_init)
 
 
-    @filter_jit
-    def train_sobolev_ensemble_warmstarted(self, key, ys, init_params_vmap, problem_params, algo_params, ys_test=None):
+    # @filter_jit
+    def train_sobolev_ensemble_warmstarted(self, key, ys, vk, vnext, init_params_vmap, problem_params, algo_params, ys_test=None):
 
         # train ensemble by vmapping the whole training procedure with
         # different prng key AND from vmapped params.
@@ -912,5 +949,5 @@ class nn_wrapper():
         keys = jax.random.split(key, algo_params['nn_ensemble_size'])
 
         # vmap key and parameters.
-        train_with_key_and_params = lambda k, params: self.train_sobolev(k, ys, params, problem_params, algo_params_warmstart, ys_test=ys_test)
+        train_with_key_and_params = lambda k, params: self.train_sobolev(k, ys, vk, vnext, params, problem_params, algo_params_warmstart, ys_test=ys_test)
         return jax.vmap(train_with_key_and_params, in_axes=(0, 0))(keys, init_params_vmap)

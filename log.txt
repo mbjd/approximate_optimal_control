@@ -4968,17 +4968,17 @@ destroy the flatquad example. what do?
 
 2024-05-14
 
-almost finished section on manifold -> Rn reduction! so proud. 
+almost finished section on manifold -> Rn reduction! so proud.
 
 was sad that the whole night's euler runs were not very successful. had
 suspicion that pushup prior (soft constraint that v>500 at the problematic
 point) was too strong. weakening it to v>50, and also way decreased vx normal
-regularisation. let's see. 
+regularisation. let's see.
 
 
-lessons from this morning's euler sweep: 
+lessons from this morning's euler sweep:
  - inv_vx_loss_fadeout=0 is the only one that EVER goes above vk=1000
- - v_loss_d and vx_loss_d barely matter at all 
+ - v_loss_d and vx_loss_d barely matter at all
  - weight decay .003 better than .001 but not all results in yet
  - proposal_strategy seems absolutely irrelevant
 
@@ -4993,61 +4993,71 @@ a clear, smooth unique solution.
 
 2024-05-14
 
-new idea which will definitely fix all my headaches (TM): 
+new idea which will definitely fix all my headaches (TM):
  - use quadratic loss for data in "known" set, huber loss only for new data
    -> this will require passing vk into all training & loss functions
 
  - after training, consider all data that falls into the linear huber region to
    be suboptimal. this will also mark data as suboptimal that might be optimal,
-   but where it is "too hard" to find a smooth approximation, which we would expect 
-   close to watersheds. 
+   but where it is "too hard" to find a smooth approximation, which we would expect
+   close to watersheds.
 
- - then maybe perform a second training run, shorter, with only the remaining data? 
-   to remove the bad influence of the gradient of "wrong" costates. 
+ - then maybe perform a second training run, shorter, with only the remaining data?
+   to remove the bad influence of the gradient of "wrong" costates.
 
 then do a parameter sweep on the size of all these huber regions, and maybe
 sobolev weights again?
 
-going to implement it in two stages. First: 
+going to implement it in two stages. First:
  - classify outliers/non-outliers after training, train again with only non-outliers
-   but same (huber) loss. 
+   but same (huber) loss.
 
-if that works great. 
+if that works great.
 
 second stage: if not, we *might* make it better by having quadratic loss for
 already accepted data? but if we throw out the outliers then everything should
 stay in the quadratic region anyway... maybe doing that will improve problems
 with uncertainty increasing again in lower level sets.
 
-more ideas: 
- - first run keep that idea with decreasing vx loss when it looks suboptimal. 
-   second one not, keep the whole loss nice and convex. 
+more ideas:
+ - first run keep that idea with decreasing vx loss when it looks suboptimal.
+   second one not, keep the whole loss nice and convex.
 
 finding lots of hyperparams that don't work (i.e. are stuck at 200-500). local
-small experiment: T_value_target=1/4? seems to improve at first glance. 
+small experiment: T_value_target=1/4? seems to improve at first glance.
 
 
 
 2024-05-16
 
-tuning insights: 
+tuning insights:
 
 sobolev vx weight from 1 to 100 is fine, lower bad (with v weight 1)
 small inv_vx_loss_fadeout makes no difference
 
 had an error in min_l estmator - would always give too low min_l later in the
-algo due to wrongly including early trajectories stopping at way too low v. 
+algo due to wrongly including early trajectories stopping at way too low v.
 
 orbits example works nicely with less weight decay. is weight decay actually
 hurting (increasing) uncertainty artificially? could be if it "overpowers" the
-gradient at low lr / significant weight decay. 
+gradient at low lr / significant weight decay.
 
 making huge sweep with lr_final vs weight decay for flatquad example to find
 out. the interplay of the two is basically our smoothness assumption so it
-should be interesting. 
+should be interesting.
 
 if any of this turns out to work for flatquad as well: very nice!!! this may be
 the point where we stop fiddling with the algo. otherwise, last option that
 will probably work but make everything more cumbersome: sweep up the value band
 instead of learning it all at once, basically the old prune_and_train_substeps
 thing, but including the "new" "outlier removal" in between. goodnight <3
+
+
+
+2024-05-17
+
+implementing that value upwards sweep idea. but instead of doing it in
+discrete steps like in the initial prune_and_train_substeps thing, it is
+done in one single training run, just by sampling from just the sublevel
+set V < v_sweep, with v_sweep from linspace(vk, vnext, trainsteps). still
+discrete i guess but a lot nicer eh?

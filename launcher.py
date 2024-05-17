@@ -25,11 +25,12 @@ flatquad_configs = {
 
     # 'nn_type': ['leaky', 'softplus'],
     # 'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
-    'lr_final': [0.0001, .0002, .0005, .001, .002, .005],
-    'weight_decay': [.0005, 0.001, 0.002, .005, .01, .02],
+    # 'lr_final': [0.0001, .0003, .001, .003, 0.01],
+    'weight_decay': [.0003, 0.001, 0.003, .001, .003, 0.01, 0.03],
+    # 'weight_decay': .005, # .001 next?
 
-    'inv_vx_loss_fadeout': [0.],
-    'proposal_strategy': ['max_kernel_adaptive', 'uniform_uncertain', 'uniform_all'],
+    # 'inv_vx_loss_fadeout': [0.],
+    # 'proposal_strategy': ['max_kernel_adaptive', 'uniform_uncertain', 'uniform_all'],
 
     # 'T_value_target': [0.1, 0.3, 1., 2., 3.],
     # 'proposal_kernel_scaling': [0.1, 1.],
@@ -37,10 +38,10 @@ flatquad_configs = {
     # 'thin_data_denominator': [10, 5, 3, 2],
 
 
-    'vx_loss_d': [ 0.1, 0.3 ],
+    'vx_loss_d': [ 0.1, 0.3, 1.],
+    'nn_value_sweep': [True, False],
 
     # 'active_learning_batchsize': [32, 64, 128, 256, 512],
-
 
 
 

@@ -147,17 +147,19 @@ def base_algo_params():
         'nn_type': 'leaky',
         'nn_layerdims': (16, 16, 16),
         'nn_batchsize': 32,
-        'nn_N_epochs': 2048,
+        'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
         'lr_final': 0.0001,
-        'weight_decay': .001,
+        'weight_decay': .0001,
         'nn_warmstart_fraction': 1.,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
+
+        'nn_value_sweep': True,
 
         'nn_progressbar': True,
 
@@ -170,7 +172,9 @@ def base_algo_params():
         'nn_sobolev_weight_vx': 10.,
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 1.,
+        # both in terms of relative error, i.e. 0.1 means that above an
+        # error of 10% we penalise less heavily.
+        'vx_loss_d': 0.2,
         'v_loss_d': 0.2,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -184,7 +188,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 200.,
 
-        'inv_vx_loss_fadeout': 5.,
+        'inv_vx_loss_fadeout': 10,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample

@@ -586,13 +586,19 @@ class nn_wrapper():
             # vx_label_loss = vx_label_loss_quadratic * use_quadratic_loss + vx_label_loss_huber * ~use_quadratic_loss
             vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
 
+            # disable gradient for larger ones hehehe
+            # this is basically the same as throwing out outliers and then doing a second training run,
+            # but with the complications arising from nonconvexity. i feel like value sweep should be able
+            # to not care about this too much and "bring with it" the correct solution from both sides.
+            # vx_label_loss = np.clip(vx_label_loss, 0, 1)
+
+            # or, do the same smoothly with tanh??
+            # vx_label_loss = d * np.tanh(vx_label_loss / d)
+
             # if this is 0, scaling=1 always so nothing happens.
             # if small we have "slow" dropoff.
             # if >1 we have dropoff smaller than 1.
             scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
-
-            # impose vx loss only if v_nn is in 5% ish range of nn v.
-            # scaling = np.exp(-(v_rel_err / 0.05)**2)
 
             scaling = jax.lax.select(
                 v_rel_err > 0,
@@ -838,7 +844,7 @@ class nn_wrapper():
             # would neatly fit in the input_slice which atm is not used...
             if algo_params['nn_value_sweep']:
 
-                # sample with non-uniform probabilities
+                # sweep sublevel set from vk to vnext
                 # sadly, doing this with linspace on the outside and then having
                 #     v_upper = input_slice
                 # here breaks jax_tqdm. so instead we pass the step k in here and
@@ -847,6 +853,9 @@ class nn_wrapper():
                 frac = step / total_iters
                 v_upper = frac * vnext + (1-frac) * vk
 
+                # possible variation on the theme: sample according to some
+                # probability that drops off smoothly around v_upper. not sure
+                # what would be the use though
                 do_sample = ys['v'] <= v_upper
                 ps = do_sample / do_sample.sum()
                 batch_idx = jax.random.choice(batch_key, N_datapts, (batchsize,), p=ps)

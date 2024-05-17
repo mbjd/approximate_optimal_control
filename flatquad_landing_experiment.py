@@ -737,8 +737,8 @@ def base_algo_params():
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
-        'lr_final': 0.005,
-        'weight_decay': .005,
+        'lr_final': 0.001,
+        'weight_decay': .001,
 
         'nn_ensemble_size': 4,
 
@@ -760,7 +760,7 @@ def base_algo_params():
         'nn_sobolev_weight_vxx': 0.,
 
         # width of the quadratic regions in smoothed huber loss.
-        'vx_loss_d': 1.0,
+        'vx_loss_d': 0.3,
         'v_loss_d': 0.1,
 
         # penalisation of the extra value derivative which is defined in the ambient space
@@ -774,7 +774,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 50.,
 
-        'inv_vx_loss_fadeout': 0.1,
+        'inv_vx_loss_fadeout': 0.0,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample
@@ -787,7 +787,7 @@ def base_algo_params():
 
         # value band for training = [v_k / thin_data_denominator, v_next_target]
         'thin_data': True,
-        'thin_data_denominator': 10,
+        'thin_data_denominator': 5,
 
         # initial data generation. 'uniform' or 'lqr' for nicer distribution.
         'initial_shooting': 'lqr',

@@ -963,7 +963,7 @@ def testbed(problem_params, algo_params):
         return v_next
 
 
-    def propose_pts(key, v_k, v_next, vmap_nn_params, sample_fct):
+    def propose_pts(key, v_k, v_next, vmap_nn_params, data_extent, algo_params):
 
         value_interval = [v_k, v_next]
 
@@ -972,6 +972,22 @@ def testbed(problem_params, algo_params):
         # to "approximate" all kinds of global optimisation & sampling
         # operations over that set. this is a bit ugly and certainly not
         # jit-able... can this be done in a better way?
+
+        if algo_params['proposal_sampling_distribution'] == 'uniform_scale_mixture':
+            # this is the approach used initially. works for flatquad, fails for orbits with too few samples appearing
+            # in the interesting regions where we don't have data. maybe similar things happen with flatquad too but
+            # are fixed by brute-forcing a high active learning batchsize.
+            sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, problem_params['x_extent'], log_min_scale=-2)
+        elif algo_params['proposal_sampling_distribution'] == 'uniform':
+            # instead, we want an actual uniform distribution. to make sure we still hit the interesting region appropriately,
+            # we set the extent based on the data we curently have.
+            # still this can bite us in the ass if test_pts suffer from similar issues of not covering the interesting "edge" regions
+            # where we would want new data most urgently. hopefully the factor of 1.5 fixes this \o/ (while increasing sampling iters by 1.5**nx...)
+            sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, data_extent * 1.5, log_min_scale=0)
+        else:
+            raise ValueError(f'unknown proposal sampling distribution {algo_params["proposal_sampling_distribution"]}')
+
+
 
         all_valueband_pts = np.zeros((0, problem_params['nx']))
 
@@ -2033,8 +2049,11 @@ def testbed(problem_params, algo_params):
         # set next value target
         v_next_target = set_value_target(all_ys, v_k)
 
-        # not sure if this step size cutting down is smart at all.
-        # TODO think about case when this never quits. is that even salvageable in any way?
+        # estimate extent of next level set based on already present data.
+        is_in_Vnext = v_means <= v_next_target
+        inside_xs = test_pts * is_in_Vnext[:, None]
+        # data extent in sampling fct is with respect to x_eq!
+        data_extent = np.abs(inside_xs - problem_params['x_eq'][None, :]).max(axis=0)
 
         OK = False
         i = 0
@@ -2043,30 +2062,15 @@ def testbed(problem_params, algo_params):
             print(f'estimated v_k = {v_k:.3f}, next target = {v_next_target:.3f}')
 
             # propose interesting points
-
-            if algo_params['proposal_sampling_distribution'] == 'uniform_scale_mixture':
-                # this is the approach used initially. works for flatquad, fails for orbits with too few samples appearing
-                # in the interesting regions where we don't have data. maybe similar things happen with flatquad too but
-                # are fixed by brute-forcing a high active learning batchsize.
-                sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, problem_params['x_extent'], log_min_scale=-2)
-            elif algo_params['proposal_sampling_distribution'] == 'uniform':
-                # instead, we want an actual uniform distribution. to make sure we still hit the interesting region appropriately,
-                # we set the extent based on the data we curently have.
-                # still this can bite us in the ass if test_pts suffer from similar issues of not covering the interesting "edge" regions
-                # where we would want new data most urgently. hopefully the factor of 1.5 fixes this \o/ (while increasing sampling iters by 1.5**nx...)
-                is_in_Vnext = v_means <= v_next_target
-                inside_xs = test_pts * is_in_Vnext[:, None]
-                # data extent in sampling fct is with respect to x_eq!
-                data_extent = np.abs(inside_xs - problem_params['x_eq'][None, :]).max(axis=0)
-                sample_fct = lambda key, N: algo_params['sample_states_batched'](key, N, data_extent * 1.5, log_min_scale=0)
-            else:
-                raise ValueError(f'unknown proposal sampling distribution {algo_params["proposal_sampling_distribution"]}')
-
             proposal_key, key = jax.random.split(key)
-            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(proposal_key, v_k, v_next_target, params_sobolev_ens, sample_fct)
+            proposed_pts, proposal_vmeans, proposal_vstds, proposal_metrics = propose_pts(
+                proposal_key, v_k, v_next_target, params_sobolev_ens, data_extent, algo_params
+            )
 
             # obtain optimal trajectories close to those points
-            forward_sols_new, backward_sols_new, oracle_metrics = batched_oracle(proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params)
+            forward_sols_new, backward_sols_new, oracle_metrics = batched_oracle(
+                proposed_pts, v_k, v_next_target, params_sobolev_ens, problem_params
+            )
 
             OK = oracle_metrics['oracle_frac_usable'] > 0.5
 

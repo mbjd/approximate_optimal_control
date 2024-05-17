@@ -11,7 +11,7 @@ flatquad_configs = {
     # 'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1],
     # 'weight_decay': [.0002, .0003, .0004, .0005, .0007, .0009, .001, .0012, .0015],
     # 'nn_type': ['minout_softplus', 'softplus', 'experimental'],
-    # 'seed': [1,2,3,4,5,6,7,8]
+    'seed': [1,2,3,4,5,6,7,8],
     # 'lr_init': [0.05, 0.02, 0.01, 0.005],
     # 'lr_final': [0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001],
     # 'nn_N_epochs': [1024, 2048],
@@ -25,8 +25,8 @@ flatquad_configs = {
 
     # 'nn_type': ['leaky', 'softplus'],
     # 'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
-    # 'lr_final': [0.0001, .0003, .001, .003, 0.01],
-    'weight_decay': [.0003, 0.001, 0.003, .001, .003, 0.01, 0.03],
+    'lr_final': [0.0001, .0003, .001, .003],
+    'weight_decay': [.0003, 0.001, 0.003],
     # 'weight_decay': .005, # .001 next?
 
     # 'inv_vx_loss_fadeout': [0.],
@@ -38,7 +38,7 @@ flatquad_configs = {
     # 'thin_data_denominator': [10, 5, 3, 2],
 
 
-    'vx_loss_d': [ 0.1, 0.3, 1.],
+    'vx_loss_d': [ 0.3,],
     'nn_value_sweep': [True, False],
 
     # 'active_learning_batchsize': [32, 64, 128, 256, 512],

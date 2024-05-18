@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 import sys
 
-import flatquad_landing_experiment as exp
 from util import generate_run_commands, generate_base_command, dict_permutations, available_gpus
 
-PROJECT_NAME = 'flatquad'
+# PROJECT_NAME = 'flatquad'
+PROJECT_NAME = 'orbits'
 
 flatquad_configs = {
     # 'T_value_target': [1/2, 1, 2.],
@@ -41,9 +41,30 @@ flatquad_configs = {
     'vx_loss_d': [ 0.3,],
     'nn_value_sweep': [True, False],
 
-    # 'active_learning_batchsize': [32, 64, 128, 256, 512],
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [False],
+    'wandbfigs': [True],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
 
 
+
+orbits_configs = {
+
+    # 'seed': [1,2,3,4,5,6,7,8],
+
+    # 'lr_final': 0.001,
+    # 'weight_decay': .0001,
+    'lr_final': [0.0001, .0002, .0005, .001, .002, .005],
+    'weight_decay': [.0001, .0002, .0005, .001, .002, .005],
+
+    'vx_loss_d': [ 0.2, 0.3, 0.4, 0.5 ],
+    'nn_value_sweep': [True, False],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)
@@ -58,7 +79,15 @@ flatquad_configs = {
 
 def main():
     command_list = []
-    flags_combinations = dict_permutations(flatquad_configs)
+
+    if PROJECT_NAME == 'flatquad':
+        import flatquad_landing_experiment as exp
+        flags_combinations = dict_permutations(flatquad_configs)
+    elif PROJECT_NAME == 'orbits':
+        import orbits_experiment as exp
+        flags_combinations = dict_permutations(orbits_configs)
+    else:
+        raise ValueError(f'Unknown project name: {PROJECT_NAME}')
 
     # shitty argparse :)
     do_print = len(sys.argv) > 1 and sys.argv[1] in ('-p', '--print')
@@ -72,7 +101,7 @@ def main():
     # submit jobs
     generate_run_commands(command_list,
                           num_cpus=1,
-                          num_gpus=1,
+                          num_gpus=0 if PROJECT_NAME == 'orbits' else 1,
                           mode='euler',
                           duration='3:59:00',
                           prompt=True,

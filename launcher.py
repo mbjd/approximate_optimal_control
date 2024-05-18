@@ -45,8 +45,8 @@ flatquad_configs = {
     # (euler config here so we can keep local debugging type config in main file)
     'wandb': [True],
 
-    'savefigs': [False],
-    'wandbfigs': [True],
+    'savefigs': [True],
+    'wandbfigs':[False],
     'showfigs': [False],
 
     'ipdb_interval': [0],
@@ -60,18 +60,18 @@ orbits_configs = {
 
     # 'lr_final': 0.001,
     # 'weight_decay': .0001,
-    'lr_final': [0.0001, .0002, .0005, .001, .002, .005],
-    'weight_decay': [.0001, .0002, .0005, .001, .002, .005],
+    # 'lr_final': [0.0001, .0002, .0005, .001, .002, .005],
+    # 'weight_decay': [.0001, .0002, .0005, .001, .002, .005],
 
-    'vx_loss_d': [ 0.2, 0.3, 0.4, 0.5 ],
+    # 'vx_loss_d': [ 0.2, 0.3, 0.4, 0.5 ],
     'nn_value_sweep': [True, False],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)
     'wandb': [True],
 
-    'savefigs': [False],
-    'wandbfigs': [True],
+    'savefigs': [True],
+    'wandbfigs':[False],
     'showfigs': [False],
 
     'ipdb_interval': [0],

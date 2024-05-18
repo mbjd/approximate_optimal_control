@@ -15,5 +15,5 @@ latex/
 .aim/
 wandb/
 slurm-*.out
-
 output.mp4
+figures_*

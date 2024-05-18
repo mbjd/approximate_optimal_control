@@ -44,7 +44,7 @@ V_f = lambda x: 0.5 * (x - eq).T @ P_lqr @ (x - eq)
 thetas = np.linspace(0, 2 * np.pi, 1024)[:-1]
 circle_xs = jax.vmap(lambda theta: np.array([np.sin(theta), np.cos(theta)]))(thetas)
 xfs = 0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr)) + problem_params['x_eq'][None, :]
-yprev = yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
+yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
 
 
 yf = jtm(itemgetter(0), yfs)
@@ -52,13 +52,13 @@ vf = yf['v']
 
 # v_upper = 1000.
 
-@jax.jit
-def remesh(yprev, yfs):
+# @jax.jit
+def remesh(sols, frac):
 
     # the magic sauce.
     # if necessary: find here by bisection the largest v such that some
     # maximum distance between points is not exceeded.
-    # yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+    yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
 
     # yfs['x'] represents a closed curve in state space. consider it equal to
     # its piecewise linear interpolation for now. we want something like the
@@ -81,59 +81,56 @@ def remesh(yprev, yfs):
     # maybe this could have been done in a single step???
 
     # instead use the previous ys for that interpolation.
-    yfs = yprev
-    new_v = np.interp(frac_idx, np.arange(N), yfs['v'])
-    new_x = np.array([np.interp(frac_idx, np.arange(N), yfs['x'][:, i]) for i in range(2)]).T
-    new_vx = np.array([np.interp(frac_idx, np.arange(N), yfs['vx'][:, i]) for i in range(2)]).T
-    new_t = np.interp(frac_idx, np.arange(N), yfs['t'])
+    # t = (1-frac) * sols.t0[0] + (frac) * sols.t1[0]
+    ys_remesh = jax.vmap(lambda sol: sol.evaluate(sol.t0))(sols)
+    new_v = np.interp(frac_idx, np.arange(N), ys_remesh['v'])
+    new_x = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['x'][:, i]) for i in range(2)]).T
+    new_vx = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['vx'][:, i]) for i in range(2)]).T
+    new_t = np.interp(frac_idx, np.arange(N), ys_remesh['t'])
 
     new_y = dict(x=new_x, v=new_v, vx=new_vx, t=new_t)
     return new_y
 
 solve_fast = jax.jit(jax.vmap(solve_backward, in_axes=(0, None)))
+# solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
 
-vmax = 310
-levels = np.logspace(0., np.log10(vmax), 120)
-levels = np.linspace(1, np.sqrt(vmax), 50)**2
-levels = np.linspace(1, vmax, 30)
-levels = np.concatenate([levels, np.array([450])])
+vmax = 450
+N=20
+levels = np.logspace(0., np.log10(vmax), N)
+levels = np.linspace(1, np.sqrt(vmax), N)**2
+# levels = np.linspace(1, vmax, N)
 
 sols = None
 
 for v_upper in tqdm.tqdm(levels):
 
+    # alright so it has to work a bit differently.
+    # 1. get solutions starting at uniformly spaced points on dVk
+    # 2. remesh them to be equidistant at dVk+1
+    # 3. get solutions again.
+
+    # 1. uniform solutions.
+    sols_uniform = solve_fast(yfs, v_upper)
+    # 2. remeshing
+    yfs = remesh(sols_uniform, 0.0)
+    # 3. remeshed solutions.
     sols = solve_fast(yfs, v_upper)
 
-    # mod_xs = sols.ys['x'].at[:, -1, :].set(np.nan)
-    # pl.plot(*mod_xs.reshape(-1, 2).T, '.-', alpha=.3, color='C0')
+    # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform')
+    # pl.plot(*sols.ys['x'].reshape(-1,2).T, alpha=.3, label='remeshed')
+    # pl.legend()
 
     # yprev = yfs
     yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
 
     viridis = matplotlib.colormaps['viridis']
-    pl.plot(*yfs['x'].T, alpha=.5, color = viridis(v_upper / levels[-1]) )
+    pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
 
-    yfs = remesh(yprev, yfs)
-    yprev = yfs
+    # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
 
-# somehow it does another thing than i meant for it to do. i thought i had
-# coded a resampling strategy which restarted trajectories at the last level
-# set, so as to reach a uniform distribution at upper level set. but it looks
-# like they are restarted all the way at the bottom level set!! not sure why.
-# but still works. actually is a lot better from the approximation error
-# persepctive. then the blocky shapes can be explained by reaching the end of
-# floating point precision at the terminal level set.
 
-pl.plot(sols.ys['x'][:, :, 0].flatten(), sols.ys['x'][:, :, 1].flatten(), alpha=.1, color='black')
-
-for v in np.linspace(310, 450, 10):
-
-    ys = jax.vmap(lambda sol: sol.evaluate(v))(sols)
-    viridis = matplotlib.colormaps['viridis']
-    pl.plot(*ys['x'].T, alpha=.5, color = viridis(v / levels[-1]) )
-
-ipdb.set_trace()
 pl.show()
+
 
 def find_collision_continuation(sols, v_upper):
 
@@ -149,26 +146,52 @@ def find_self_intersection(xs):
     # absolutely brute force. no apologies.
 
     # first, we want all pairs of neighboring points.
-    left_idxs = np.arange(xs.shape[0])
-    right_idxs = np.roll(left_idxs, -1)
+    first_idx = np.arange(xs.shape[0])
+    second_idx = np.roll(first_idx, -1)
 
     # we want to know if the line segment between
 
-    xa = xs[None, :, :]
-    xb = xs[:, None, :]
+    lfirst = xs[first_idx]
+    lsecond = xs[second_idx]
 
-    # for each pair of line segments (x1, x2) and (z1, z2) we want to know if
-    # the intersection between the two exists and
+    rfirst = xs[first_idx]
+    rsecond = xs[second_idx]
 
+    # for each index pari (i, j), we want to know if the line segment
+    # between lfirst and lsecond intersects the one between rfirst and rsecond.
+
+    # that is, concretely:
+    #  1. find a, b such that: lfirst + a * (lsecond - lfirst) = rfirst + b * (rsecond - rfirst)
+    #  2. check if a and b are between 0 and 1 - if so, we have an intersection.
+
+    # first step, for single line pair.
+    # lfirst + a * (lsecond - lfirst) = rfirst + b * (rsecond - rfirst)
+    # a * (lsecond - lfirst) - b * (rsecond - rfirst)= -lfirst + rfirst
+    # [lsecond-lfirst, rsecond-rfirst]  [a; b] = -lfirst + rfirst
+    # [ldir, rdir] [a; b] = -lfirst + rfirst
+    def single_intersection(lfirst, lsecond, rfirst, rsecond):
+        A = np.array([lsecond - lfirst, rsecond - rfirst]).T
+        b = -lfirst + rfirst
+        ab = np.linalg.solve(A, b)
+        return ab
+
+    # so for each index (i, j), we need:
+    # i, j = 1, 2
+    # single_intersection(lfirst[i], lsecond[i], rfirst[j], rsecond[j])
+
+    # now use vmap to do this for all pairs.
+    all_abs = jax.vmap(jax.vmap(single_intersection, in_axes=(None, None, 0, 0)), in_axes=(0, 0, None, None))(lfirst, lsecond, rfirst, rsecond)
+
+    is_inside = ((all_abs > 0.) & (all_abs < 1.)).all(axis=2)
+    all_intersection_pts = lfirst + all_abs[0][:, None] * (lsecond - lfirst)
+    ipdb.set_trace()
 
 
 xs = yfs['x']
 find_self_intersection(xs)
 
 
-
 print('')
-
 
 
 # pl.figure()

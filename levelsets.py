@@ -2043,6 +2043,9 @@ def testbed(problem_params, algo_params):
 
         nn_params_artefact = wandb.Artifact('nn_params', type='model')
 
+    if algo_params['savefigs']:
+        print(f'saving figures in {figdir}')
+
     for k in range(100):
 
         print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')

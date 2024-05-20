@@ -556,6 +556,10 @@ def define_backward_solver(problem_params, algo_params):
         state_dot['v'] = v_dot
         state_dot['vx'] = vx_dot
 
+        # the old v-t reparameterisation
+        if 'reparam' in algo_params:
+            state_dot = jax.tree_util.tree_map(lambda n: n / v_dot, state_dot)
+
         if algo_params['pontryagin_solver_vxx']:
             # do everything related to the hessian calculation only here.
             full_jacobian = jax.jacobian(pmp_rhs, argnums=(0, 1))(x, vx)
@@ -619,12 +623,21 @@ def define_backward_solver(problem_params, algo_params):
         else:
             solver = diffrax.Tsit5()
 
-        backward_sol = diffrax.diffeqsolve(
-            term, solver, t0=0., t1=-T, dt0=-0.1, y0=state_f,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
-            discrete_terminating_event=terminating_event,
-        )
+        if 'reparam' in algo_params:
+            backward_sol = diffrax.diffeqsolve(
+                term, solver, t0=y_f['v'], t1=v_upper, dt0=0.0001, y0=state_f,
+                stepsize_controller=step_ctrl, saveat=saveat,
+                max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+                discrete_terminating_event=terminating_event,
+            )
+        else:
+            # usual base case.
+            backward_sol = diffrax.diffeqsolve(
+                term, solver, t0=0., t1=-T, dt0=-0.1, y0=state_f,
+                stepsize_controller=step_ctrl, saveat=saveat,
+                max_steps = algo_params['pontryagin_solver_maxsteps'], throw=algo_params['throw'],
+                discrete_terminating_event=terminating_event,
+            )
 
         return backward_sol
 

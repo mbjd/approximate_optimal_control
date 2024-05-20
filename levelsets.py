@@ -2009,6 +2009,7 @@ def testbed(problem_params, algo_params):
     #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
+    figdir = './tmp/'
 
     if algo_params['wandb']:
         # algo_params_for_aim = just the algoparams that are not weird types like
@@ -2035,6 +2036,10 @@ def testbed(problem_params, algo_params):
             config=algo_params_clean,
             dir=save_dir,
         )
+
+        # save figures on euler scratch or locally to not destroy wandb storage
+        figdir = os.path.join(save_dir, f'figures_{wandb.run.id}')
+        os.makedirs(figdir, exist_ok=True)
 
         nn_params_artefact = wandb.Artifact('nn_params', type='model')
 
@@ -2144,8 +2149,10 @@ def testbed(problem_params, algo_params):
                     self.fig = pl.figure(self.name)
 
                 def __exit__(self, exception_type, exception_value, exception_traceback):
+
                     if algo_params['savefigs']:
-                        pl.savefig(f'tmp/{self.name}_{k:04d}.png')
+                        pl.savefig(os.path.join(figdir, f'{self.name}_{k:04d}.png'))
+
                     if algo_params['wandb'] and algo_params['wandbfigs']:
                         wandb.log({self.name : wandb.Image(self.fig)}, step=k)
 

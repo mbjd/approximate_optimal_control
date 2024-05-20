@@ -5093,3 +5093,12 @@ optimisers.
 
 this perhaps together with "deciding" on local/global optimality not only
 after the whole sweep but after the sweep has "passed" some value level???
+
+
+
+filtering out the good runs. a decent number actually got above 1000! they
+have:
+    lr_final = 0.001 or 0.0003
+    weight_decay = 0.0003, 0.001, 0.003
+but also it depends heavily on the random seed \o/
+

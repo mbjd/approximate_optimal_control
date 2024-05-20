@@ -21,6 +21,8 @@ import operator
 
 from jax.tree_util import tree_map as jtm
 
+from operator import itemgetter
+
 # various small utility functions.
 
 def rnd(a, b):

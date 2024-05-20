@@ -152,7 +152,7 @@ def base_algo_params():
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
-        'lr_final': 0.0001,
+        'lr_final': 0.001,
         'weight_decay': .0001,
         'nn_warmstart_fraction': 1.,
 
@@ -174,7 +174,7 @@ def base_algo_params():
         # width of the quadratic regions in smoothed huber loss.
         # both in terms of relative error, i.e. 0.1 means that above an
         # error of 10% we penalise less heavily.
-        'vx_loss_d': 0.2,
+        'vx_loss_d': 0.3,
         'v_loss_d': 0.2,
 
         # penalisation of the extra value derivative which is defined in the ambient space

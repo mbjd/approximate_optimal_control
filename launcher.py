@@ -19,25 +19,43 @@ flatquad_configs = {
     # 'L_vx': [300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000, 10000],
     # 'vx_loss_d': [.001, .005, 0.01, .05, .1, .5, 1],
     # 'v_loss_d': [.001, .005, .01, .05, .1, .5, 1],
-    'vx_loss_d': [.1, .2, .5],
+    # 'vx_loss_d': [.1, .2, .5],
     # 'v_loss_d': [.01, .05, .1, .5],
 
     # 'nn_type': ['leaky', 'softplus'],
     # 'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
-    'lr_final': [0.0001, .0003, .001, .003],
-    'weight_decay': [.0003, 0.001, 0.003],
+    # 'lr_final': [.00005, .0001, .0002, .0005, .001, .002, .005, .01, .02, .05],
+    # 'seed': [1,2,3,4,5,6,7,8],
+    # 'weight_decay': [.0005, .0007, .001, .002, .005, .007, .01, .02],
     # 'weight_decay': .005, # .001 next?
+    # 'vx_loss_d': [ 0.1, 0.2, 0.3, 0.4, 0.5 ],
 
     # 'inv_vx_loss_fadeout': [0.],
     # 'proposal_strategy': ['max_kernel_adaptive', 'uniform_uncertain', 'uniform_all'],
 
-    'T_value_target': [0.1, 0.3, 1.],
+    # 'T_value_target': [0.1, 0.3, 1.],
     # 'proposal_kernel_scaling': [0.1, 1.],
     # 'include_future_data': ['True', 'False'],
     # 'thin_data_denominator': [10, 5, 3, 2],
 
 
-    'nn_value_sweep': [True, False],
+    # recreating 'comic-deluge'
+    # 'seed': [1,2,3,4,5,6,7,8],
+    'nn_value_sweep': [True],
+    'lr_final': [0.001],
+    'weight_decay': [0.001, 0.0001],
+    # 'vx_loss_d': [0.3],
+    # 'inv_vx_loss_fadeout': [0.],
+
+    # ... and similar ones
+    # 'nn_value_sweep': [True, False],
+    # 'lr_final': [0.002, 0.001, 0.0005],
+    # 'weight_decay': [0.002, 0.001, 0.0005],
+    # 'vx_loss_d': [0.2, 0.3, 0.5],
+    # 'inv_vx_loss_fadeout': [0., 0.2, 0.5, 1., 2, 5],
+
+    'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
+    'inv_vx_loss_fadeout': [1., 3., 10., 30., 100.],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)

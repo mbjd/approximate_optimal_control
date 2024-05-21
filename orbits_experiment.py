@@ -152,14 +152,14 @@ def base_algo_params():
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
-        'lr_final': 0.001,
-        'weight_decay': .0001,
+        'lr_final': 0.005,
+        'weight_decay': .0005,
         'nn_warmstart_fraction': 1.,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
 
-        'nn_value_sweep': True,
+        'nn_value_sweep': False,
 
         'nn_progressbar': True,
 
@@ -211,7 +211,7 @@ def base_algo_params():
         # number of proposals per active learning iteration.
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 64,
-        'active_learning_batchsize': 64,
+        'active_learning_batchsize': 16,
         'include_future_data': True,
 
         # the max. time horizon by which we aim to grow the known level set
@@ -227,9 +227,6 @@ def base_algo_params():
         'pruning_strategy': 'conservative',
         'L_v': np.inf,
         'L_vx': 2000,
-
-        'second_pruning_sigma': 5.,
-
 
         # the sublevel set Vk must contain at least this fraction of test points
         # which are below the sigma target to qualify as "learned".

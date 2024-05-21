@@ -5102,3 +5102,13 @@ have:
     weight_decay = 0.0003, 0.001, 0.003
 but also it depends heavily on the random seed \o/
 
+
+
+2024-05-20
+
+seeing that the sweeping thing actually has slower best runs than similar
+params without sweeping. thinking it might not after all be the greatest
+idea: because our "global optimality" resolution is severely hampered
+by the fact that our NN can only represent smooth functions, it might have
+been too much to ask to "increase" that resolution by growing the level
+sets continuously.

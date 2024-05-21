@@ -857,13 +857,11 @@ class nn_wrapper():
                 # sweep with staircase thing
                 # with N_steps subintervals, over each subinterval this will
                 # first increase twice as fast as frac, then stay constant.
-                N_steps = 10
-                width = 1 / N_steps
-                frac = frac + (width/2) - np.abs(width/2 - frac % width)
+                # N_steps = 10
+                # width = 1 / N_steps
+                # frac = frac + (width/2) - np.abs(width/2 - frac % width)
 
                 v_upper = frac * vnext + (1-frac) * vk
-
-
 
                 # possible variation on the theme: sample according to some
                 # probability that drops off smoothly around v_upper. not sure
@@ -871,9 +869,9 @@ class nn_wrapper():
                 do_sample = ys['v'] <= v_upper
 
                 # also correspondingly sweep up the lower bound
-                if algo_params['thin_data']:
-                    v_lower = v_upper / algo_params['thin_data_denominator']
-                    do_sample = do_sample & (ys['v'] >= v_lower)
+                # if algo_params['thin_data']:
+                    # v_lower = v_upper / algo_params['thin_data_denominator']
+                    # do_sample = do_sample & (ys['v'] >= v_lower)
 
                 ps = do_sample / do_sample.sum()
                 batch_idx = jax.random.choice(batch_key, N_datapts, (batchsize,), p=ps)

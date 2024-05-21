@@ -43,7 +43,7 @@ flatquad_configs = {
     # 'seed': [1,2,3,4,5,6,7,8],
     'nn_value_sweep': [True],
     'lr_final': [0.001],
-    'weight_decay': [0.001, 0.0001],
+    'weight_decay': [0.001, 0.0005, 0.0001],
     # 'vx_loss_d': [0.3],
     # 'inv_vx_loss_fadeout': [0.],
 
@@ -54,8 +54,8 @@ flatquad_configs = {
     # 'vx_loss_d': [0.2, 0.3, 0.5],
     # 'inv_vx_loss_fadeout': [0., 0.2, 0.5, 1., 2, 5],
 
-    'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
-    'inv_vx_loss_fadeout': [1., 3., 10., 30., 100.],
+    # 'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
+    'inv_vx_loss_fadeout': [0.1, 0.3, 1., 3., 10., 30., 100.],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)
@@ -117,7 +117,7 @@ def main():
     # submit jobs
     generate_run_commands(command_list,
                           num_cpus=1,
-                          num_gpus=0,
+                          num_gpus=1,
                           mode='euler',
                           duration='3:59:00',
                           prompt=True,

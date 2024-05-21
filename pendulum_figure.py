@@ -20,10 +20,223 @@ import numpy as onp
 from jax import config
 config.update("jax_enable_x64", True)
 
-from orbits_experiment import define_problem_params, base_algo_params
 
-problem_params = define_problem_params()
-algo_params = base_algo_params()
+def f(x, u):
+    # dynamics from https://arxiv.org/pdf/2312.17467
+    sinPhi, cosPhi, phidot = x
+
+    m = l = 1
+    b = 0
+    g = 9.81
+
+
+    sinPhi_dot = cosPhi * phidot
+    cosPhi_dot = -sinPhi * phidot
+    phidot_dot = -1/(m * l**2) * (b * phidot - m*g*l*sinPhi - u.reshape())
+
+    return np.array([sinPhi_dot, cosPhi_dot, phidot_dot])
+
+
+def l(x, u):
+
+    sinPhi, cosPhi, phidot = x
+
+    q1, q2, r = 1., 1., 1.
+
+    cost = q1 * (sinPhi**2 + (cosPhi - 1)**2) + q2 * phidot**2 + r * u**2
+    return cost.reshape()
+
+# lots of unneeded things...
+problem_params = {
+
+    'system_name': 'inv_pendulum',
+
+    # dynamics X x U -> TxX, stage cost X x U -> R
+    'f': f,
+    'l': l,
+
+    # state & input space dimensions
+    # if manifold, the dimension of the ambient space, not the manifold!
+    'nx': 3,
+    'nu': 1,
+
+    'state_names': ("x", "y"),
+
+    'u_eq': np.zeros(1),
+    'x_eq': np.array([0., 1., 0]),
+
+
+    # if ever treating slightly bigger systems it would pay to frame this
+    # as a general convex polytope described by Ax <= b.
+    'U_interval': [-1., 1.],
+
+    # the value level below which we accept the LQR solution as correct.
+    'V_f': 0.01,
+
+    # constraint equation defining the state space manifold as its 0-levelset.
+    # if R^n, set this to None
+    # number of constraint equations = codimension of manifold.
+    # atm only codimension 1 is supported, because this makes finding
+    # an orthonormal basis for the normal space trivial.
+
+    # in this case only the unit circle for angle parameterisation.
+    # / 2 so its jacobian is normalised.
+    'm': lambda x: (x[0]**2 + x[1]**2 - 1) / 2,
+    # 'm': None,
+
+    # projection operation onto the manifold -- great for resetting if
+    # we stray off the manifold due to numerical errors.
+    # 'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
+    'project_M': lambda x: x.at[0:2].set(x[0:2] / np.linalg.norm(x[0:2])),
+
+    'x_extent': np.array([4, 4]),
+}
+
+algo_params = {
+
+    # PRNG seed
+    'seed': 0,
+
+    # ODE SOLVER PARAMS
+    'pontryagin_solver_atol': 1e-4,
+    'pontryagin_solver_rtol': 1e-4,
+    'dtmin': 0.01,
+    'dtmax': 0.5,
+
+    # project back to manifold after each solver step. only possible if
+    # problem_params['project_M'] correctly defined.
+    'project_manifold': True,
+
+    # with throw=True we can set this pretty tight - it will just stop early.
+    # will have to make sure ourselves that this is not a problem
+    'pontryagin_solver_maxsteps': 128,
+
+    # not very relevant if we can just "resume" the trajectory in a later solve
+    # also maybe it makes sense to stop based on value, like stop after we reach sth like 10x
+    # the current value level? then we pervent spending lots of effort in "difficult" (=high l(x, u))
+    # state space regions.
+    'pontryagin_solver_T': 10.,
+
+    # (this was not used for a long time)
+    # in theory ||vxx|| can become infinite - meaning we solve an ODE with finite escape time.
+    # this happenn when many optimal trajectories originate from a small region (or a point in the limit)
+    # to avoid this we just stop calculating the trajectory once ||vxx|| exceeds this bound.
+    # hopefully the state space will still be sufficiently covered. In regions where ||vxx|| would
+    # have been very high we will just have to accept the interpolation instead.
+    'pontryagin_solver_vxx': False,
+    'vxx_max_norm': 1e4,
+
+    # causes it not to quit when hitting maxsteps. probably still all subsequent
+    # results will be unusable due to evaluating solutions outside their domain giving NaN
+    'throw': False,
+
+
+
+    # NN ARCHITECTURE & TRAINING
+    # big question: should we aim for over- or underparameterisation?
+    # 'nn_layerdims': (256, 16),
+    'nn_type': 'leaky',
+    'nn_layerdims': (16, 16, 16),
+    'nn_batchsize': 32,
+    'nn_N_epochs': 256,
+    'nn_train_fraction': .98,
+    'lr_staircase': False,
+    'lr_staircase_steps': 8,
+    'lr_init': 0.05,
+    'lr_final': 0.005,
+    'weight_decay': .0005,
+    'nn_warmstart_fraction': 1.,
+
+    'nn_ensemble_size': 4,
+    'nn_warm_start': True,
+
+    'nn_value_sweep': False,
+
+    'nn_progressbar': True,
+
+    # NN LOSS FUNCTION
+    # relative importance of the losses for v, vx, vxx.
+    # mostly we care about representing vx with great accuracy,
+    # the other two can be thought of as "hints"/priors/inductive biases
+    # to fit the correct vx function.
+    'nn_sobolev_weight_v': 1.,
+    'nn_sobolev_weight_vx': 10.,
+
+    # width of the quadratic regions in smoothed huber loss.
+    # both in terms of relative error, i.e. 0.1 means that above an
+    # error of 10% we penalise less heavily.
+    'vx_loss_d': 0.3,
+    'v_loss_d': 0.2,
+
+    # penalisation of the extra value derivative which is defined in the ambient space
+    # but normal to the state manifold.
+    'vx_normal_regularisation': 0.001,
+
+    # this is not a proper "prior" in the bayesian sense, but rather
+    # just an additional weak loss term that makes the value function
+    # large-ish at the problematic state of being upside down but
+    # otherwise at equilibrium.
+    'prior_strength': 0.01,
+    'v_prior': 200.,
+
+    'inv_vx_loss_fadeout': 10,
+
+    # MAIN ALGO
+    # only take a subsample of data for active learning. dense sample
+    # close to current level set, less dense sample further down.
+
+    # the uncertainty bound we wish to satisfy.
+    # sigma_max(mu) = simga_max_abs + simga_max_rel * mu
+    'sigma_max_abs': 0.5,
+    'sigma_max_rel': 0.05,
+
+    # value band for training = [v_k / thin_data_denominator, v_next_target]
+    'thin_data': False,
+    'thin_data_denominator': 10,
+
+    # initial data generation. 'uniform' or 'lqr' for nicer distribution.
+    'initial_shooting': 'lqr',
+    # the value level we include in the initial learning round.
+    'v_init': 1.,
+
+    # number of proposals per active learning iteration.
+    # larger = nicer! but don't kill our poor RAM
+    'initial_batchsize': 64,
+    'active_learning_batchsize': 16,
+    'include_future_data': True,
+
+    # the max. time horizon by which we aim to grow the known level set
+    # in one iteration.
+    'T_value_target': 2.,
+
+    'vk_estimator': 'k_exceptions',
+
+    'proposal_sampling_distribution': 'uniform',
+    'proposal_strategy': 'max_kernel_adaptive',
+    'proposal_kernel_scaling': 0.5,
+
+    'pruning_strategy': 'conservative',
+    'L_v': np.inf,
+    'L_vx': 2000,
+
+    # the sublevel set Vk must contain at least this fraction of test points
+    # which are below the sigma target to qualify as "learned".
+    # only applies for 'vk_estimator' == 'relaxed'.
+    'frac_certain_in_Vk': .99,
+
+
+    # OUTPUT & VISUALISATION
+    'wandb': False,
+
+    # save figures on filesystem.
+    'savefigs': False,
+    # track figures with aim.
+    'wandbfigs': True,
+    # show figures in UI (blocking!)
+    'showfigs': True,
+
+    'ipdb_interval': 8,
+}
 
 # magic switch for value level sets.
 algo_params['reparam'] = True
@@ -35,19 +248,24 @@ algo_params['pontryagin_solver_maxsteps'] = 128
 
 solve_backward, f_extended = pontryagin_utils.define_backward_solver(problem_params, algo_params)
 
-K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+K_lqr, P_lqr, P_tangent = pontryagin_utils.get_terminal_lqr(
+        problem_params, return_tangent_projection=True
+)
+
+P_lqr_tangent = P_tangent @ P_lqr @ P_tangent.T
 
 
 eq = problem_params['x_eq']
 V_f = lambda x: 0.5 * (x - eq).T @ P_lqr @ (x - eq)
 
-thetas = np.linspace(0, 2 * np.pi, 1024)[:-1]
+thetas = np.linspace(0, 2 * np.pi, 2048)[:-1]
 circle_xs = jax.vmap(lambda theta: np.array([np.sin(theta), np.cos(theta)]))(thetas)
-xfs = 0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr)) + problem_params['x_eq'][None, :]
-yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
+xfs = (0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr_tangent))) @ P_tangent + problem_params['x_eq'][None, :]
+yfs = jax.vmap(lambda xf: dict(x=problem_params['project_M'](xf), v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
 
 
 yf = jtm(itemgetter(0), yfs)
+# ipdb.set_trace()
 vf = yf['v']
 
 # v_upper = 1000.
@@ -82,10 +300,11 @@ def remesh(sols, frac):
 
     # instead use the previous ys for that interpolation.
     # t = (1-frac) * sols.t0[0] + (frac) * sols.t1[0]
+    nx = yfs['x'].shape[1]
     ys_remesh = jax.vmap(lambda sol: sol.evaluate(sol.t0))(sols)
     new_v = np.interp(frac_idx, np.arange(N), ys_remesh['v'])
-    new_x = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['x'][:, i]) for i in range(2)]).T
-    new_vx = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['vx'][:, i]) for i in range(2)]).T
+    new_x = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['x'][:, i]) for i in range(nx)]).T
+    new_vx = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['vx'][:, i]) for i in range(nx)]).T
     new_t = np.interp(frac_idx, np.arange(N), ys_remesh['t'])
 
     new_y = dict(x=new_x, v=new_v, vx=new_vx, t=new_t)
@@ -94,13 +313,22 @@ def remesh(sols, frac):
 solve_fast = jax.jit(jax.vmap(solve_backward, in_axes=(0, None)))
 # solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
 
-vmax = 450
+vmax = 35
 N=20
 levels = np.logspace(0., np.log10(vmax), N)
-levels = np.linspace(1, np.sqrt(vmax), N)**2
+levels = np.linspace(np.sqrt(2*vf), np.sqrt(vmax), N)**2
 # levels = np.linspace(1, vmax, N)
 
 sols = None
+transform_plot = lambda x: np.concatenate([np.array([np.arctan2(x[0], x[1])]), x[2:]])
+
+threed = False
+if threed:
+    ax = pl.figure().add_subplot(projection='3d')
+else:
+    # add nan to angles near +- pi to make plot nicer despite glued
+    # together boundaries
+    transform_plot = lambda x: np.concatenate([np.array([np.arctan2(x[0], x[1])]), x[2:]]) + np.nan * (x[1] < -0.95)
 
 for v_upper in tqdm.tqdm(levels):
 
@@ -117,14 +345,23 @@ for v_upper in tqdm.tqdm(levels):
     sols = solve_fast(yfs, v_upper)
 
     # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform')
-    # pl.plot(*sols.ys['x'].reshape(-1,2).T, alpha=.3, label='remeshed')
+    # pl.plot(*jax.vmap(transform_plot)(sols.ys['x']).reshape(-1,2).T, alpha=.3, label='remeshed')
     # pl.legend()
+    viridis = matplotlib.colormaps['viridis']
+    c = viridis(v_upper / levels[-1])
+    if threed:
+        pl.plot(*sols.ys['x'][::10,:,:].reshape(-1, 3).T, c=c, alpha=.1, label='remeshed')
+    else:
+        pl.plot(*jax.vmap(transform_plot)(sols.ys['x'][::10,:,:].reshape(-1, 3)).T, c=c, alpha=.1, label='remeshed')
 
     # yprev = yfs
     yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
 
     viridis = matplotlib.colormaps['viridis']
-    pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
+    if threed:
+        pl.plot(*yfs['x'].T, '-', alpha=.5, color = c )
+    else:
+        pl.plot(*jax.vmap(transform_plot)(yfs['x']).T, '-', alpha=.5, color = c )
 
     # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
 

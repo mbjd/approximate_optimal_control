@@ -214,9 +214,30 @@ continue writing those "easy" parts.
 
  ~~~ 20 may ~~~
 
-make code work
+update for this week. spent lots of previous time on parameter tuning,
+think i am finally half satisfied with how it works. immediate next tasks
+in terms of coding:
+
+ - implement some nice way of storing the resulting dataset, could be
+   literally just a pickle of data on $SCRATCH named after wandb run id
+ - make separate thing that takes this data, fits one NN, and does some
+   closed loop sims
+ - think about best (reasonably feasible) "reference solution" for the 2D
+   examples, implement, compare
+ - think about interesting parameter sweeps/ablations to actually include
+   in the report?
+   - implicit function smoothness tradeoff probably the central one
+ - try one or two other nontrivial systems besides flatquad?
+
+if time and bock for trying that "one last" idea:
+ - value substeps w/ checkpointing from log 2024-05-21
 
 do writing
+ - 1. introduction can/should be done with the last 10% mental battery each day
+ - 2. fundamentals is now in a relatively nice state
+ - 3. central ideas "implementation" part still empty, rest needs some work
+ - 4. results and everything after: nada. maybe come up with rought
+   structure sometime? but first obvs we need to collect results ^^^
 
  ~~~ 27 may  ~~~
 

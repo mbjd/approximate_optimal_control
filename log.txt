@@ -5112,3 +5112,30 @@ idea: because our "global optimality" resolution is severely hampered
 by the fact that our NN can only represent smooth functions, it might have
 been too much to ask to "increase" that resolution by growing the level
 sets continuously.
+
+
+2024-05-21
+
+bit more writing. also, minor tuning epiphanies. managed to recreate the
+first successful runs after switching on the value sweeping strategy. wandb
+examples: dnyjthga, lxejiqks, vvnc00yo. crucial thing does seem to be
+lr_final=0.01 and weight_decay=0.001 or close. inv_vx_loss_fadeout is
+almost irrelevant, vx_loss_d 0.3 seems favourable.
+
+also, on a random local run that was going well switched off thin_data (to
+get nicer closed loop sims). this completely stopped progress! maybe it is
+because we are just at the limit of the NN's information capacity and
+achieving low(er) ensemble variance is just not practical? started a couple
+euler gpu runs with larger NN layersizes, otherwise the settings that
+worked nicely plus. indeed it seems that the resulting runs are not too
+bad, most of them seem to blow right past the recently problematic region
+of 400-600. another type of relieving "bitter lesson" \o/ or maybe first
+check the closed loop performance of these runs.
+
+set myself perhaps the last nontrivial implementation goal: that
+checkpointing thing for value sweep. would be very cool if works. also,
+pretty certainly the value sweeping would work better if already during the
+training run we would remove points (trajectories...) which are suboptimal
+due to a conflict at a lower level set. this might also be deteriorating
+training. essentially then we do the full, proper "substeps" strategy from
+in the beginning. not today though.

@@ -586,3 +586,33 @@ def plot_loss_distribution(loss_means):
 
 
 
+def plot_manifold(v_meanstds, vx_meanstds, vmap_params, problem_params):
+
+    # visualise the value function when just changing the angle, leaving
+    # the rest ("cartesian" states) fixed.
+
+    thetas = np.linspace(-np.pi, np.pi, 300)
+
+    xs = jax.vmap(lambda theta: np.array([0, 0, np.sin(theta), np.cos(theta), 0, 0, 0]))(thetas)
+
+    mus, sigmas = v_meanstds(xs, vmap_params)
+
+    ax = pl.subplot(211)
+    pl.plot(thetas, mus, label='value mean')
+    pl.fill_between(thetas, mus - sigmas, mus + sigmas, color='C0', alpha=.2, label=f'value 1σ confidence')
+    pl.legend()
+
+    vx_mu, vx_sigma = vx_meanstds(xs, vmap_params)
+
+    pl.subplot(212, sharex=ax)
+    pl.plot(thetas, vx_mu, label=problem_params['state_names'])
+
+    pl.gca().set_prop_cycle(None)
+
+    for j in range(7):
+        pl.fill_between(thetas, vx_mu[:, j] - vx_sigma[:, j], vx_mu[:, j] + vx_sigma[:, j], alpha=.2)
+
+    pl.legend()
+
+
+

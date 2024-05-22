@@ -28,10 +28,63 @@ import pprint
 from operator import itemgetter
 
 
+
+def find_min_l(ys, v_lower, v_upper, problem_params):
+
+    # find the smallest value of l(x, u) in the given value band
+    # in the dataset.
+
+    # yet another alternative: from each trajectory find the highest-v
+    # point below v_upper. not constant size but let's not care about those
+    # superficialities
+
+    # same as above
+    all_traj_idx = np.arange(ys['v'].shape[0])
+    top_per_traj_idx = np.argmax(ys['v'] * (ys['v'] < v_upper), axis=1)
+    ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], ys)
+
+    # but only use the trajectories that did not yet stop.
+    # = trajectories that have some v > v_upper.
+    crosses_v_upper = ((ys['v'] >= v_upper) & (ys['v'] < np.inf)).any(axis=1)
+
+    # but now caluclate all those l(x, u).
+
+    def l_of_y(y):
+        x = y['x']
+        vx = y['vx']
+        u = pontryagin_utils.u_star_general(x, vx, problem_params)
+        return problem_params['l'](x, u)
+
+    ls = jax.vmap(l_of_y)(ys_top)
+    ls_relevant = ls + np.nan * (~crosses_v_upper)
+    min_l = np.nanmin(ls_relevant)
+
+    return min_l
+
+
+def set_value_target(all_ys, v_k, problem_params, algo_params):
+
+    # value target = largest possible value target that still
+    # contains trajectories with time duration <= T_value_target.
+    # with this data based min_l as a surrogate for the actual
+    # min l over the next level band.
+
+    # use actual previous value level instead?
+    min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
+
+    # so min value step to ensure horizon <= T is T * smallest dv/dt
+    # min l = min dv/dt
+    v_step = algo_params['T_value_target'] * min_l
+    v_next = v_k + v_step
+
+    return v_next
+
+
 def main(problem_params, algo_params):
 
 
     print(f'jax default backend = {jax.default_backend()}')
+    pl.rcParams['figure.figsize'] = (16, 10)
 
     # possibly cleaner implementation of this.
     # idea: learn V(x) for some level set V(x) <= v_k.
@@ -40,7 +93,12 @@ def main(problem_params, algo_params):
     key = jax.random.PRNGKey(algo_params['seed'])
 
     # find terminal LQR controller and value function.
-    # ultimately generate the function unitsphere_to_dXf
+
+    # then define a function unitsphere_to_dXf, which we then feed with uniform
+    # points from the unitsphere to arrive at boundary conditions for first
+    # backward shooting step. (if initial_shooting == 'lqr' not quite)
+
+    # {{{
 
     # in manifold case, this is still something which we should do purely
     # on the tangent space...
@@ -182,24 +240,23 @@ def main(problem_params, algo_params):
         raise ValueError(f'initial shooting method {name} does not exist')
 
 
+
+
     # test if it worked
     V_f = lambda x: 0.5 * (x - problem_params['x_eq']).T @ P_lqr @ (x - problem_params['x_eq'])
     vfs = jax.vmap(V_f)(xfs)
 
+    # }}}
 
-    # this is not that precise in the manifold case.
-    # nevertheless we continue and assume that for small enough V_f it will still kind of work :)
-    # assert np.allclose(vfs, problem_params['V_f']), 'wrong terminal value...'
 
-    pl.rcParams['figure.figsize'] = (16, 10)
-
-    # pl.figure()
-    # pl.plot(sols.ys[:, :, 0].flatten(), sols.ys[:, :, 1].flatten(), '.-')
-    # pl.show()
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
         problem_params, algo_params
     )
+
+    # define lots of boring ass functions
+
+    # {{{
 
     def solve_backward_lqr(x_f, algo_params):
 
@@ -240,96 +297,6 @@ def main(problem_params, algo_params):
 
         pl.legend()
         pl.show()
-
-
-
-
-
-    # pl.figure('backward solver m(x)')
-    # pl.plot(jax.vmap(jax.vmap(problem_params['m']))(sols_orig.ys['x']).T, c='black', alpha=.1)
-    # pl.show()
-
-    def l_of_y(y):
-        x = y['x']
-        vx = y['vx']
-        u = pontryagin_utils.u_star_general(x, vx, problem_params)
-        return problem_params['l'](x, u)
-
-    l_of_y_vmapjit = jax.jit(jax.vmap(l_of_y))
-
-    def find_min_l(ys, v_lower, v_upper, problem_params):
-
-        # find the smallest value of l(x, u) in the given value band
-        # in the dataset. brute force -- calculates every l(x, u).
-
-        # in principle we should be able to find this info based on
-        # what we already calculated during the ODE solving, or even
-        # keep some "running min" that is updated at basically no cost.
-        # but this on the other hand is much simpler implementation wise.
-
-
-        '''
-        # double vmap because we have N_trajectories x N_timesteps ys
-        all_ls = jax.vmap(jax.vmap(l_of_y))(ys)
-
-        # single vmap in case we store it flattened again (N_pts,) or (N_pts, nx)
-        # all_ls = jax.vmap(l_of_y)(ys)
-
-        # add NaN to every x with v(x) > v_k
-        is_outside_valueband = ~np.logical_and(v_lower <= ys['v'], ys['v'] <= v_upper)
-        all_ls_masked = all_ls + (is_outside_valueband * np.inf)
-
-        min_l = np.nanmin(all_ls_masked)
-        '''
-
-
-        '''
-        # alternatively: fix number of points needed for estimation, take top-k that many points.
-        # N_est = 256
-        N_est = algo_params['initial_batchsize']
-        # ipdb.set_trace()
-
-        # for each trajectory, the index pointing to its largest v below v_upper.
-        top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
-        # some index magic to get a ys dict with all those points
-        all_traj_idx = np.arange(all_ys['v'].shape[0])
-        ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], all_ys)
-
-        # among those points, find the top-k.
-        # replace NaNs with 0.0. Although I'm not sure if NaNs can even occur here.
-        vs_top_nonan = np.where(np.isnan(ys_top['v']), 0., ys_top['v'])
-        top_vs, top_v_idx = jax.lax.top_k(vs_top_nonan, N_est)
-
-        ys_final = jtm(lambda node: node[top_v_idx], ys_top)
-
-        all_ls = l_of_y_vmapjit(ys_final)
-        min_l = np.nanmin(all_ls)
-        print(f'min l: {min_l:.3f}')
-        '''
-
-        # yet another alternative: from each trajectory find the highest-v
-        # point below v_upper. not constant size but let's not care about those
-        # superficialities
-
-        # same as above
-        all_traj_idx = np.arange(all_ys['v'].shape[0])
-        top_per_traj_idx = np.argmax(all_ys['v'] * (all_ys['v'] < v_upper), axis=1)
-        ys_top = jtm(lambda node: node[all_traj_idx, top_per_traj_idx], all_ys)
-
-        # but only use the trajectories that did not yet stop.
-        # = trajectories that have some v > v_upper.
-        crosses_v_upper = ((all_ys['v'] >= v_upper) & (all_ys['v'] < np.inf)).any(axis=1)
-
-        # but now caluclate all those l(x, u).
-        ls = jax.vmap(l_of_y)(ys_top)
-        ls_relevant = ls + np.nan * (~crosses_v_upper)
-        min_l = np.nanmin(ls_relevant)
-
-        return min_l
-
-
-
-
 
 
 
@@ -408,66 +375,11 @@ def main(problem_params, algo_params):
 
         return vx_mean, vx_std
 
-
     v_meanstds = jax.jit(jax.vmap(v_meanstd, in_axes=(0, None)))
     vx_meanstds = jax.jit(jax.vmap(vx_meanstd, in_axes=(0, None)))
 
 
-    def plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_k):
 
-        # choose random pairs of points in the currently "known" set.
-        # plot v along their connecting line.
-
-        v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
-        # select points from a thin value band.
-        usable = (v_means + 2*v_stds <= v_k) & (v_means - 2*v_stds >= v_k / 2)
-        ps = usable / usable.sum()
-
-        for j in range(20):
-
-            # select two points
-            pts = jax.random.choice(jax.random.PRNGKey(j), test_pts, shape=(2,), replace=False, p=ps)
-
-            # find the line connecting them
-            N = 201
-            xs = np.linspace(pts[0], pts[1], N)
-            xs = jax.vmap(problem_params['project_M'])(xs)
-            ts = np.linspace(0, 1, N)
-
-            # evaluate the value function along the line
-            line_ms, line_stds = v_meanstds(xs, params_sobolev_ens)
-
-            pl.plot(ts, line_ms, alpha=.1, c='C0')
-            pl.fill_between(ts, line_ms - line_stds, line_ms + line_stds, color='C0', alpha=.1)
-
-
-    def lipschitz_plot(all_ys):
-
-        # try to assess empirically whether assuming a lipschitz constant is in any way reasonable.
-        # lipschitz constants on this plot = line with slope L, such that everywhere y <= L x
-
-        usable_idx = all_ys['v'] < np.inf
-
-        all_xs = all_ys['x'][usable_idx]
-        all_vxs = all_ys['vx'][usable_idx]
-
-        N_pts = all_xs.shape[0]
-
-        # only do a small-ish subsample of possible pairs.
-        # could do ALL pairs but then quadratic complexity wrt the whole dataset...
-        key = jax.random.PRNGKey(666)
-        idx_pairs = jax.random.choice(key, all_vxs.shape[0], shape=(10000, 2))
-
-        # these are shaped (N_pairs, 2, nx)
-        x_pairs = all_xs[idx_pairs]
-        vx_pairs = all_vxs[idx_pairs]
-
-        x_diffnorms = np.linalg.norm(x_pairs[:, 0] - x_pairs[:, 1], axis=1)
-        vx_diffnorms = np.linalg.norm(vx_pairs[:, 0] - x_pairs[:, 1], axis=1)
-
-        pl.plot(x_diffnorms, vx_diffnorms, '. ', alpha=.1)
-        pl.xlabel('||x1 - x2||')
-        pl.ylabel('||vx1 - vx2||')
 
 
     def plot_decision_boundary(v_nn, vmap_params, problem_params):
@@ -499,36 +411,6 @@ def main(problem_params, algo_params):
 
         for j in range(7):
             pl.fill_between(ts, vx_mu[:, j] - vx_sigma[:, j], vx_mu[:, j] + vx_sigma[:, j], alpha=.2)
-
-        pl.legend()
-
-
-
-    def plot_manifold(v_nn, vmap_params, problem_params):
-
-        # visualise the value function when just changing the angle, leaving
-        # the rest ("cartesian" states) fixed.
-
-        thetas = np.linspace(-np.pi, np.pi, 300)
-
-        xs = jax.vmap(lambda theta: np.array([0, 0, np.sin(theta), np.cos(theta), 0, 0, 0]))(thetas)
-
-        mus, sigmas = v_meanstds(xs, vmap_params)
-
-        ax = pl.subplot(211)
-        pl.plot(thetas, mus, label='value mean')
-        pl.fill_between(thetas, mus - sigmas, mus + sigmas, color='C0', alpha=.2, label=f'value 1σ confidence')
-        pl.legend()
-
-        vx_mu, vx_sigma = vx_meanstds(xs, vmap_params)
-
-        pl.subplot(212, sharex=ax)
-        pl.plot(thetas, vx_mu, label=problem_params['state_names'])
-
-        pl.gca().set_prop_cycle(None)
-
-        for j in range(7):
-            pl.fill_between(thetas, vx_mu[:, j] - vx_sigma[:, j], vx_mu[:, j] + vx_sigma[:, j], alpha=.2)
 
         pl.legend()
 
@@ -778,56 +660,13 @@ def main(problem_params, algo_params):
 
         return solve_backward(state_f, v_upper=v_upper)
 
-
-    '''
-    # cover a couple different magnitudes
-    x0s = np.concatenate([
-        # jax.random.normal(jax.random.PRNGKey(0), shape=(100, 6)) * .1,
-        # jax.random.normal(jax.random.PRNGKey(1), shape=(100, 6)) * .3,
-        jax.random.normal(jax.random.PRNGKey(2), shape=(100, 6)) * 1,
-        # jax.random.normal(jax.random.PRNGKey(3), shape=(100, 6)) * 3,
-        jax.random.normal(jax.random.PRNGKey(4), shape=(100, 6)) * 10,
-    ], axis=0)
-
-    # sol = forward_sim_nn(x0s[0], params)
-    # sols         = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params)
-    # sols_sobolev = jax.vmap(forward_sim_nn, in_axes=(0, None))(x0s, params_sobolev)
-    # sols_sobolev_ens = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, params_sobolev_ens, True)
-
-    # visualiser.plot_trajectories_meshcat(sols, color=(.5, .7, .5))
-    # visualiser.plot_trajectories_meshcat(sols_sobolev)
-    # visualiser.plot_trajectories_meshcat(sols_sobolev_ens)
-    # visualiser.plot_trajectories_meshcat(sols_lqr, color=(.4, .8, .4))
-    '''
+    # }}}
 
 
 
-    def set_value_target(all_ys, v_k):
+    # define main active learning ingredients: proposals, oracle, prune&train function.
 
-        # also, in an initial step we should verify that v_k represents an accurate value level set
-        # (or just start with it really low, maybe just lqr solution too.)
-
-        # be generous!
-        # value_interval = [0., v_k*2]
-
-        # instead calculate a more educated guess like this:
-        # TODO make this configurable via algo_params
-        # and get the time constant from problemparams...
-        # fastestpole_tau = .49  # from LQR solution.
-        # T = 2 * fastestpole_tau
-
-        T = algo_params['T_value_target']
-
-        # use actual previous value level instead?
-        min_l = find_min_l(all_ys, v_k/2, v_k, problem_params)
-
-        # so min value step to ensure horizon <= T is T * smallest dv/dt
-        # min l = min dv/dt
-        v_step = T * min_l
-        v_next = v_k + v_step
-
-        return v_next
-
+    # {{{
 
     def propose_pts(key, v_k, v_next, vmap_nn_params, data_extent, algo_params):
 
@@ -1291,16 +1130,25 @@ def main(problem_params, algo_params):
 
         return forward_sols, backward_sols, metrics
 
+
     def prune_and_train(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
 
-        # what if we first do a simpler version of this prune_and_train thing?
-        # consisting of just one step instead of a loop with sub-valuesteps.
-        #  a) prune the (parts of) solutions that are clearly suboptimal
-        #     (optimally just enough to avoid conflicts...)
-        #  a) add to training data, train.
+        # these steps:
+        # 1. mark data which we already know to be suboptimal as such
+        #    (based on knowing a better solution at that point already)
+        # 2. train the nn for the 1st time
+        #    while gradually expanding the domain of training data (algo_params['nn_value_sweep'])
+        #    with huber type losses to not break everything on conflicting data
+        # 3. remove (= mark suboptimal) all the data that falls into the linear huber regions
+        #    meaning the NN could not fit it (easily enough).
+        # 4. train a second time with this "cleaned" dataset, just to remove the
+        #    artefacts from outlier data in first training round, by settling into the
+        #    equilibrium between gradient & weight decay.
 
-        # mark clearly suboptimal data.
 
+        # 1. mark clearly suboptimal data.
+
+        # {{{
         v_lower, v_upper = v_interval
 
         v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
@@ -1342,138 +1190,10 @@ def main(problem_params, algo_params):
             # clear out everything above the lower value level if there is a suboptimal point in the trajectory.
             is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
 
+        else:
+            pruning_strategy = algo_params['pruning_strategy']
+            raise ValueError(f'unknown pruning strategy "{pruning_strategy}"')
 
-
-        elif algo_params['pruning_strategy'] == 'lipschitz':
-
-            raise NotImplementedError()
-            # instead do this anyway to get a feel for the behaviour of those lipschitz constants.
-
-            # Pruning based both on both V and Vx being Lipschitz, or similar.
-            # for more see log 2024-04-24, or idea dump, PruneAndTrain.
-
-            # 1. prune according to conservative_future. this eliminates all
-            # points we know to be suboptimal due to the already known value
-            # level set.
-
-            # 2. prune according to value lipschitz / value local bounded
-            # gradient condition. This eliminates points that are known to be
-            # suboptimal because another "close" solution plus the
-            # lipschitz/bounded gradient upper bound imply that a better
-            # solution exists.
-
-            # 3. prune according to vx lipschitz condition. This also need some
-            # further thought before implementation. But the idea is: assume
-            # Lipschitz constant for vx, then eliminate data inconsistent with
-            # that assumption. This *should* lead to removal of points "too"
-            # close to our celebrated watersheds, making NN fitting easier. I
-            # dunno, maybe we can also drop this step though.
-
-            # i kinda prefer to think of 2 and 3 as one step though. like:
-            # for each pair of points i, j:
-            #  - if lipschitz upper bound of i at j > v_j: mark j suboptimal
-            #  - conversely too
-            #  - if both are still not labeled suboptimal AND they jointly violate the
-            #    vx lipschitz bound, remove them both.
-
-            # pruning based on already knowing a better solution.
-            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
-            trajectory_outside_levelset = v_lower < all_ys['v']
-            is_suboptimal_Vk = trajectory_outside_levelset & nn_v_likely_in_levelset
-            is_suboptimal_Vk = np.cumsum(is_suboptimal_Vk, axis=1) > 0
-
-            # lipschitz constants.
-
-            # to find a better number for L_v, we can locally around each data
-            # point look at the values of vx and take the largest norm.
-            # or better than lipschitz altogether, assume gradient-boundedness according to the closest couple vx's...
-
-            L_v = algo_params['L_v']
-            # easy lower bound: max eigenvalue of P_lqr which is about 329.
-            L_vx = algo_params['L_vx']
-
-
-            # or just this (inf condition implied by v < v_upper)
-            remaining = (~is_suboptimal_Vk) & (all_ys['v'] > v_lower) & (all_ys['v'] < v_upper)
-
-            print(f'remaining points for O(n^2) lipschitz stuff: {remaining.sum()}')
-
-            all_ys_remaining = jtm(lambda node: node[remaining], all_ys)
-
-            # Now, we first do the value-based lipschitz pruning, meaning
-            # concretely that for any pair x1, x2, we remove x1 if:
-            #     v(x1) > v(x2) + L_v * ||x1 - x2||
-            #     v(x1) - v(x2) > L_v * ||x1 - x2||
-            # not doing the abs conveniently only flags suboptimal solutions,
-            # not the "super-optimal" solution when the same variables appear
-            # in reverse order.
-
-            # wtf man I typed "lhs/rhs =" and and copilot knew what to do!!!
-            # x1 -> [:, None], x2 -> [None, :] (rows = x1, columns = x2)
-            lhs = all_ys_remaining['v'][:, None] - all_ys_remaining['v'][None, :]
-            x_diffs = all_ys_remaining['x'][:, None] - all_ys_remaining['x'][None, :]
-            x_diffnorms = np.linalg.norm(x_diffs, axis=-1)
-            rhs = L_v * x_diffnorms
-
-            # tiny epsilon to avoid float errors messing up the diagonal (where the two sides are equal)
-            v_lipschitz_comparisons = lhs > rhs + 1e-6
-            suboptimal_V_lipschitz = (v_lipschitz_comparisons).any(axis=1)
-
-            # print( 'v lipschitz comparison')
-            # print(f'    {v_lipschitz_comparisons.sum()} contradictions in {v_lipschitz_comparisons.size} comparisons')
-            # print(f'    marking {suboptimal_V_lipschitz.sum()} / {suboptimal_V_lipschitz.size} points suboptimal')
-            pruning_metrics['N_points_pruning'] = remaining.sum()
-            pruning_metrics['frac_suboptimal_V_lip'] = suboptimal_V_lipschitz.mean()
-
-            # also, the vx lipschitz constant gives us another upper bound --
-            # considering these two jointly could give an even better bound
-            # assume form of the upper bound:
-            #     V(x2) <= V(x1) + Vx(x1) (x2-x1) + C/2 || x2 - x1 ||^2
-
-            # the gradient of this upper bound is Vx(x1) + C (x2 - x1). this
-            # gradient is Lipschitz continuous with lipschitz constant C, with
-            # the lipschitz condition tight for any two points. Thus the upper
-            # bound holds for our value function, with C = L_vx. Thus, if this
-            # upper bound is dissatisfied for some pair of points, we may also
-            # consider the higher-value one suboptimal. reorder:
-            #     V(x2) - V(x1) <= Vx(x1) (x2-x1) + C/2 || x2 - x1 ||^2
-            # if this does not hold, we consider the datapoint at x2 suboptimal
-
-
-            # flip x1 and x2 to operate over rows like before.
-            #     V(x1) - V(x2) <= Vx(x2) (x1-x2) + C/2 || x1 - x2 ||^2
-            # if this does not hold, we consider the datapoint at x1 suboptimal
-
-            # lhs = V(x1) - V(x2) same as before
-            vx_dot_xdiff_vmapped = jax.vmap(jax.vmap(np.dot, in_axes=(0, 0)), in_axes=(None, 0))(all_ys_remaining['vx'], x_diffs)
-
-            rhs = vx_dot_xdiff_vmapped + 0.5 * L_vx * x_diffnorms
-
-            vx_lipschitz_comparisons = lhs > rhs + 1e-6
-            suboptimal_Vx_lipschitz = (vx_lipschitz_comparisons).any(axis=1)
-
-            # print( 'vx lipschitz comparison')
-            # print(f'    {vx_lipschitz_comparisons.sum()} contradictions in {vx_lipschitz_comparisons.size} comparisons')
-            # print(f'    marking {suboptimal_Vx_lipschitz.sum()} / {suboptimal_Vx_lipschitz.size} points suboptimal')
-            pruning_metrics['frac_suboptimal_Vx_lip'] = suboptimal_Vx_lipschitz.mean()
-
-            # 'collect' the results of these two types of lipschitz comparisons.
-            is_suboptimal_primary = np.logical_or(suboptimal_V_lipschitz, suboptimal_Vx_lipschitz)
-            print(f'both: marking {is_suboptimal_primary.sum()} / {is_suboptimal_primary.size} points suboptimal')
-
-            # finally, we want to remove "conflicting" vx data that violates
-            # the vx lipschitz condition itself, which reads:
-            #     || Vx(x1) - Vx(x2) || <= L_vx ||x1 - x2||
-            vx_diffs = all_ys_remaining['vx'][:, None] - all_ys_remaining['vx'][None, :]
-            violates_vx_lipschitz = np.linalg.norm(vx_diffs, axis=-1) > L_vx * x_diffnorms
-
-            # ... but only at points which we have not already marked suboptimal.
-            violates_vx_lipschitz_relevant = violates_vx_lipschitz.at[is_suboptimal_primary, :].set(False)
-            violates_vx_lipschitz_relevant = violates_vx_lipschitz_relevant.at[:, is_suboptimal_primary].set(False)
-
-
-            # 'translate' these indices back to the full array
-            is_suboptimal = np.zeros_like(all_ys['v'], dtype=bool).at[remaining].set(is_suboptimal_primary)
 
         # do this cumsum step here? for ANY pruning strategy this is the
         # reasonable last step...
@@ -1482,13 +1202,13 @@ def main(problem_params, algo_params):
         # though in array indices they are the subsequent ones. all correct.
         is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
-
         # keep suboptimal points marked suboptimal
         is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
 
         # next step: build training data out of this pruned mess.
         in_band = (all_ys['v'] <= v_upper)
 
+        # this has proven not to be a great idea...
         if algo_params['include_future_data']:
             # just randomly throw in a bit more data for training.
             v_upper_train = v_upper + (v_upper - v_lower)
@@ -1503,15 +1223,15 @@ def main(problem_params, algo_params):
 
 
         bool_train_idx = in_band & ~is_suboptimal
+        # }}}
 
-        # b) train the NN again, while ignoring data marked as suboptimal.
-        # easiest thing to do here: extract training data like in mockup, make new array.
-        # surely we can optimise this and keep fixed shapes for jit.
+        # 2. train the NN for the first time.
+
+        # {{{
+
         usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
 
-
-        print(f'total data points: {usable_ys["v"].shape[0]}')
-
+        # print(f'total data points: {usable_ys["v"].shape[0]}')
 
 
         # split into train/test set.
@@ -1522,12 +1242,14 @@ def main(problem_params, algo_params):
         # test_ys_n = normaliser.normalise_all_dict(test_ys)
 
         init_key, key = jax.random.split(key)
-        params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
+        # params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
 
         # only count each individual NN's params to assess under/overparameterisation
-        n_params = count_floats(params_init)
+        # n_params = count_floats(params_init)
+
+        n_params = count_floats(params_sobolev_ens) / algo_params['nn_ensemble_size']
         n_data = count_floats(train_ys)
-        print(f'params/data ratio = {n_params/n_data:.4f}')
+        pruning_metrics['params_data_ratio'] = n_params / n_data
 
         params_old = params_sobolev_ens
 
@@ -1543,6 +1265,7 @@ def main(problem_params, algo_params):
             params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
                 train_key, train_ys, problem_params, algo_params
             )
+        # }}}
 
         # mean of the last couple iterations.
         final_trainloss = oups_sobolev_ens['lossterms']['total_loss'].mean(axis=0)[-100:].mean()
@@ -1554,16 +1277,9 @@ def main(problem_params, algo_params):
         pruning_metrics['final_trainloss'] = final_trainloss
         pruning_metrics['final_testloss'] = final_testloss
 
+        # 3. classify outliers
 
-        '''
-        # udpated plan: throw out everything which:
-        #  - any huber loss classifies as an outlier
-        #  - also is in the current value level slice (otherwise we might end up removing more and more old data making the function "artificially" smooth)
-
-        # ipdb.set_trace()
-        all_losses = jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
-        '''
-
+        # {{{
 
         # evaluate all this stuff again yolo
         v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
@@ -1589,7 +1305,7 @@ def main(problem_params, algo_params):
         is_new = (v_lower <= usable_ys['v']) & (usable_ys['v'] <= v_upper)
 
         new_suboptimal = is_outlier & is_new
-        # old_suboptimal = is_suboptimal[bool_train_idx]
+
 
         # now: update the full is_suboptimal array with these new indices
         # is_suboptimal[bool_train_idx] = new_suboptimal
@@ -1599,11 +1315,13 @@ def main(problem_params, algo_params):
         # then the cumsum thing
         is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
 
-        # then second training run.
-        # TODO last thing: switch huber loss to quadratic loss here.
+        # }}}
 
-        # TODO after that: find out if we can skimp on initial epochs with
-        # large lr here, probably yes
+        # 4. second training run.
+
+        # {{{
+        # TODO last thing: switch huber loss to quadratic loss here.
+        # --> probably not relevant if removing outliers anyway.
 
         bool_train_idx = in_band & ~is_suboptimal
         usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
@@ -1628,6 +1346,8 @@ def main(problem_params, algo_params):
             params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble(
                 train_key, train_ys, problem_params, algo_params_second
             )
+
+        # }}}
 
         # mean of the last couple iterations.
         # ipdb.set_trace()
@@ -1663,8 +1383,6 @@ def main(problem_params, algo_params):
 
     @jax.jit
     def estimate_value_level(v_means, v_stds, test_pts_known, upper_v=np.inf):
-
-        # this function could also try to detect learning failure...
 
         # estimate "known" value level based on finite test points set.
 
@@ -1774,7 +1492,13 @@ def main(problem_params, algo_params):
 
         return v_k, new_testpts_known, metrics
 
+    # }}}
 
+
+
+    # initial training run
+
+    # {{{
 
     # choose initial value level.
 
@@ -1792,6 +1516,7 @@ def main(problem_params, algo_params):
     '''
 
     all_ys = select_train_pts([0., v_k], sols_orig)
+
     # split into train/test set.
     train_ys, test_ys = nn_utils.train_test_split(all_ys, train_frac=algo_params['nn_train_fraction'])
 
@@ -1852,27 +1577,18 @@ def main(problem_params, algo_params):
 
         if problem_params['m'] is not None:
             pl.figure('manifold')
-            plot_manifold(v_nn, params_sobolev_ens, problem_params)
+            plotting_utils.plot_manifold(v_meanstds, vx_meanstds, params_sobolev_ens, problem_params)
 
         pl.show()
 
 
-
-    all_ys = sols_orig.ys
-    is_suboptimal = np.zeros_like(all_ys['v']).astype(bool)
+    # }}}
 
 
-    # more detailed plots w/ savefig.
-    pl.rcParams['figure.figsize'] = (16, 9)
 
+    # set up data saving & tracking stuff
 
-    v_next_target = np.inf
-
-    vks = []
-
-    # triple vmap to evaluate sobolev ensemble losses at all data points:
-    # jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
-
+    # {{{
 
     # euler scratch directory structure:
     # $SCRATCH
@@ -1926,6 +1642,16 @@ def main(problem_params, algo_params):
         os.makedirs(fig_dir, exist_ok=True)
         print(f'saving figures in {fig_dir}')
 
+    # }}}
+
+
+
+    # main active learning loop!!
+
+    all_ys = sols_orig.ys
+    is_suboptimal = np.zeros_like(all_ys['v']).astype(bool)
+    v_next_target = algo_params['v_init']
+
     for k in range(100):
 
         print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')
@@ -1936,7 +1662,7 @@ def main(problem_params, algo_params):
         v_k, test_pts_known, estimator_metrics = estimate_value_level(v_means, v_stds, test_pts_known, upper_v=v_next_target)
 
         # set next value target
-        v_next_target = set_value_target(all_ys, v_k)
+        v_next_target = set_value_target(all_ys, v_k, problem_params, algo_params)
 
         # estimate extent of next level set based on already present data.
         is_in_Vnext = v_means <= v_next_target
@@ -1992,7 +1718,9 @@ def main(problem_params, algo_params):
         all_oups = oups
 
 
-        # metric tracking :)
+        # tracking, saving, plotting type stuff
+
+        # {{{
 
         # if a key is repeated apparently the latter one is used. but don't repeat keys!
         full_logdict = {
@@ -2071,15 +1799,17 @@ def main(problem_params, algo_params):
 
             if problem_params['m'] is not None:
                 with plot_saver('manifold'):
-                    plot_manifold(v_nn, params_sobolev_ens, problem_params)
+                    plotting_utils.plot_manifold(v_meanstds, vx_meanstds, params_sobolev_ens, problem_params)
 
             if problem_params['system_name'] == 'flatquad':
 
                 with plot_saver('decision_boundary'):
                     plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
 
+                '''
                 with plot_saver('value_lines'):
                     plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
+                '''
 
 
             # sift out the data that we used during training.
@@ -2115,4 +1845,5 @@ def main(problem_params, algo_params):
         if algo_params['ipdb_interval'] > 0 and k % algo_params['ipdb_interval'] == 0:
             ipdb.set_trace()
 
+        # }}}
 

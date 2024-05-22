@@ -18,3 +18,4 @@ slurm-*.out
 output.mp4
 figures_*
 run_*
+euler_runs/

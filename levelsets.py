@@ -2010,9 +2010,22 @@ def testbed(problem_params, algo_params):
     # jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
+    # euler scratch directory structure:
+    # $SCRATCH
+    #     flatquad_runs
+    #         <run ID>
+    #             figures
+    #                 stuff.png
+    #             all_data.msgpack.gz
+    #     orbits_runs
+    #         <same>
+    #     ...
+
     if 'SCRATCH' in os.environ:
         # assume we are on euler, save wandb files in scratch!
-        save_dir = os.environ['SCRATCH']
+        sys = problem_params['system_name']
+        save_dir = os.path.join(os.environ['SCRATCH'], f'{sys}_runs')
+        os.makedirs(save_dir, exist_ok=True)
     else:
         # for quick local runs we don't have too much data
         save_dir = '.'

@@ -962,7 +962,6 @@ class nn_wrapper():
         algo_params_warmstart = algo_params.copy()
         portion = algo_params['nn_warmstart_fraction']   # repeat the last "portion" of the usual training loop.
         algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
-        algo_params_warmstart['nn_N_epochs'] = int(algo_params['nn_N_epochs'] * portion)
         # algo_params_warmstart['lr_init'] = algo_params['lr_final'] * (algo_params['lr_init'] / algo_params['lr_final']) ** portion
 
         # seemed to make it worse :(

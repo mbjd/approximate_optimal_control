@@ -1268,14 +1268,18 @@ def main(problem_params, algo_params):
         # }}}
 
         # mean of the last couple iterations.
-        final_trainloss = oups_sobolev_ens['lossterms']['total_loss'].mean(axis=0)[-100:].mean()
+        final_trainloss = oups_sobolev_ens['lossterms']['total_loss'][:, -100:].mean()
 
         # and loss over test set.
         test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
         final_testloss = np.mean(test_losses)
 
+        # weight norm is not stochastically approximated so we can use just the last one.
+        final_weightnorm = oups_sobolev_ens['weight_norm'][:, -1].mean()
+
         pruning_metrics['final_trainloss'] = final_trainloss
         pruning_metrics['final_testloss'] = final_testloss
+        pruning_metrics['final_weightnorm'] = final_weightnorm
 
         # 3. classify outliers
 
@@ -1351,17 +1355,21 @@ def main(problem_params, algo_params):
 
         # mean of the last couple iterations.
         # ipdb.set_trace()
-        final_trainloss = oups_sobolev_ens_new['lossterms']['total_loss'].mean(axis=0)[-100:].mean()
+        final_trainloss = oups_sobolev_ens_new['lossterms']['total_loss'][:, -100:].mean()
 
         # and loss over test set.
         test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
         final_testloss = np.mean(test_losses)
 
+        final_weightnorm = oups_sobolev_ens_new['weight_norm'][:, -1].mean()
+
         pruning_metrics['final_trainloss_second'] = final_trainloss
         pruning_metrics['final_testloss_second'] = final_testloss
-        # ipdb.set_trace()
+        ipdb.set_trace()
 
-        # all these shapes are (N_nn_ensemble, N_trainsteps) -- ofc we want the secon
+        pruning_metrics['final_weightnorm_second'] = final_weightnorm
+
+        # all these shapes are (N_nn_ensemble, N_trainsteps) -- ofc we want concatenation along trainsteps
         oups_sobolev_ens = jtm(lambda a, b: np.concatenate([a, b], axis=1), oups_sobolev_ens, oups_sobolev_ens_new)
 
         return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, pruning_metrics

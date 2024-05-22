@@ -158,59 +158,6 @@ def plot_ellipse(Q, N_pts=101):
 
 
 
-def plot_nn_train_outputs_old(outputs):
-
-    pl.figure('NN training visualisation', figsize=(15, 10))
-
-    # outputs is a dict where keys are different outputs, and the value
-    # is an array containing that output for ALL relevant training iterations,
-
-    cs = ['tab:blue', 'tab:green', 'tab:red']
-    c=0
-    a = .2
-
-    # training subplot
-    ax1 = pl.subplot(211)
-
-    make_nice = lambda s: s.replace('_', ' ')
-
-    for k in outputs.keys():
-        if 'train' in k:
-            if len(outputs[k].shape) == 2:
-                # NN ensemble
-                N_ens, Nt = outputs[k].shape
-                labels = ['' for i in range(N_ens)]
-                labels[0] = make_nice(k)
-                pl.semilogy(outputs[k].T, label=labels, alpha=a, c=cs[c])
-                c = c+1
-            else:
-                pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
-    pl.grid(axis='both')
-    # pl.ylim([1e-3, 1e3])
-    pl.legend()
-
-    # testing subplot
-    pl.subplot(212, sharex=ax1, sharey=ax1)
-    pl.gca().set_prop_cycle(None)
-    c = 0
-
-    for k in outputs.keys():
-        if 'test' in k:
-            if len(outputs[k].shape) == 2:
-                # NN ensemble
-                N_ens, Nt = outputs[k].shape
-                labels = ['' for i in range(N_ens)]
-                labels[0] = make_nice(k)
-                pl.semilogy(outputs[k].T, label=labels, alpha=a, c=cs[c])
-                c = c+1
-            else:
-                pl.semilogy(outputs[k], label=make_nice(k), alpha=0.8)
-        if 'lr' in k:
-            pl.semilogy(outputs[k], label='learning rate', linestyle='--', color='gray', alpha=.5)
-    pl.grid(axis='both')
-    # pl.ylim([1e-3, 1e3])
-    pl.legend()
-
 
 
 
@@ -319,36 +266,6 @@ def plot_trajectory_vs_nn_ensemble(sol, vmapped_params, v_nn_unnormalised):
 
 
 
-def plot_nn_train_outputs_basic(outputs, alpha=.5, legend=True):
-
-    # pl.figure('NN training visualisation', figsize=(15, 10))
-
-    # make this great again?
-    # (by handling nn ensemble case and absence of test data...)
-    ipdb.set_trace()
-
-    # training subplot
-    ax = pl.subplot(211)
-    ax.set_prop_cycle(None)
-    pl.loglog(outputs['train_loss_terms'], label=('v', 'vx', 'vxx'), alpha=alpha)
-    pl.ylabel('training losses')
-    pl.grid('on')
-
-    if legend:
-        pl.legend()
-
-    # test subplot
-    ax = pl.subplot(212, sharex=ax, sharey=ax)
-    ax.set_prop_cycle(None)
-    pl.loglog(outputs['test_loss_terms'], label=('v', 'vx', 'vxx'), alpha=alpha)
-    pl.ylabel('test losses (fixed PRNGKey)')
-    pl.grid('on')
-
-    pl.loglog(outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=alpha)
-
-    if legend:
-        pl.legend()
-
 
 
 def plot_nn_train_outputs(outputs, subsample=256):
@@ -405,36 +322,19 @@ def plot_nn_train_outputs(outputs, subsample=256):
 
     pl.semilogy(outputs['iters'], outputs['lr'], label='learning rate', linestyle='--', color='gray', alpha=.5)
 
+    if 'v_sweep' in outputs:
+        pl.semilogy(outputs['iters'], outputs['v_sweep'], label='v sweep', linestyle='--', alpha=.5)
+
+    if 'weight_norm' in outputs:
+        pl.semilogy(outputs['iters'], outputs['weight_norm'], label='weight norm', linestyle='--', alpha=.5)
+
+
     for k in outputs['lossterms']:
         pl.semilogy(outputs['iters'], outputs['lossterms'][k], alpha=.3, label=f'train {k}')
     pl.legend()
     pl.grid('on')
     pl.ylim([1e-5, 1e3])
 
-    '''
-    if has_test:
-        pl.subplot(212, sharex=ax, sharey=ax)
-        for k in outputs['test_loss_terms']:
-            pl.semilogy(outputs['iters'], outputs['test_loss_terms'][k], alpha=.3, label=f'test {k}')
-
-        pl.legend()
-        pl.grid('on')
-
-        pl.figure()
-        # make another plot - train loss vs test loss with line y=x for comparison.
-        if not  outputs['test_loss_terms'].keys() == outputs['train_loss_terms'].keys():
-            print('plot_nn_train_outputs: different keys for train/test data, kinda sus')
-
-        for k in outputs['train_loss_terms']:
-            pl.loglog(outputs['train_loss_terms'][k], outputs['test_loss_terms'][k], alpha=.3, label=k)
-        pl.loglog([1e-8, 1e3], [1e-8, 1e3], linestyle='--', alpha=.3, c='black')
-        pl.xlabel('training losses')
-        pl.ylabel('test losses')
-        pl.xlim([1e-5, 1e3])
-        pl.ylim([1e-5, 1e3])
-        pl.grid('on')
-        pl.legend()
-    '''
 
 
 

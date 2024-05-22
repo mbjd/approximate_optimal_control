@@ -698,6 +698,7 @@ def base_algo_params():
 
         # if log_min_scale != 0, this will scale half the points down with a
         # logarithmically scaled factor, while the other half will stay the same.
+        log_min_scale = -np.abs(log_min_scale)
         scales = np.clip(np.logspace(log_min_scale, -log_min_scale, N), -np.inf, 1.)[:, None]
 
         pts = jax.vmap(sample_state, in_axes=(0, None, 0))(keys, extent, scales)

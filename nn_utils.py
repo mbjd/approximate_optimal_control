@@ -885,6 +885,10 @@ class nn_wrapper():
 
             aux_output['lr'] = lr_schedule(opt_state[0].count)
 
+            node_squared_norms = jtm(lambda w: np.sum(w**2), nn_params_new)
+            tree_squared_norm =  jax.tree_util.tree_reduce(operator.add, node_squared_norms)
+            aux_output['weight_norm'] = np.sqrt(tree_squared_norm)
+
             if algo_params['nn_value_sweep']:
                 aux_output['v_sweep'] = v_upper
 

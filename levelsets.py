@@ -28,21 +28,7 @@ import pprint
 from operator import itemgetter
 
 
-
-
-
-
-
-
-
-
-
-
-
 def main(problem_params, algo_params):
-    pass
-
-def testbed(problem_params, algo_params):
 
 
     print(f'jax default backend = {jax.default_backend()}')

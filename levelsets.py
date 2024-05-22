@@ -20,6 +20,7 @@ import meshcat.geometry as geom
 import meshcat.transformations as tf
 
 import os
+import gzip
 import ipdb
 import time
 import tqdm
@@ -1315,7 +1316,7 @@ def testbed(problem_params, algo_params):
 
         # oops did many of these on euler. but i think it just ignores it
         if algo_params['showfigs']:
-            pl.figure('proposals akshualliyiieh')
+            pl.figure('proposals')
             if problem_params['nx'] == 2:
                 pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
                 pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
@@ -2006,28 +2007,24 @@ def testbed(problem_params, algo_params):
     vks = []
 
     # triple vmap to evaluate sobolev ensemble losses at all data points:
-    #  jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
+    # jax.vmap(jax.vmap(jax.vmap(v_nn.sobolev_loss, in_axes=(None, 0, None, None, None)), in_axes=(None, 0, None, None, None)), in_axes=(None, None, 0, None, None))(key, all_ys, params_sobolev_ens, problem_params, algo_params)
 
 
-    figdir = './tmp/'
+    if 'SCRATCH' in os.environ:
+        # assume we are on euler, save wandb files in scratch!
+        save_dir = os.environ['SCRATCH']
+    else:
+        # for quick local runs we don't have too much data
+        save_dir = '.'
+
 
     if algo_params['wandb']:
-        # algo_params_for_aim = just the algoparams that are not weird types like
-        # functions. the only functions we have are the sample_state ones and they
-        # are not really relevant here.
-        algo_params_clean = {k: v for k, v in algo_params.items() if not callable(v)}
 
         # start a new wandb run to track this script
         projectname = 'levelsets_' + problem_params['system_name']
 
 
-        if 'SCRATCH' in os.environ:
-            # assume we are on euler, save wandb files in scratch!
-            save_dir = os.environ['SCRATCH']
-        else:
-            # for quick local runs we don't have too much data
-            save_dir = '.'
-
+        algo_params_clean = {k: v for k, v in algo_params.items() if not callable(v)}
         wandb.init(
             # set the wandb project where this run will be logged
             project=projectname,
@@ -2038,13 +2035,19 @@ def testbed(problem_params, algo_params):
         )
 
         # save figures on euler scratch or locally to not destroy wandb storage
-        figdir = os.path.join(save_dir, f'figures_{wandb.run.id}')
-        os.makedirs(figdir, exist_ok=True)
+        run_dir = os.path.join(save_dir, str(wandb.run.id))
 
-        nn_params_artefact = wandb.Artifact('nn_params', type='model')
+    else:
+        # still make a local folder for figs & pickles, name it with timestamp.
+        t = int(time.time())
+        run_dir = os.path.join(save_dir, f'run_{t}')
+        os.makedirs(run_dir, exist_ok=True)
+
 
     if algo_params['savefigs']:
-        print(f'saving figures in {figdir}')
+        fig_dir = os.path.join(run_dir, 'figures')
+        os.makedirs(fig_dir, exist_ok=True)
+        print(f'saving figures in {fig_dir}')
 
     for k in range(100):
 
@@ -2137,6 +2140,17 @@ def testbed(problem_params, algo_params):
         else:
             pprint.pprint(full_logdict)
 
+        # save dataset in scratch.
+        all_data = {
+            'step': k,
+            'ys': all_ys,
+            'is_suboptimal': is_suboptimal
+        }
+
+        bs = flax.serialization.msgpack_serialize(all_data)
+
+        with gzip.open(os.path.join(run_dir, 'all_data.msgpack.gz'), 'wb') as f:
+            f.write(bs)
 
         # figure plotting :))
         if algo_params['savefigs'] or algo_params['showfigs'] or algo_params['wandbfigs']:
@@ -2154,7 +2168,7 @@ def testbed(problem_params, algo_params):
                 def __exit__(self, exception_type, exception_value, exception_traceback):
 
                     if algo_params['savefigs']:
-                        pl.savefig(os.path.join(figdir, f'{self.name}_{k:04d}.png'))
+                        pl.savefig(os.path.join(fig_dir, f'{self.name}_{k:04d}.png'))
 
                     if algo_params['wandb'] and algo_params['wandbfigs']:
                         wandb.log({self.name : wandb.Image(self.fig)}, step=k)

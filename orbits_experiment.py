@@ -237,11 +237,8 @@ def base_algo_params():
         # OUTPUT & VISUALISATION
         'wandb': False,
 
-        # save figures on filesystem.
-        'savefigs': False,
-        # track figures with aim.
-        'wandbfigs': True,
-        # show figures in UI (blocking!)
+        'savefigs': True,
+        'wandbfigs': False,
         'showfigs': True,
 
         'ipdb_interval': 8,

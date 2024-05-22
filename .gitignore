@@ -17,3 +17,4 @@ wandb/
 slurm-*.out
 output.mp4
 figures_*
+run_*

@@ -580,14 +580,16 @@ def base_algo_params():
 
         # NN ARCHITECTURE & TRAINING
         'nn_type': 'leaky',
-        'nn_layerdims': (32, 32, 32),
-        # 'nn_layerdims': (64, 64, 64),
+        # 'nn_layerdims': (16, 16, 16),
+        # 'nn_layerdims': (32, 32, 32),
+        'nn_layerdims': (64, 64, 64),
         # 'nn_layerdims': (128, 128, 128),
+        # 'nn_layerdims': (256, 256, 256),
         # 'nn_layerdims': (512, 512, 512),
         # 'nn_layerdims': (32, 32, 32, 32),
         # 'nn_layerdims': (128, 8),
         'nn_batchsize': 32,
-        'nn_N_epochs': 1024,
+        'nn_N_epochs': 512,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
@@ -677,11 +679,8 @@ def base_algo_params():
         # OUTPUT & VISUALISATION
         'wandb': False,
 
-        # save figures on filesystem.
-        'savefigs': False,
-        # track figures with aim.
-        'wandbfigs': True,
-        # show figures in UI (blocking!)
+        'savefigs': True,
+        'wandbfigs': False,
         'showfigs': True,
 
         'ipdb_interval': 8,

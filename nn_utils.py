@@ -849,9 +849,9 @@ class nn_wrapper():
                 #     v_upper = input_slice
                 # here breaks jax_tqdm. so instead we pass the step k in here and
                 # calculate v_upper like this:
-                step = input_slice
 
                 # constant sweep
+                step = input_slice
                 frac = step / total_iters
 
                 # sweep with staircase thing
@@ -863,9 +863,6 @@ class nn_wrapper():
 
                 v_upper = frac * vnext + (1-frac) * vk
 
-                # possible variation on the theme: sample according to some
-                # probability that drops off smoothly around v_upper. not sure
-                # what would be the use though
                 do_sample = ys['v'] <= v_upper
 
                 # also correspondingly sweep up the lower bound

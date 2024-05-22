@@ -29,6 +29,8 @@ from operator import itemgetter
 
 
 
+# helper functions {{{
+
 def find_min_l(ys, v_lower, v_upper, problem_params):
 
     # find the smallest value of l(x, u) in the given value band
@@ -79,6 +81,8 @@ def set_value_target(all_ys, v_k, problem_params, algo_params):
 
     return v_next
 
+# }}}
+
 
 def main(problem_params, algo_params):
 
@@ -86,19 +90,14 @@ def main(problem_params, algo_params):
     print(f'jax default backend = {jax.default_backend()}')
     pl.rcParams['figure.figsize'] = (16, 10)
 
-    # possibly cleaner implementation of this.
-    # idea: learn V(x) for some level set V(x) <= v_k.
-    # once we have that, increase v_k.
-
     key = jax.random.PRNGKey(algo_params['seed'])
 
-    # find terminal LQR controller and value function.
+    # find terminal LQR & xfs {{{
 
     # then define a function unitsphere_to_dXf, which we then feed with uniform
     # points from the unitsphere to arrive at boundary conditions for first
     # backward shooting step. (if initial_shooting == 'lqr' not quite)
 
-    # {{{
 
     # in manifold case, this is still something which we should do purely
     # on the tangent space...
@@ -250,13 +249,11 @@ def main(problem_params, algo_params):
 
 
 
+    # define lots of boring ass functions  {{{
+
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
         problem_params, algo_params
     )
-
-    # define lots of boring ass functions
-
-    # {{{
 
     def solve_backward_lqr(x_f, algo_params):
 
@@ -664,9 +661,7 @@ def main(problem_params, algo_params):
 
 
 
-    # define main active learning ingredients: proposals, oracle, prune&train function.
-
-    # {{{
+    # define main active learning ingredients: proposals, oracle, prune & train function {{{
 
     def propose_pts(key, v_k, v_next, vmap_nn_params, data_extent, algo_params):
 
@@ -1500,9 +1495,7 @@ def main(problem_params, algo_params):
 
 
 
-    # initial training run
-
-    # {{{
+    # initial training run {{{
 
     # choose initial value level.
 
@@ -1590,9 +1583,7 @@ def main(problem_params, algo_params):
 
 
 
-    # set up data saving & tracking stuff
-
-    # {{{
+    # set up data saving & tracking stuff {{{
 
     # euler scratch directory structure:
     # $SCRATCH
@@ -1650,7 +1641,7 @@ def main(problem_params, algo_params):
 
 
 
-    # main active learning loop!!
+    # main active learning loop!! {{{
 
     all_ys = sols_orig.ys
     is_suboptimal = np.zeros_like(all_ys['v']).astype(bool)
@@ -1722,9 +1713,7 @@ def main(problem_params, algo_params):
         all_oups = oups
 
 
-        # tracking, saving, plotting type stuff
-
-        # {{{
+        # tracking, saving, plotting type stuff {{{
 
         # if a key is repeated apparently the latter one is used. but don't repeat keys!
         full_logdict = {
@@ -1850,4 +1839,6 @@ def main(problem_params, algo_params):
             ipdb.set_trace()
 
         # }}}
+
+    # }}}
 

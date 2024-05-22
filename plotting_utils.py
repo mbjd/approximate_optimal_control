@@ -458,3 +458,131 @@ def plot_proposals(v_means, v_stds, testpts_known, proposal_vmeans, proposal_vst
     pl.xlim([1e-2, 1e5])
     pl.ylim([1e-2, 1e5])
 
+
+
+
+def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, forward_sols, backward_sols, problem_params, algo_params):
+
+    # subplots:
+    #  nn value function & relevant levelsets     |     uncertainty with proposal samples & proposals
+    #  uncertainty with forward trajs             |     uncertainty with backward trajs.
+
+    ax = pl.subplot(221)
+    ax.set_aspect('equal')
+    # plot value
+    pl.contourf(xx, yy, v_means, levels=np.linspace(0, 2 * vnext, 20))
+    pl.colorbar()
+
+    def plot_common():
+        # plot level sets
+        pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
+        # plot circle
+        thetas = np.linspace(-np.pi, np.pi, 300)
+        circle = np.array([np.sin(thetas), np.cos(thetas)]).T
+        pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
+
+    plot_common()
+    pl.xlabel('v mean')
+
+    # now the proposals. proposal samples ('pool') not yet \o/
+    ax = pl.subplot(222, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
+    rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
+    vmax_abs = np.max(np.abs(rel_vstds))
+    pl.plot(*proposals.T, 'x', c='black', alpha=.1, label='proposals')
+
+    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.colorbar()
+    pl.xlabel('proposals, previous log10(sigma_v / sigma_max)')
+    plot_common()
+
+    # forward trajectories
+    ax = pl.subplot(223, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
+    rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
+    vmax_abs = np.max(np.abs(rel_vstds))
+
+    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.colorbar()
+    pl.plot(forward_sols.ys[:, :, 0].flatten(), forward_sols.ys[:, :, 1].flatten(), '.-', c='black', alpha=.3, label='forward sols')
+    pl.xlabel('forward trajectories, previous log10(sigma_v / sigma_max)')
+    plot_common()
+
+    pl.legend()
+
+    # backward trajectories :)
+    ax = pl.subplot(224, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
+    rel_vstds = np.log10(v_stds_new / sigma_max)  # so that <0 good and >0 bad
+    vmax_abs = np.max(np.abs(rel_vstds))
+
+    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
+    pl.colorbar()
+    pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.3, label='backward sols')
+    pl.xlabel('backward trajectories, new log10(sigma_v / sigma_max)')
+    plot_common()
+    pl.legend()
+
+    # zoom in to the relevant part
+    is_relevant = v_means <= vnext * 2
+    pl.xlim([xx[is_relevant].min(), xx[is_relevant].max()])
+    pl.ylim([yy[is_relevant].min(), yy[is_relevant].max()])
+
+
+
+
+def plot_calibration(all_ys, pred_v_means, pred_v_stds):
+
+    # calibration plot = plot of true frequency of data in each confidence band
+    # vs predicted frequency.
+
+    # although it may be questioned if this plot is at all relevant for us. we
+    # basically have deterministic data (except ODE solver error) and just want
+    # to distinguish between "inside" the known set and "outside" of it.
+
+    sigmas = np.linspace(-5, 5, 300)
+    predicted_fractions = jax.scipy.stats.norm.cdf(sigmas)
+
+    # the error between predicted and label, scaled by the std dev.
+    # if model is well calibrated, this should be normally distributed.
+    normalised_predictions = (pred_v_means.flatten() - all_ys['v'].flatten()) / pred_v_stds.flatten()
+
+    where_usable = ~np.isnan(normalised_predictions)
+    normalised_predictions = normalised_predictions[where_usable]
+
+    observed_fractions = np.mean(normalised_predictions[:, None] < sigmas, axis=0)
+
+    # ipdb.set_trace()
+
+    pl.plot(predicted_fractions, observed_fractions, '.-')
+    pl.plot([0, 1], [0, 1], '--', c='black', alpha=.1)
+    pl.xlabel('predicted fraction')
+    pl.ylabel('observed fraction')
+
+
+
+def plot_loss_distribution(loss_means):
+
+    # to get insight on the loss distribution. this will ONLY evaluate the loss
+    # at the predicted mean, and ignore std. dev. maybe this is not exactly
+    # relevant though...
+
+    # aux_mean: dictionary of auxiliary outputs from loss function, containing
+    # individual loss function terms, meaned across axis 0 (NN ensemble)
+
+    # plot all the cdfs.
+    def plotcdf(data, **pl_kwargs):
+        assert len(data.shape) == 1
+        pl.semilogx(data.sort(), np.linspace(0, 1, data.shape[0]), **pl_kwargs)
+
+    for k in loss_means:
+        plotcdf(loss_means[k].flatten(), label=k)
+
+    pl.legend()
+
+
+
+

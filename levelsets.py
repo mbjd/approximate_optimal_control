@@ -29,129 +29,7 @@ from operator import itemgetter
 
 
 
-def orbits_plot_all(xx, yy, v_means, v_stds, v_stds_new, vk, vnext, proposals, forward_sols, backward_sols, problem_params, algo_params):
 
-    # subplots:
-    #  nn value function & relevant levelsets     |     uncertainty with proposal samples & proposals
-    #  uncertainty with forward trajs             |     uncertainty with backward trajs.
-
-    ax = pl.subplot(221)
-    ax.set_aspect('equal')
-    # plot value
-    pl.contourf(xx, yy, v_means, levels=np.linspace(0, 2 * vnext, 20))
-    pl.colorbar()
-
-    def plot_common():
-        # plot level sets
-        pl.contour(xx, yy, v_means, levels=[vk, vnext, vnext + (vnext - vk)], colors='black')
-        # plot circle
-        thetas = np.linspace(-np.pi, np.pi, 300)
-        circle = np.array([np.sin(thetas), np.cos(thetas)]).T
-        pl.plot(circle[:, 0], circle[:, 1], c='black', alpha=.1, linestyle='--')
-
-    plot_common()
-    pl.xlabel('v mean')
-
-    # now the proposals. proposal samples ('pool') not yet \o/
-    ax = pl.subplot(222, sharex=ax, sharey=ax)
-    ax.set_aspect('equal')
-    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
-    rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
-    vmax_abs = np.max(np.abs(rel_vstds))
-    pl.plot(*proposals.T, 'x', c='black', alpha=.1, label='proposals')
-
-    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
-    pl.colorbar()
-    pl.xlabel('proposals, previous log10(sigma_v / sigma_max)')
-    plot_common()
-
-    # forward trajectories
-    ax = pl.subplot(223, sharex=ax, sharey=ax)
-    ax.set_aspect('equal')
-    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
-    rel_vstds = np.log10(v_stds / sigma_max)  # so that <0 good and >0 bad
-    vmax_abs = np.max(np.abs(rel_vstds))
-
-    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
-    pl.colorbar()
-    pl.plot(forward_sols.ys[:, :, 0].flatten(), forward_sols.ys[:, :, 1].flatten(), '.-', c='black', alpha=.3, label='forward sols')
-    pl.xlabel('forward trajectories, previous log10(sigma_v / sigma_max)')
-    plot_common()
-
-    pl.legend()
-
-    # backward trajectories :)
-    ax = pl.subplot(224, sharex=ax, sharey=ax)
-    ax.set_aspect('equal')
-    sigma_max = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
-    rel_vstds = np.log10(v_stds_new / sigma_max)  # so that <0 good and >0 bad
-    vmax_abs = np.max(np.abs(rel_vstds))
-
-    pl.contourf(xx, yy, rel_vstds, cmap='bwr', vmin=-vmax_abs, vmax=vmax_abs, levels=30)
-    pl.colorbar()
-    pl.plot(backward_sols.ys['x'][:, :, 0].flatten(), backward_sols.ys['x'][:, :, 1].flatten(), '.-', c='black', alpha=.3, label='backward sols')
-    pl.xlabel('backward trajectories, new log10(sigma_v / sigma_max)')
-    plot_common()
-    pl.legend()
-
-
-
-    # zoom in to the relevant part
-    is_relevant = v_means <= vnext * 2
-    pl.xlim([xx[is_relevant].min(), xx[is_relevant].max()])
-    pl.ylim([yy[is_relevant].min(), yy[is_relevant].max()])
-
-
-
-
-def plot_calibration(all_ys, pred_v_means, pred_v_stds):
-
-    # calibration plot = plot of true frequency of data in each confidence band
-    # vs predicted frequency.
-
-    # although it may be questioned if this plot is at all relevant for us. we
-    # basically have deterministic data (except ODE solver error) and just want
-    # to distinguish between "inside" the known set and "outside" of it.
-
-    sigmas = np.linspace(-5, 5, 300)
-    predicted_fractions = jax.scipy.stats.norm.cdf(sigmas)
-
-    # the error between predicted and label, scaled by the std dev.
-    # if model is well calibrated, this should be normally distributed.
-    normalised_predictions = (pred_v_means.flatten() - all_ys['v'].flatten()) / pred_v_stds.flatten()
-
-    where_usable = ~np.isnan(normalised_predictions)
-    normalised_predictions = normalised_predictions[where_usable]
-
-    observed_fractions = np.mean(normalised_predictions[:, None] < sigmas, axis=0)
-
-    # ipdb.set_trace()
-
-    pl.plot(predicted_fractions, observed_fractions, '.-')
-    pl.plot([0, 1], [0, 1], '--', c='black', alpha=.1)
-    pl.xlabel('predicted fraction')
-    pl.ylabel('observed fraction')
-
-
-
-def plot_loss_distribution(all_ys, loss_means):
-
-    # to get insight on the loss distribution. this will ONLY evaluate the loss
-    # at the predicted mean, and ignore std. dev. maybe this is not exactly
-    # relevant though...
-
-    # aux_mean: dictionary of auxiliary outputs from loss function, containing
-    # individual loss function terms, meaned across axis 0 (NN ensemble)
-
-    # plot all the cdfs.
-    def plotcdf(data, **pl_kwargs):
-        assert len(data.shape) == 1
-        pl.semilogx(data.sort(), np.linspace(0, 1, data.shape[0]), **pl_kwargs)
-
-    for k in loss_means:
-        plotcdf(loss_means[k].flatten(), label=k)
-
-    pl.legend()
 
 
 
@@ -1984,7 +1862,7 @@ def testbed(problem_params, algo_params):
 
         pl.figure('nn calibration, initial run')
         means, stds = jax.vmap(v_meanstds, in_axes=(0, None))(sols_orig.ys['x'], params_sobolev_ens)
-        plot_calibration(sols_orig.ys, means, stds)
+        plotting_utils.plot_calibration(sols_orig.ys, means, stds)
 
         if problem_params['m'] is not None:
             pl.figure('manifold')
@@ -2193,7 +2071,7 @@ def testbed(problem_params, algo_params):
                     xx, yy = np.meshgrid(xs, ys)
                     plot_v_means, plot_v_stds = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), prev_params_sobolev_ens)
                     _, plot_v_stds_new = jax.vmap(v_meanstds, in_axes=(0, None))(np.stack([xx, yy], axis=-1), params_sobolev_ens)
-                    orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
+                    plotting_utils.orbits_plot_all(xx, yy, plot_v_means, plot_v_stds, plot_v_stds_new, v_k, v_next_target, proposed_pts, forward_sols_new, backward_sols_new, problem_params, algo_params)
 
             with plot_saver('meanstds'):
                 plotting_utils.plot_proposals(v_means, v_stds, test_pts_known, proposal_vmeans, proposal_vstds, v_k, v_next_target, algo_params)
@@ -2229,7 +2107,7 @@ def testbed(problem_params, algo_params):
                 relevant_ys = jtm(lambda node: node[is_relevant], all_ys)
                 means, stds = v_meanstds(relevant_ys['x'], params_sobolev_ens)
                 vx_means, vx_stds = vx_meanstds(relevant_ys['x'], params_sobolev_ens)
-                plot_calibration(relevant_ys, means, stds)
+                plotting_utils.plot_calibration(relevant_ys, means, stds)
 
 
             with plot_saver('loss_distributions'):
@@ -2240,7 +2118,7 @@ def testbed(problem_params, algo_params):
                 )(key, relevant_ys, params_sobolev_ens, problem_params, algo_params)
 
                 aux_mean = jtm(lambda z: z.mean(axis=0), aux['lossterms'])
-                plot_loss_distribution(all_ys, aux_mean)
+                plotting_utils.plot_loss_distribution(aux_mean)
 
 
             if algo_params['showfigs']:

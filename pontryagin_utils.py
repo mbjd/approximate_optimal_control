@@ -742,7 +742,6 @@ def get_terminal_lqr(problem_params, return_tangent_projection=False):
 
     assert np.allclose(f(x_eq, u_eq), 0), '(x_eq, u_eq) does not seem to be an equilibrium'
 
-    # ipdb.set_trace()
     A = jax.jacobian(f, argnums=0)(x_eq, u_eq)
     B = jax.jacobian(f, argnums=1)(x_eq, u_eq).reshape((problem_params['nx'], problem_params['nu']))
     Q = jax.hessian(l, argnums=0)(x_eq, u_eq)

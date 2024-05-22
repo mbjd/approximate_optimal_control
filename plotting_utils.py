@@ -108,7 +108,6 @@ def plot_sol(sol, problem_params):
     #     pl.plot(sol.ys['t'], oups[k], label=label, color=f'C{j}', alpha=.5)
 
     pl.legend()
-    # ipdb.set_trace()
 
 
 
@@ -454,8 +453,6 @@ def plot_calibration(all_ys, pred_v_means, pred_v_stds):
     normalised_predictions = normalised_predictions[where_usable]
 
     observed_fractions = np.mean(normalised_predictions[:, None] < sigmas, axis=0)
-
-    # ipdb.set_trace()
 
     pl.plot(predicted_fractions, observed_fractions, '.-')
     pl.plot([0, 1], [0, 1], '--', c='black', alpha=.1)

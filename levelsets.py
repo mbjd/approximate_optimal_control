@@ -751,7 +751,6 @@ def main(problem_params, algo_params):
             print('did not find enough points!')
             if all_valueband_pts.shape[0] < algo_params['active_learning_batchsize']:
                 raise ValueError('this is definitely not going to work')
-            # ipdb.set_trace()
 
             # one possibility: "pad" the points with the ones that are not
             # within the value interval necessarily, but above the lower bound.
@@ -1288,7 +1287,6 @@ def main(problem_params, algo_params):
         # evaluate all this stuff again yolo
         v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
         vx_means_trained, vx_stds_trained = vx_meanstds(usable_ys['x'], params_sobolev_ens)
-        # ipdb.set_trace()
 
         # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred.
         # this means: in_axes = (None, 0, 0, 0, None, None)
@@ -1354,7 +1352,6 @@ def main(problem_params, algo_params):
         # }}}
 
         # mean of the last couple iterations.
-        # ipdb.set_trace()
         final_trainloss = oups_sobolev_ens_new['lossterms']['total_loss'][:, -100:].mean()
 
         # and loss over test set.
@@ -1365,7 +1362,6 @@ def main(problem_params, algo_params):
 
         pruning_metrics['final_trainloss_second'] = final_trainloss
         pruning_metrics['final_testloss_second'] = final_testloss
-        ipdb.set_trace()
 
         pruning_metrics['final_weightnorm_second'] = final_weightnorm
 

@@ -5139,3 +5139,22 @@ training run we would remove points (trajectories...) which are suboptimal
 due to a conflict at a lower level set. this might also be deteriorating
 training. essentially then we do the full, proper "substeps" strategy from
 in the beginning. not today though.
+
+
+2024-05-21
+
+
+training data saving done. msgpack in gz. very nice. only 100-200 kB of
+data per step, stored on euler scratch together with figures.
+
+next task:
+ - use the data and do some proper closed-loop eval.
+ - do the checkpointing thing from yesterday? or not.
+ - other probably very marginal implementation thing:
+   instead of doing a random subsample of the whole dataset to select
+   minibatches, take the more usual route of shuffling the dataset once and
+   then reading nice and sequentially? v sweep could still be done by
+   somehow masking out everything that has v too large and making sure we
+   account for that in the batch mean (otherwise the gradient randomly
+   becomes smaller and maybe messes things up. scaling makes gradient the
+   right size just with larger estimator variance)

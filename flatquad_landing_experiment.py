@@ -589,14 +589,14 @@ def base_algo_params():
         # 'nn_layerdims': (32, 32, 32, 32),
         # 'nn_layerdims': (128, 8),
         'nn_batchsize': 32,
-        'nn_N_epochs': 512,
+        'nn_N_epochs': 64,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
         'lr_final': 0.001,
-        'weight_decay': .01,
+        'weight_decay': .0005,
 
         'nn_ensemble_size': 4,
 
@@ -630,7 +630,7 @@ def base_algo_params():
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
         'prior_strength': 0.01,
-        'v_prior': 50.,
+        'v_prior': 1.,
 
         'inv_vx_loss_fadeout': 50.,
 

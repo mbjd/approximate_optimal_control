@@ -81,6 +81,75 @@ def set_value_target(all_ys, v_k, problem_params, algo_params):
 
     return v_next
 
+
+def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True):
+
+    if ensemble:
+        # we have a whole NN ensemble. use the mean here.
+        # v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+        # mean across only axis resulting in a scalar. differentiate later.
+        v_fct = lambda x: jax.vmap(v_nn, in_axes=(0, None))(params, x).mean()
+
+    else:
+        v_fct = lambda x: v_nn(params, x)
+
+    def forwardsim_rhs(t, x, args):
+
+        lam_x = jax.jacobian(v_fct)(x).squeeze()
+        # lam_x = P_lqr @ x  # <- for lqr instead
+        u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
+        return problem_params['f'](x, u)
+
+
+    term = diffrax.ODETerm(forwardsim_rhs)
+    step_ctrl = diffrax.PIDController(
+        atol=algo_params['pontryagin_solver_atol'],
+        rtol=algo_params['pontryagin_solver_rtol'],
+        dtmin=algo_params['dtmin'],
+        dtmax=algo_params['dtmax'],
+    )
+
+    saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+    if problem_params['m'] is not None and algo_params['project_manifold']:
+        solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
+    else:
+        solver = diffrax.Tsit5()
+
+    forward_sol = diffrax.diffeqsolve(
+        term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
+        stepsize_controller=step_ctrl, saveat=saveat,
+        max_steps = algo_params['pontryagin_solver_maxsteps'],
+        throw=algo_params['throw'],
+    )
+
+    return forward_sol
+
+
+def meshcat_forward_sims(x0s, v_nn, nn_params, problem_params, algo_params):
+
+    # just a couple of steps I find myself doing in pdb all the time
+
+    sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params)
+    trajs = jax.vmap(sim)(x0s)
+
+    # convert to old (theta) repr. ugly hardcoded i know
+    ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
+
+    solsdict = {'t': trajs.ts, 'x': ys}
+
+    visualiser.plot_trajectories_meshcat(solsdict)
+
+    # also plot initial values.
+    pl.figure('meshcat sims: initial v mean/std')
+    v_means, v_stds = v_meanstds(x0s, nn_params)
+    ts = np.linspace(0, 1, x0s.shape[0])
+    pl.plot(ts, v_means, c='C0', label='v mean')
+    pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
+    pl.legend()
+    pl.show()
+
+
 # }}}
 
 
@@ -701,73 +770,6 @@ def main(problem_params, algo_params):
 
 
 
-
-    def forward_sim_nn(x0, params, vmap=False):
-
-        if vmap:
-            # we have a whole NN ensemble. use the mean here.
-            # v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-            # mean across only axis resulting in a scalar. differentiate later.
-            v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(params, x).mean()
-
-        else:
-            v_fct = lambda x: v_nn_unnormalised(params, x)
-
-        def forwardsim_rhs(t, x, args):
-
-            lam_x = jax.jacobian(v_fct)(x).squeeze()
-            # lam_x = P_lqr @ x  # <- for lqr instead
-            u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
-            return problem_params['f'](x, u)
-
-
-        term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(
-            atol=algo_params['pontryagin_solver_atol'],
-            rtol=algo_params['pontryagin_solver_rtol'],
-            dtmin=algo_params['dtmin'],
-            dtmax=algo_params['dtmax'],
-        )
-
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
-
-        if problem_params['m'] is not None and algo_params['project_manifold']:
-            solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
-        else:
-            solver = diffrax.Tsit5()
-
-        forward_sol = diffrax.diffeqsolve(
-            term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'],
-            throw=algo_params['throw'],
-        )
-
-        return forward_sol
-
-
-    def meshcat_forward_sims(x0s, nn_params):
-
-        # just a couple of steps I find myself doing in pdb all the time
-        trajs = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, nn_params, True)
-
-        # convert to old (theta) repr. ugly hardcoded i know
-        ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
-
-        solsdict = {'t': trajs.ts, 'x': ys}
-
-        visualiser.plot_trajectories_meshcat(solsdict)
-
-        # also plot initial values.
-        pl.figure('meshcat sims: initial v mean/std')
-        v_means, v_stds = v_meanstds(x0s, nn_params)
-        ts = np.linspace(0, 1, x0s.shape[0])
-        pl.plot(ts, v_means, c='C0', label='v mean')
-        pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
-        pl.legend()
-        pl.show()
-
-        # would be cool to additionally plot actually incurred control cost...
 
 
     def plot_v_vx_line(xs, vmap_params):
@@ -1909,6 +1911,10 @@ def evaluate(run_dir, problem_params, algo_params):
 
     all_data = flax.serialization.msgpack_restore(bs)
 
+    evaluate_directly(all_data, problem_params, algo_params)
+
+def evaluate_directly(all_data, problem_params, algo_params):
+
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
     # leaves:
     #   type(node) == onp.ndarray
@@ -1919,16 +1925,14 @@ def evaluate(run_dir, problem_params, algo_params):
     all_ys = jtm(np.array, all_data['ys'])
     is_suboptimal = np.array(all_data['is_suboptimal'])
 
-    # fuck it, insist on this being here too
     nn_params = jtm(np.array, all_data['nn_params'])
     vk = all_data['vk']
 
-    # abuse our poor training function one last time
     key = jax.random.PRNGKey(0)
     v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
     # long training, quadratic (not huber) losses, low learning rate.
-    # algo_params['lr_init'] = algo_params['lr_final'] * 2
+    # algo_params['lr_init'] = np.sqrt(algo_params['lr_init'] * algo_params['lr_final'])
     algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
     algo_params['nn_value_sweep'] = False
 

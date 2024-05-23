@@ -41,7 +41,7 @@ def l(x, u):
 
     sinPhi, cosPhi, phidot = x
 
-    q1, q2, r = 1., 1., 1.
+    q1, q2, r = 1., 1., 2.
 
     cost = q1 * (sinPhi**2 + (cosPhi - 1)**2) + q2 * phidot**2 + r * u**2
     return cost.reshape()
@@ -68,7 +68,7 @@ problem_params = {
 
     # if ever treating slightly bigger systems it would pay to frame this
     # as a general convex polytope described by Ax <= b.
-    'U_interval': [-1., 1.],
+    'U_interval': [-np.inf, np.inf],
 
     # the value level below which we accept the LQR solution as correct.
     'V_f': 0.01,
@@ -285,7 +285,15 @@ def remesh(sols, frac):
     # first get the distances between all the neighbors.
     xs = yfs['x']
     rolled_xs = np.roll(xs, -1, axis=0)
-    neighbor_dists = np.linalg.norm(xs - rolled_xs, axis=1)
+    lifted_arclen=True
+    if lifted_arclen:
+        # compute arclentghs in full (x, λ) space.
+        # but normalise gradient. only care about direction.
+        lams = yfs['vx'] / np.linalg.norm(yfs['vx'], axis=1)[:, None]
+        rolled_lams = np.roll(lams, -1, axis=0)
+        neighbor_dists = np.linalg.norm(np.hstack([xs, lams]) - np.hstack([rolled_xs, rolled_lams]), axis=1)
+    else:
+        neighbor_dists = np.linalg.norm(xs - rolled_xs, axis=1)
     arclengths = np.cumsum(neighbor_dists)
 
     # now, find a new set of points that are equidistant in arclength.

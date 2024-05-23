@@ -67,7 +67,17 @@ def remesh(sols, frac):
     # first get the distances between all the neighbors.
     xs = yfs['x']
     rolled_xs = np.roll(xs, -1, axis=0)
-    neighbor_dists = np.linalg.norm(xs - rolled_xs, axis=1)
+
+    lifted_arclen=True
+    if lifted_arclen:
+        # compute arclentghs in full (x, λ) space.
+        # but normalise gradient. only care about direction.
+        lams = yfs['vx'] / np.linalg.norm(yfs['vx'], axis=1)[:, None]
+        rolled_lams = np.roll(lams, -1, axis=0)
+        neighbor_dists = np.linalg.norm(np.hstack([xs, lams]) - np.hstack([rolled_xs, rolled_lams]), axis=1)
+    else:
+        neighbor_dists = np.linalg.norm(xs - rolled_xs, axis=1)
+
     arclengths = np.cumsum(neighbor_dists)
 
     # now, find a new set of points that are equidistant in arclength.
@@ -94,7 +104,7 @@ def remesh(sols, frac):
 solve_fast = jax.jit(jax.vmap(solve_backward, in_axes=(0, None)))
 # solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
 
-vmax = 450
+vmax = 470
 N=20
 levels = np.logspace(0., np.log10(vmax), N)
 levels = np.linspace(1, np.sqrt(vmax), N)**2
@@ -102,31 +112,55 @@ levels = np.linspace(1, np.sqrt(vmax), N)**2
 
 sols = None
 
-for v_upper in tqdm.tqdm(levels):
+def find_min_l(yfs):
 
-    # alright so it has to work a bit differently.
-    # 1. get solutions starting at uniformly spaced points on dVk
-    # 2. remesh them to be equidistant at dVk+1
-    # 3. get solutions again.
+    def l_of_y(y):
+        x = y['x']
+        vx = y['vx']
+        u = pontryagin_utils.u_star_general(x, vx, problem_params)
+        return problem_params['l'](x, u)
 
-    # 1. uniform solutions.
-    sols_uniform = solve_fast(yfs, v_upper)
-    # 2. remeshing
-    yfs = remesh(sols_uniform, 0.0)
-    # 3. remeshed solutions.
-    sols = solve_fast(yfs, v_upper)
+    ls = jax.vmap(l_of_y)(yfs)
 
-    # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform')
-    # pl.plot(*sols.ys['x'].reshape(-1,2).T, alpha=.3, label='remeshed')
-    # pl.legend()
+    min_l = np.min(ls)
+    return min_l
 
-    # yprev = yfs
-    yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+v_upper = vf
+with tqdm.tqdm(total=vmax) as pbar:
+    while v_upper < vmax:
+        # otherwise it needs the increment not absolute progress.
+        # https://github.com/tqdm/tqdm/issues/1264
+        pbar.n = v_upper.item()
+        pbar.refresh()
 
-    viridis = matplotlib.colormaps['viridis']
-    pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
+        # alright so it has to work a bit differently.
+        # 1. get solutions starting at uniformly spaced points on dVk
+        # 2. remesh them to be equidistant at dVk+1
+        # 3. get solutions again.
 
-    # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
+        # step size selection just like the real thing
+        min_l = find_min_l(yfs)
+        vstep = 1. * min_l
+        v_upper = v_upper + vstep
+
+        # 1. uniform solutions.
+        sols_uniform = solve_fast(yfs, v_upper)
+        # 2. remeshing
+        yfs = remesh(sols_uniform, 0.0)
+        # 3. remeshed solutions.
+        sols = solve_fast(yfs, v_upper)
+
+        # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform', c='grey')
+        pl.plot(*sols.ys['x'][::1].reshape(-1,2).T, alpha=.05, label='remeshed', c='black')
+        # pl.legend()
+
+        # yprev = yfs
+        yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+
+        viridis = matplotlib.colormaps['viridis']
+        pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
+
+        # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
 
 
 pl.show()

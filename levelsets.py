@@ -1691,12 +1691,17 @@ def main(problem_params, algo_params):
 
     for k in range(100):
 
+
         print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')
 
         # estimate known value level
         vk_prev = v_k
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
         v_k, test_pts_known, estimator_metrics = estimate_value_level(v_means, v_stds, test_pts_known, upper_v=v_next_target)
+
+        if v_k >= algo_params['V_max']:
+            # just quit here, data and nn params that lead to this were saved last iteration
+            break
 
         # set next value target
         v_next_target = set_value_target(all_ys, v_k, problem_params, algo_params)
@@ -1787,7 +1792,8 @@ def main(problem_params, algo_params):
             'step': k,
             'vk': v_k,
             'ys': all_ys,
-            'is_suboptimal': is_suboptimal
+            'is_suboptimal': is_suboptimal,
+            'nn_params': params_sobolev_ens,
         }
 
         bs = flax.serialization.msgpack_serialize(all_data)
@@ -1912,14 +1918,9 @@ def evaluate(run_dir, problem_params, algo_params):
     all_ys = jtm(np.array, all_data['ys'])
     is_suboptimal = np.array(all_data['is_suboptimal'])
 
-    # step and vk
-    k = all_data['step']
-    if 'vk' in all_data:
-        vk = all_data['vk']
-    else:
-        inp = input(f'levelsets.evaluate: old run without vk information. \nPlease find vk for run "{run_dir}" and input here: ')
-        vk = float(inp)
-        print(f'parsed vk = {vk}')
+    # fuck it, insist on this being here too
+    nn_params = jtm(np.array, all_data['nn_params'])
+    vk = all_data['vk']
 
     # abuse our poor training function one last time
     key = jax.random.PRNGKey(0)

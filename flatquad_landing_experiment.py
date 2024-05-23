@@ -506,6 +506,7 @@ def define_problem_params():
 
         # the value level below which we accept the LQR solution as correct.
         'V_f': 0.001,
+        'V_max': 1500.
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -589,19 +590,19 @@ def base_algo_params():
         # 'nn_layerdims': (32, 32, 32, 32),
         # 'nn_layerdims': (128, 8),
         'nn_batchsize': 32,
-        'nn_N_epochs': 64,
+        'nn_N_epochs': 512,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
-        'lr_final': 0.001,
-        'weight_decay': .0005,
+        'lr_final': 0.0001,
+        'weight_decay': .003,
 
         'nn_ensemble_size': 4,
 
         'nn_warm_start': True,
-        'nn_warmstart_fraction': 1/2,
+        'nn_warmstart_fraction': 1/4,
 
         'nn_value_sweep': True,
 
@@ -815,7 +816,7 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    levelsets.evaluate('./euler_runs/pmj7x01p', problem_params, algo_params)
+    # levelsets.evaluate('./euler_runs/pmj7x01p', problem_params, algo_params)
     levelsets.main(problem_params, algo_params)
 
 

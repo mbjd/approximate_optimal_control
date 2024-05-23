@@ -506,7 +506,7 @@ def define_problem_params():
 
         # the value level below which we accept the LQR solution as correct.
         'V_f': 0.001,
-        'V_max': 1500.
+        'V_max': 1500.,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -816,8 +816,8 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    # levelsets.evaluate('./euler_runs/pmj7x01p', problem_params, algo_params)
-    levelsets.main(problem_params, algo_params)
+    levelsets.evaluate('./run_1716476256/', problem_params, algo_params)
+    # levelsets.main(problem_params, algo_params)
 
 
 

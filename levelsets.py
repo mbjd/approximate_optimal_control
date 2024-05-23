@@ -235,8 +235,9 @@ def prune_and_train(key, v_nn, params_sobolev_ens, all_ys, v_interval, previousl
     # final training round flag. in the final training round we have saved
     # data from the run and want to retrain the nn with ALL data. but we
     # have no nn params, we cannot warmstart.
-    if is_final:
-        warmstart = False
+    # if is_final:
+    #     warmstart = False
+    # do not do this ^^ anymore, decide for yourself with the warmstart flag if you want it
 
     if warmstart:
         # continue from previous params, only last portion of training.
@@ -1699,7 +1700,7 @@ def main(problem_params, algo_params):
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
         v_k, test_pts_known, estimator_metrics = estimate_value_level(v_means, v_stds, test_pts_known, upper_v=v_next_target)
 
-        if v_k >= algo_params['V_max']:
+        if v_k >= problem_params['V_max']:
             # just quit here, data and nn params that lead to this were saved last iteration
             break
 
@@ -1927,20 +1928,21 @@ def evaluate(run_dir, problem_params, algo_params):
     v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
     # long training, quadratic (not huber) losses, low learning rate.
-    algo_params['nn_N_epochs'] =
-    algo_params['lr_init'] = algo_params['lr_final'] * 2
+    # algo_params['lr_init'] = algo_params['lr_final'] * 2
     algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
+    algo_params['nn_value_sweep'] = False
 
-    nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
+    nn_params_full, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
         key,
         v_nn,
-        None,              # no init params needed in this case
+        nn_params,
         all_ys,            # all data
         [0., vk],          # everything used
         is_suboptimal,     # but only the good parts
         problem_params,
         algo_params,
         is_final=True,
+        warmstart=True,
     )
 
     plotting_utils.plot_nn_train_outputs(training_oups)

@@ -815,6 +815,7 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
+    levelsets.evaluate('./euler_runs/pmj7x01p', problem_params, algo_params)
     levelsets.main(problem_params, algo_params)
 
 

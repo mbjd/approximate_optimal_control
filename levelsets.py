@@ -84,6 +84,8 @@ def set_value_target(all_ys, v_k, problem_params, algo_params):
 # }}}
 
 
+
+
 def main(problem_params, algo_params):
 
 
@@ -1741,6 +1743,7 @@ def main(problem_params, algo_params):
         # save dataset in scratch.
         all_data = {
             'step': k,
+            'vk': v_k,
             'ys': all_ys,
             'is_suboptimal': is_suboptimal
         }
@@ -1841,4 +1844,32 @@ def main(problem_params, algo_params):
         # }}}
 
     # }}}
+
+
+
+
+def evaluate(run_dir, problem_params, algo_params):
+
+    # given this run dir, do this:
+    # get all data from corresponding msgpack serialisation
+    # fit nn to data to find controller
+    # do some closed loop sims, uniformly from the sublevel set or something like that
+
+    with gzip.open(os.path.join(run_dir, 'all_data.msgpack.gz'), 'rb') as f:
+        bs = f.read()
+
+    all_data = flax.serialization.msgpack_restore(bs)
+
+    k = all_data['step']
+    all_ys = all_data['ys']
+    is_suboptimal = all_data['is_suboptimal']
+
+    if 'vk' in all_data:
+        vk = all_data['vk']
+    else:
+        inp = input(f'levelsets.evaluate: old run without vk information. \nPlease find vk for run "{run_dir}" and input here: ')
+        vk = float(inp)
+        print(f'parsed vk = {vk}')
+
+    ipdb.set_trace()
 

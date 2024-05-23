@@ -141,13 +141,13 @@ def meshcat_forward_sims(x0s, v_nn, nn_params, problem_params, algo_params):
     visualiser.plot_trajectories_meshcat(solsdict)
 
     # also plot initial values.
-    pl.figure('meshcat sims: initial v mean/std')
-    v_means, v_stds = v_meanstds(x0s, nn_params)
-    ts = np.linspace(0, 1, x0s.shape[0])
-    pl.plot(ts, v_means, c='C0', label='v mean')
-    pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
-    pl.legend()
-    pl.show()
+    # pl.figure('meshcat sims: initial v mean/std')
+    # v_means, v_stds = v_meanstds(x0s, nn_params)
+    # ts = np.linspace(0, 1, x0s.shape[0])
+    # pl.plot(ts, v_means, c='C0', label='v mean')
+    # pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
+    # pl.legend()
+    # pl.show()
 
 
 # }}}
@@ -598,7 +598,6 @@ def main(problem_params, algo_params):
     vfs = jax.vmap(V_f)(xfs)
 
     # }}}
-
 
 
     # define lots of boring ass functions  {{{
@@ -1951,5 +1950,8 @@ def evaluate_directly(all_data, problem_params, algo_params):
 
     plotting_utils.plot_nn_train_outputs(training_oups)
     pl.show()
+
+    xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
+    meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
 
     ipdb.set_trace()

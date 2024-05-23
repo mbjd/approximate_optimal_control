@@ -5158,3 +5158,14 @@ next task:
    account for that in the batch mean (otherwise the gradient randomly
    becomes smaller and maybe messes things up. scaling makes gradient the
    right size just with larger estimator variance)
+
+
+2024-05-23
+
+next major refactor to pull out train_and_prune function from main, also
+make switch for last retraining with all data from msgpack. sadly it does
+not seem to work very well at first glance... maybe training from scratch
+is kind of dumb? does it construct the v itself by integration of the (much
+stronger) vx loss in pinn style, rather than just fit the function nicely?
+should I just also include the nn params and do the much nicer retrainig
+step like this?

@@ -622,6 +622,10 @@ def base_algo_params():
         'vx_loss_d': 0.3,
         'v_loss_d': 0.1,
 
+        # above those thresholds relative loss is used
+        'min_important_v': 0.1,
+        'min_important_vx': 0.1,
+
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
         'vx_normal_regularisation': 0.001,
@@ -816,7 +820,7 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    levelsets.evaluate('./run_1716476256/', problem_params, algo_params)
+    levelsets.evaluate('euler_runs/m42t3ibi', problem_params, algo_params)
     # levelsets.main(problem_params, algo_params)
 
 

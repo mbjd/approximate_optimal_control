@@ -494,7 +494,7 @@ class nn_wrapper():
         # asymmetric, smooth huber type loss function.
         # penalises overestimation heavily, underestimation less.
         d = algo_params['v_loss_d']
-        v_rel_err = (v_pred - y['v']) / (1 + y['v'])
+        v_rel_err = (v_pred - y['v']) / (algo_params['min_important_v'] + y['v'])
         rel_err_sq = (v_rel_err)**2
         # rel_err_smoothhuber = 2 * (np.sqrt(1 + rel_err_sq) - 1)
         rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
@@ -564,7 +564,7 @@ class nn_wrapper():
 
             proj_label = y['vx'] @ P_tangent
 
-            vx_label_loss_quadratic = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (1 + np.sum(proj_label**2)) )
+            vx_label_loss_quadratic = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (algo_params['min_important_vx'] + np.sum(proj_label**2)) )
 
 
             # previously, in 03b7942 where milk and honey flows
@@ -629,7 +629,7 @@ class nn_wrapper():
             lossterms['vx_label'] = vx_label_loss
         else:
 
-            vx_label_loss_quadratic =  np.sum( (vx_pred - y['vx'])**2 ) / (1 + np.linalg.norm(y['vx']))**2
+            vx_label_loss_quadratic =  np.sum( (vx_pred - y['vx'])**2 ) / (algo_params['min_important_vx'] + np.linalg.norm(y['vx']))**2
 
             # repetiton of the code from manifold case :(
             # takes regular quadratic loss, transforms it into "huber" loss and applies scaling

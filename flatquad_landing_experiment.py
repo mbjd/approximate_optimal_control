@@ -598,14 +598,14 @@ def base_algo_params():
 
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.05,
+        'lr_init': 0.01,
         'lr_final': 0.0001,
         'weight_decay': .003,
 
         'nn_ensemble_size': 4,
 
         'nn_warm_start': True,
-        'nn_warmstart_fraction': 1/4,
+        'nn_warmstart_fraction': 1/2,
 
         'nn_value_sweep': True,
 

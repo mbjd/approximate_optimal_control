@@ -37,6 +37,25 @@ def u_star_1d(x, costate, problem_params):
     upperbounds = problem_params['U_interval'][1]
 
     u_star = np.clip(u_star_unconstrained, lowerbounds, upperbounds)
+
+    # just trying to see what happens if this is smoothed instead.
+    #
+    # rewrite equivalently:
+    # u_star = max(u_star_unconstrained, lowerbounds)
+    # u_star = min(u_star_unconstrained, upperbounds) = -max(-u_star_unconstrained, -upperbounds)
+    #
+    # and now replace by smooth approx
+    #   max(a, b) ≅ 1/k log(exp(ka) + exp(kb))
+    #             = 1/k log(exp(ka)/exp(ka) + exp(kb)/exp(ka)) + a
+    #             = 1/k log(1 + exp(kb-ka)) + a
+    #             = 1/k log(1 + exp(k (b-a)) + a
+    #             = 1/k softplus(k (b-a)) + a
+
+    # k = 1
+    # softmax = lambda a, b: 1/k * jax.nn.softplus(k * (b-a)) + a
+    # u_star = softmax(u_star_unconstrained, lowerbounds)
+    # u_star = -softmax(-u_star, -upperbounds)
+
     return u_star
 
 

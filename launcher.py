@@ -58,6 +58,7 @@ flatquad_configs = {
     # 'weight_decay': [0.002, 0.001, 0.0005],
     # 'vx_loss_d': [0.2, 0.3, 0.5],
     # 'inv_vx_loss_fadeout': [0., 0.2, 0.5, 1., 2, 5],
+    'inv_vx_loss_fadeout': [1.],
 
 
     # 'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],

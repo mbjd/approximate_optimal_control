@@ -68,7 +68,7 @@ problem_params = {
 
     # if ever treating slightly bigger systems it would pay to frame this
     # as a general convex polytope described by Ax <= b.
-    'U_interval': [-np.inf, np.inf],
+    'U_interval': [-2., 2.],
 
     # the value level below which we accept the LQR solution as correct.
     'V_f': 0.01,
@@ -247,6 +247,8 @@ algo_params['pontryagin_solver_rtol'] = 1e-5
 algo_params['pontryagin_solver_maxsteps'] = 128
 
 solve_backward, f_extended = pontryagin_utils.define_backward_solver(problem_params, algo_params)
+
+u_star = pontryagin_utils.u_star_general(np.zeros(3), np.zeros(3), problem_params)
 
 K_lqr, P_lqr, P_tangent = pontryagin_utils.get_terminal_lqr(
         problem_params, return_tangent_projection=True

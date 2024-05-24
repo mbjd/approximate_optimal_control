@@ -506,6 +506,7 @@ def define_problem_params():
 
         # the value level below which we accept the LQR solution as correct.
         'V_f': 0.001,
+        'V_max': 1500.,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -592,19 +593,19 @@ def base_algo_params():
         'nn_n_layers': 3,
         'nn_layer_dim': 64,
         'nn_batchsize': 32,
-        'nn_N_epochs': 64,
+        'nn_N_epochs': 512,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
-        'lr_final': 0.001,
-        'weight_decay': .0005,
+        'lr_final': 0.0001,
+        'weight_decay': .003,
 
         'nn_ensemble_size': 4,
 
         'nn_warm_start': True,
-        'nn_warmstart_fraction': 1/2,
+        'nn_warmstart_fraction': 1/4,
 
         'nn_value_sweep': True,
 
@@ -623,6 +624,10 @@ def base_algo_params():
         # width of the quadratic regions in smoothed huber loss.
         'vx_loss_d': 0.3,
         'v_loss_d': 0.1,
+
+        # above those thresholds relative loss is used
+        'min_important_v': 0.1,
+        'min_important_vx': 0.1,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -818,7 +823,8 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    levelsets.main(problem_params, algo_params)
+    levelsets.evaluate('euler_runs/m42t3ibi', problem_params, algo_params)
+    # levelsets.main(problem_params, algo_params)
 
 
 

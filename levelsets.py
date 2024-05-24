@@ -81,7 +81,359 @@ def set_value_target(all_ys, v_k, problem_params, algo_params):
 
     return v_next
 
+
+def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True):
+
+    if ensemble:
+        # we have a whole NN ensemble. use the mean here.
+        # v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
+        # mean across only axis resulting in a scalar. differentiate later.
+        v_fct = lambda x: jax.vmap(v_nn, in_axes=(0, None))(params, x).mean()
+
+    else:
+        v_fct = lambda x: v_nn(params, x)
+
+    def forwardsim_rhs(t, x, args):
+
+        lam_x = jax.jacobian(v_fct)(x).squeeze()
+        # lam_x = P_lqr @ x  # <- for lqr instead
+        u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
+        return problem_params['f'](x, u)
+
+
+    term = diffrax.ODETerm(forwardsim_rhs)
+    step_ctrl = diffrax.PIDController(
+        atol=algo_params['pontryagin_solver_atol'],
+        rtol=algo_params['pontryagin_solver_rtol'],
+        dtmin=algo_params['dtmin'],
+        dtmax=algo_params['dtmax'],
+    )
+
+    saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
+
+    if problem_params['m'] is not None and algo_params['project_manifold']:
+        solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
+    else:
+        solver = diffrax.Tsit5()
+
+    forward_sol = diffrax.diffeqsolve(
+        term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
+        stepsize_controller=step_ctrl, saveat=saveat,
+        max_steps = algo_params['pontryagin_solver_maxsteps'],
+        throw=algo_params['throw'],
+    )
+
+    return forward_sol
+
+
+def meshcat_forward_sims(x0s, v_nn, nn_params, problem_params, algo_params):
+
+    # just a couple of steps I find myself doing in pdb all the time
+
+    sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params)
+    trajs = jax.vmap(sim)(x0s)
+
+    # convert to old (theta) repr. ugly hardcoded i know
+    ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
+
+    solsdict = {'t': trajs.ts, 'x': ys}
+
+    visualiser.plot_trajectories_meshcat(solsdict)
+
+    # also plot initial values.
+    # pl.figure('meshcat sims: initial v mean/std')
+    # v_means, v_stds = v_meanstds(x0s, nn_params)
+    # ts = np.linspace(0, 1, x0s.shape[0])
+    # pl.plot(ts, v_means, c='C0', label='v mean')
+    # pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
+    # pl.legend()
+    # pl.show()
+
+
 # }}}
+
+
+
+# define main active learning ingredients: prune & train function {{{
+
+def prune_and_train(key, v_nn, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, problem_params, algo_params, warmstart=False, is_final=False):
+
+    # these steps:
+    # 1. mark data which we already know to be suboptimal as such
+    #    (based on knowing a better solution at that point already)
+    # 2. train the nn for the 1st time
+    #    while gradually expanding the domain of training data (algo_params['nn_value_sweep'])
+    #    with huber type losses to not break everything on conflicting data
+    # 3. remove (= mark suboptimal) all the data that falls into the linear huber regions
+    #    meaning the NN could not fit it (easily enough).
+    # 4. train a second time with this "cleaned" dataset, just to remove the
+    #    artefacts from outlier data in first training round, by settling into the
+    #    equilibrium between gradient & weight decay.
+
+    # use the is_final flag to do the final training round. changes these things if True:
+    # - no pruning before training, all data & suboptimality flags are used as is
+    # - overrides thin_data, we need the whole dataset
+
+    # 0. redefining functions that were previously stolen from main's scope {{{
+
+    def v_meanstd(x, vmap_params):
+
+        # find (empirical) mean and std. dev of value function.
+        vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
+
+        v_mean = vs_ensemble.mean()
+        v_std = vs_ensemble.std()
+
+        return v_mean, v_std
+
+    def vx_meanstd(x, vmap_params):
+
+        # vmap for nn ensemble.
+        vx_fct = jax.jacobian(v_nn, argnums=1)
+        ensemble_vxs = jax.vmap(vx_fct, in_axes=(0, None))(vmap_params, x)
+
+        # now we have all_vxs.shape == (N_ensemble, nx)
+        # we want ensemble mean and std across axis 0.
+        # stds will be individual for each coordinate, sum/mean whatever later if you want.
+        vx_mean = ensemble_vxs.mean(axis=0)
+        vx_std = ensemble_vxs.std(axis=0)
+
+        return vx_mean, vx_std
+
+    v_meanstds = jax.vmap(v_meanstd, in_axes=(0, None))
+    vx_meanstds = jax.vmap(vx_meanstd, in_axes=(0, None))
+
+    # }}}
+
+    # 1. mark clearly suboptimal data. {{{
+
+    v_lower, v_upper = v_interval
+
+
+    # now without the extra dim the vmap we already did is sufficient
+    # v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
+
+
+    pruning_metrics = {}
+
+    if is_final:
+
+        # in the final round just use the suboptimality flag as is
+        is_suboptimal = previously_suboptimal
+
+    else:
+
+        v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+
+        # otherwise we might throw out some data already here if we know a better solution
+        if algo_params['pruning_strategy'] in ('conservative', 'conservative_past'):
+
+            # these two are now the same -- the cumsum step which
+            # differentiated them is now done after all these strategies.  no
+            # matter how we conclude suboptimality of any point, the preceding
+            # ones will also be suboptimal due to dynamic programming principle
+
+            # be conservative: only prune POINTS (not trajectories) that
+            # definitely (with high prob) are outside of value level set
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
+
+            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+
+
+
+        elif algo_params['pruning_strategy'] == 'generous':
+
+            # start with pointwise pruning mask from conservative strategy.
+            # delete not only the points preceding any suboptimal point, but
+            # also the ones after it, as long as they are above the currently
+            # known value level.
+
+            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
+            trajectory_outside_levelset = v_lower < all_ys['v']
+
+            point_is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
+
+            # clear out everything above the lower value level if there is a suboptimal point in the trajectory.
+            is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
+
+        else:
+            pruning_strategy = algo_params['pruning_strategy']
+            raise ValueError(f'unknown pruning strategy "{pruning_strategy}"')
+
+
+        # do this cumsum step here? for ANY pruning strategy this is the
+        # reasonable last step...
+        # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
+        # cumsum marks as suboptimal the PRECEDING points in physical time even
+        # though in array indices they are the subsequent ones. all correct.
+        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+
+        # keep suboptimal points marked suboptimal
+        is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
+
+    # next step: build training data out of this pruned mess.
+    in_band = (all_ys['v'] <= v_upper)
+
+    # this has proven not to be a great idea...
+    if algo_params['include_future_data']:
+        # just randomly throw in a bit more data for training.
+        v_upper_train = v_upper + (v_upper - v_lower)
+        in_band = (all_ys['v'] <= v_upper_train)
+
+
+    if algo_params['thin_data'] and not is_final:
+        # much simpler strategy: just exclude way past data.
+        v_cutoff = v_lower / algo_params['thin_data_denominator']
+        in_band = in_band & (v_cutoff <= all_ys['v'])
+
+    bool_train_idx = in_band & ~is_suboptimal
+    # }}}
+
+    # 2. train the NN for the first time. {{{
+
+    usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
+
+    # split into train/test set.
+    train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=algo_params['nn_train_fraction'])
+
+    train_key, key = jax.random.split(key)
+
+    params_old = params_sobolev_ens
+
+    # final training round flag. in the final training round we have saved
+    # data from the run and want to retrain the nn with ALL data. but we
+    # have no nn params, we cannot warmstart.
+    # if is_final:
+    #     warmstart = False
+    # do not do this ^^ anymore, decide for yourself with the warmstart flag if you want it
+
+    if warmstart:
+        # continue from previous params, only last portion of training.
+        # since we are doing this sweep, can we do EVERYTHING with tiny learning rate instead?
+        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_warmstarted(
+            train_key, train_ys, v_lower, v_upper, params_sobolev_ens, problem_params, algo_params
+        )
+    else:
+        # training from scratch
+        # raise NotImplementedError('are you sure? not really doing this anymore. plz implement v sweep here too')
+        # BUT with twice v_upper -- these two are for the sweep, NOT the entire value interval.
+        # and in this case we want no sweep, we want all data at once.
+        params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
+            train_key, train_ys, v_upper, v_upper, problem_params, algo_params
+        )
+
+    n_params = count_floats(params_sobolev_ens) / algo_params['nn_ensemble_size']
+    n_data = count_floats(train_ys)
+    pruning_metrics['params_data_ratio'] = n_params / n_data
+
+    # mean of the last couple iterations.
+    final_trainloss = oups_sobolev_ens['lossterms']['total_loss'][:, -100:].mean()
+
+    # and loss over test set.
+    test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
+    final_testloss = np.mean(test_losses)
+
+    # weight norm is not stochastically approximated so we can use just the last one.
+    final_weightnorm = oups_sobolev_ens['weight_norm'][:, -1].mean()
+
+    pruning_metrics['final_trainloss'] = final_trainloss
+    pruning_metrics['final_testloss'] = final_testloss
+    pruning_metrics['final_weightnorm'] = final_weightnorm
+    # }}}
+
+
+    # in the final training round we already know all the suboptimality
+    # flags and presume they are correct. so this is not needed anymore.
+    if not is_final:
+
+        # 3. classify outliers
+        # {{{
+
+        # evaluate all this stuff again yolo
+        v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
+        vx_means_trained, vx_stds_trained = vx_meanstds(usable_ys['x'], params_sobolev_ens)
+
+        # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred.
+        # this means: in_axes = (None, 0, 0, 0, None, None)
+
+        all_losses, all_auxs = jax.vmap(v_nn.sobolev_loss_inner, in_axes = (None, 0, 0, 0, None, None))(
+            key, usable_ys, v_means_trained, vx_means_trained, problem_params, algo_params
+        )
+
+        v_outliers = all_auxs['v_loss_linear']
+        print(f'v outliers:      {100*v_outliers.mean():.3f}%')
+        vx_outliers = all_auxs['vx_loss_linear']
+        print(f'vx outliers:     {100*vx_outliers.mean():.3f}%')
+        print(f'either outliers: {100*(vx_outliers|v_outliers).mean():.3f}%')
+        print(f'both outliers:   {100*(vx_outliers&v_outliers).mean():.3f}%')
+
+        # these boolean idxs are all with respect to usable_ys.
+        is_outlier = all_auxs['vx_loss_linear'] | all_auxs['v_loss_linear']  # is & better here?
+        is_new = (v_lower <= usable_ys['v']) & (usable_ys['v'] <= v_upper)
+
+        new_suboptimal = is_outlier & is_new
+
+
+        # now: update the full is_suboptimal array with these new indices
+        # is_suboptimal[bool_train_idx] = new_suboptimal
+        # (by construction of train idx, is_suboptimal[bool_train_idx] == False
+        is_suboptimal = is_suboptimal.at[bool_train_idx].set(new_suboptimal)
+
+        # then the cumsum thing
+        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
+
+        # }}}
+
+        # 4. second training run.
+
+        # {{{
+        # TODO last thing: switch huber loss to quadratic loss here.
+        # --> probably not relevant if removing outliers anyway.
+
+        bool_train_idx = in_band & ~is_suboptimal
+        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
+        train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=algo_params['nn_train_fraction'])
+
+        # shorter second training run, just to find an equilibrium of data vs weight decay.
+        algo_params_second = algo_params.copy()
+        algo_params_second['lr_init'] = algo_params['lr_final']
+        algo_params_second['nn_N_epochs'] = algo_params['nn_N_epochs'] / 8
+
+        if warmstart:
+            # continue from previous params, only last portion of training.
+            # also don't do the sweep anymore -- always sample up to v_upper.
+            params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble_warmstarted(
+                train_key, train_ys, v_upper, v_upper, params_sobolev_ens, problem_params, algo_params_second
+            )
+        else:
+            # training from scratch
+            raise NotImplementedError('are you sure? not really doing this anymore. plz implement v sweep here too')
+            params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble(
+                train_key, train_ys, problem_params, algo_params_second
+            )
+
+
+        # mean of the last couple iterations.
+        final_trainloss = oups_sobolev_ens_new['lossterms']['total_loss'][:, -100:].mean()
+
+        # and loss over test set.
+        test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
+        final_testloss = np.mean(test_losses)
+
+        final_weightnorm = oups_sobolev_ens_new['weight_norm'][:, -1].mean()
+
+        pruning_metrics['final_trainloss_second'] = final_trainloss
+        pruning_metrics['final_testloss_second'] = final_testloss
+
+        pruning_metrics['final_weightnorm_second'] = final_weightnorm
+
+        # all these shapes are (N_nn_ensemble, N_trainsteps) -- ofc we want concatenation along trainsteps
+        oups_sobolev_ens = jtm(lambda a, b: np.concatenate([a, b], axis=1), oups_sobolev_ens, oups_sobolev_ens_new)
+        # }}}
+
+    return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, pruning_metrics
+    # }}}
 
 
 def main(problem_params, algo_params):
@@ -248,7 +600,6 @@ def main(problem_params, algo_params):
     # }}}
 
 
-
     # define lots of boring ass functions  {{{
 
     solve_backward, f_extended = pontryagin_utils.define_backward_solver(
@@ -351,7 +702,7 @@ def main(problem_params, algo_params):
     def v_meanstd(x, vmap_params):
 
         # find (empirical) mean and std. dev of value function.
-        vs_ensemble = jax.vmap(v_nn_unnormalised, in_axes=(0, None))(vmap_params, x)
+        vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
 
         v_mean = vs_ensemble.mean()
         v_std = vs_ensemble.std()
@@ -361,7 +712,7 @@ def main(problem_params, algo_params):
     def vx_meanstd(x, vmap_params):
 
         # vmap for nn ensemble.
-        vx_fct = jax.jacobian(v_nn_unnormalised, argnums=1)
+        vx_fct = jax.jacobian(v_nn, argnums=1)
         ensemble_vxs = jax.vmap(vx_fct, in_axes=(0, None))(vmap_params, x)
 
         # now we have all_vxs.shape == (N_ensemble, nx)
@@ -418,73 +769,6 @@ def main(problem_params, algo_params):
 
 
 
-
-    def forward_sim_nn(x0, params, vmap=False):
-
-        if vmap:
-            # we have a whole NN ensemble. use the mean here.
-            # v_nn_unnormalised_single = lambda params, x: normaliser.unnormalise_v(v_nn(params, normaliser.normalise_x(x)))
-            # mean across only axis resulting in a scalar. differentiate later.
-            v_fct = lambda x: jax.vmap(v_nn_unnormalised, in_axes=(0, None))(params, x).mean()
-
-        else:
-            v_fct = lambda x: v_nn_unnormalised(params, x)
-
-        def forwardsim_rhs(t, x, args):
-
-            lam_x = jax.jacobian(v_fct)(x).squeeze()
-            # lam_x = P_lqr @ x  # <- for lqr instead
-            u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
-            return problem_params['f'](x, u)
-
-
-        term = diffrax.ODETerm(forwardsim_rhs)
-        step_ctrl = diffrax.PIDController(
-            atol=algo_params['pontryagin_solver_atol'],
-            rtol=algo_params['pontryagin_solver_rtol'],
-            dtmin=algo_params['dtmin'],
-            dtmax=algo_params['dtmax'],
-        )
-
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
-
-        if problem_params['m'] is not None and algo_params['project_manifold']:
-            solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
-        else:
-            solver = diffrax.Tsit5()
-
-        forward_sol = diffrax.diffeqsolve(
-            term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
-            stepsize_controller=step_ctrl, saveat=saveat,
-            max_steps = algo_params['pontryagin_solver_maxsteps'],
-            throw=algo_params['throw'],
-        )
-
-        return forward_sol
-
-
-    def meshcat_forward_sims(x0s, nn_params):
-
-        # just a couple of steps I find myself doing in pdb all the time
-        trajs = jax.vmap(forward_sim_nn, in_axes=(0, None, None))(x0s, nn_params, True)
-
-        # convert to old (theta) repr. ugly hardcoded i know
-        ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
-
-        solsdict = {'t': trajs.ts, 'x': ys}
-
-        visualiser.plot_trajectories_meshcat(solsdict)
-
-        # also plot initial values.
-        pl.figure('meshcat sims: initial v mean/std')
-        v_means, v_stds = v_meanstds(x0s, nn_params)
-        ts = np.linspace(0, 1, x0s.shape[0])
-        pl.plot(ts, v_means, c='C0', label='v mean')
-        pl.fill_between(ts, v_means-v_stds, v_means+v_stds, color='C0', alpha=.2, label='1σ confidence')
-        pl.legend()
-        pl.show()
-
-        # would be cool to additionally plot actually incurred control cost...
 
 
     def plot_v_vx_line(xs, vmap_params):
@@ -661,7 +945,7 @@ def main(problem_params, algo_params):
 
 
 
-    # define main active learning ingredients: proposals, oracle, prune & train function {{{
+    # define main active learning ingredients: proposals, oracle {{{
 
     def propose_pts(key, v_k, v_next, vmap_nn_params, data_extent, algo_params):
 
@@ -1125,246 +1409,6 @@ def main(problem_params, algo_params):
         return forward_sols, backward_sols, metrics
 
 
-    def prune_and_train(key, params_sobolev_ens, all_ys, v_interval, previously_suboptimal, algo_params, warmstart=False):
-
-        # these steps:
-        # 1. mark data which we already know to be suboptimal as such
-        #    (based on knowing a better solution at that point already)
-        # 2. train the nn for the 1st time
-        #    while gradually expanding the domain of training data (algo_params['nn_value_sweep'])
-        #    with huber type losses to not break everything on conflicting data
-        # 3. remove (= mark suboptimal) all the data that falls into the linear huber regions
-        #    meaning the NN could not fit it (easily enough).
-        # 4. train a second time with this "cleaned" dataset, just to remove the
-        #    artefacts from outlier data in first training round, by settling into the
-        #    equilibrium between gradient & weight decay.
-
-
-        # 1. mark clearly suboptimal data.
-
-        # {{{
-        v_lower, v_upper = v_interval
-
-        v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
-
-        # now without the extra dim the vmap we already did is sufficient
-        # v_nn_means, v_nn_stds = v_meanstds(all_ys['x'], params_sobolev_ens)
-
-
-        pruning_metrics = {}
-
-        if algo_params['pruning_strategy'] in ('conservative', 'conservative_past'):
-
-            # these two are now the same -- the cumsum step which
-            # differentiated them is now done after all these strategies.  no
-            # matter how we conclude suboptimality of any point, the preceding
-            # ones will also be suboptimal due to dynamic programming principle
-
-            # be conservative: only prune POINTS (not trajectories) that
-            # definitely (with high prob) are outside of value level set
-            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
-            trajectory_outside_levelset = v_lower < all_ys['v']
-
-            is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
-
-
-
-        elif algo_params['pruning_strategy'] == 'generous':
-
-            # start with pointwise pruning mask from conservative strategy.
-            # delete not only the points preceding any suboptimal point, but
-            # also the ones after it, as long as they are above the currently
-            # known value level.
-
-            nn_v_likely_in_levelset = v_nn_means + 3 * v_nn_stds < v_lower
-            trajectory_outside_levelset = v_lower < all_ys['v']
-
-            point_is_suboptimal = trajectory_outside_levelset & nn_v_likely_in_levelset
-
-            # clear out everything above the lower value level if there is a suboptimal point in the trajectory.
-            is_suboptimal = point_is_suboptimal.any(axis=1)[:, None] & (all_ys['v'] >= v_lower)
-
-        else:
-            pruning_strategy = algo_params['pruning_strategy']
-            raise ValueError(f'unknown pruning strategy "{pruning_strategy}"')
-
-
-        # do this cumsum step here? for ANY pruning strategy this is the
-        # reasonable last step...
-        # time goes from 0.0 at idx 0 to negative values at idx 1, 2, ... so
-        # cumsum marks as suboptimal the PRECEDING points in physical time even
-        # though in array indices they are the subsequent ones. all correct.
-        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
-
-        # keep suboptimal points marked suboptimal
-        is_suboptimal = np.logical_or(previously_suboptimal, is_suboptimal)
-
-        # next step: build training data out of this pruned mess.
-        in_band = (all_ys['v'] <= v_upper)
-
-        # this has proven not to be a great idea...
-        if algo_params['include_future_data']:
-            # just randomly throw in a bit more data for training.
-            v_upper_train = v_upper + (v_upper - v_lower)
-            in_band = (all_ys['v'] <= v_upper_train)
-
-
-        if algo_params['thin_data']:
-            # much simpler strategy: just exclude way past data.
-            v_cutoff = v_lower / algo_params['thin_data_denominator']
-            in_band = in_band & (v_cutoff <= all_ys['v'])
-
-
-
-        bool_train_idx = in_band & ~is_suboptimal
-        # }}}
-
-        # 2. train the NN for the first time.
-
-        # {{{
-
-        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
-
-        # print(f'total data points: {usable_ys["v"].shape[0]}')
-
-
-        # split into train/test set.
-        train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=algo_params['nn_train_fraction'])
-
-        # use these instead if we somehow need the normaliser again
-        # ys_n = normaliser.normalise_all_dict(train_ys)
-        # test_ys_n = normaliser.normalise_all_dict(test_ys)
-
-        init_key, key = jax.random.split(key)
-        # params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
-
-        # only count each individual NN's params to assess under/overparameterisation
-        # n_params = count_floats(params_init)
-
-        n_params = count_floats(params_sobolev_ens) / algo_params['nn_ensemble_size']
-        n_data = count_floats(train_ys)
-        pruning_metrics['params_data_ratio'] = n_params / n_data
-
-        params_old = params_sobolev_ens
-
-        if warmstart:
-            # continue from previous params, only last portion of training.
-            # since we are doing this sweep, can we do EVERYTHING with tiny learning rate instead?
-            params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble_warmstarted(
-                train_key, train_ys, v_lower, v_upper, params_sobolev_ens, problem_params, algo_params
-            )
-        else:
-            # training from scratch
-            raise NotImplementedError('are you sure? not really doing this anymore. plz implement v sweep here too')
-            params_sobolev_ens, oups_sobolev_ens = v_nn.train_sobolev_ensemble(
-                train_key, train_ys, problem_params, algo_params
-            )
-        # }}}
-
-        # mean of the last couple iterations.
-        final_trainloss = oups_sobolev_ens['lossterms']['total_loss'][:, -100:].mean()
-
-        # and loss over test set.
-        test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
-        final_testloss = np.mean(test_losses)
-
-        # weight norm is not stochastically approximated so we can use just the last one.
-        final_weightnorm = oups_sobolev_ens['weight_norm'][:, -1].mean()
-
-        pruning_metrics['final_trainloss'] = final_trainloss
-        pruning_metrics['final_testloss'] = final_testloss
-        pruning_metrics['final_weightnorm'] = final_weightnorm
-
-        # 3. classify outliers
-
-        # {{{
-
-        # evaluate all this stuff again yolo
-        v_means_trained, v_stds_trained = v_meanstds(usable_ys['x'], params_sobolev_ens)
-        vx_means_trained, vx_stds_trained = vx_meanstds(usable_ys['x'], params_sobolev_ens)
-
-        # sobolev loss inner must be vmapped along axes y, v_pred, vx_pred.
-        # this means: in_axes = (None, 0, 0, 0, None, None)
-
-        all_losses, all_auxs = jax.vmap(v_nn.sobolev_loss_inner, in_axes = (None, 0, 0, 0, None, None))(
-            key, usable_ys, v_means_trained, vx_means_trained, problem_params, algo_params
-        )
-
-        v_outliers = all_auxs['v_loss_linear']
-        print(f'v outliers:      {100*v_outliers.mean():.3f}%')
-        vx_outliers = all_auxs['vx_loss_linear']
-        print(f'vx outliers:     {100*vx_outliers.mean():.3f}%')
-        print(f'either outliers: {100*(vx_outliers|v_outliers).mean():.3f}%')
-        print(f'both outliers:   {100*(vx_outliers&v_outliers).mean():.3f}%')
-
-        # these boolean idxs are all with respect to usable_ys.
-        is_outlier = all_auxs['vx_loss_linear'] | all_auxs['v_loss_linear']  # is & better here?
-        is_new = (v_lower <= usable_ys['v']) & (usable_ys['v'] <= v_upper)
-
-        new_suboptimal = is_outlier & is_new
-
-
-        # now: update the full is_suboptimal array with these new indices
-        # is_suboptimal[bool_train_idx] = new_suboptimal
-        # (by construction of train idx, is_suboptimal[bool_train_idx] == False
-        is_suboptimal = is_suboptimal.at[bool_train_idx].set(new_suboptimal)
-
-        # then the cumsum thing
-        is_suboptimal = np.cumsum(is_suboptimal, axis=1) > 0
-
-        # }}}
-
-        # 4. second training run.
-
-        # {{{
-        # TODO last thing: switch huber loss to quadratic loss here.
-        # --> probably not relevant if removing outliers anyway.
-
-        bool_train_idx = in_band & ~is_suboptimal
-        usable_ys = jax.tree_util.tree_map(lambda node: node[bool_train_idx], all_ys)
-        train_ys, test_ys = nn_utils.train_test_split(usable_ys, train_frac=algo_params['nn_train_fraction'])
-        init_key, key = jax.random.split(key)
-        params_init = v_nn.nn.init(init_key, np.zeros(problem_params['nx']))
-
-        # shorter second training run, just to find an equilibrium of data vs weight decay.
-        algo_params_second = algo_params.copy()
-        algo_params_second['lr_init'] = algo_params['lr_final']
-        algo_params_second['nn_N_epochs'] = algo_params['nn_N_epochs'] / 8
-
-        if warmstart:
-            # continue from previous params, only last portion of training.
-            # also don't do the sweep anymore -- always sample up to v_upper.
-            params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble_warmstarted(
-                train_key, train_ys, v_upper, v_upper, params_sobolev_ens, problem_params, algo_params_second
-            )
-        else:
-            # training from scratch
-            raise NotImplementedError('are you sure? not really doing this anymore. plz implement v sweep here too')
-            params_sobolev_ens, oups_sobolev_ens_new = v_nn.train_sobolev_ensemble(
-                train_key, train_ys, problem_params, algo_params_second
-            )
-
-        # }}}
-
-        # mean of the last couple iterations.
-        final_trainloss = oups_sobolev_ens_new['lossterms']['total_loss'][:, -100:].mean()
-
-        # and loss over test set.
-        test_losses, test_lossterms = jax.vmap(v_nn.sobolev_loss_batch_mean, in_axes=(None, 0, None, None, None))(key, params_sobolev_ens, test_ys, problem_params, algo_params)
-        final_testloss = np.mean(test_losses)
-
-        final_weightnorm = oups_sobolev_ens_new['weight_norm'][:, -1].mean()
-
-        pruning_metrics['final_trainloss_second'] = final_trainloss
-        pruning_metrics['final_testloss_second'] = final_testloss
-
-        pruning_metrics['final_weightnorm_second'] = final_weightnorm
-
-        # all these shapes are (N_nn_ensemble, N_trainsteps) -- ofc we want concatenation along trainsteps
-        oups_sobolev_ens = jtm(lambda a, b: np.concatenate([a, b], axis=1), oups_sobolev_ens, oups_sobolev_ens_new)
-
-        return params_sobolev_ens, oups_sobolev_ens, is_suboptimal, pruning_metrics
-
 
     # test points, with increased density towards origin.
     # 10000 points doesn't even look like all that much on a plot, maybe we need more...
@@ -1649,12 +1693,17 @@ def main(problem_params, algo_params):
 
     for k in range(100):
 
+
         print(f'\n\n\n ~~~~ active learning iteration {k} ~~~~')
 
         # estimate known value level
         vk_prev = v_k
         v_means, v_stds = v_meanstds(test_pts, params_sobolev_ens)
         v_k, test_pts_known, estimator_metrics = estimate_value_level(v_means, v_stds, test_pts_known, upper_v=v_next_target)
+
+        if v_k >= problem_params['V_max']:
+            # just quit here, data and nn params that lead to this were saved last iteration
+            break
 
         # set next value target
         v_next_target = set_value_target(all_ys, v_k, problem_params, algo_params)
@@ -1702,10 +1751,12 @@ def main(problem_params, algo_params):
         train_key, key = jax.random.split(key)
         params_sobolev_ens, oups, is_suboptimal, pruning_metrics = prune_and_train(
             train_key,
+            v_nn,
             params_sobolev_ens,
             all_ys,
             [v_k, v_next_target],
             is_suboptimal,
+            problem_params,
             algo_params,
             warmstart=algo_params['nn_warm_start']
         )
@@ -1741,8 +1792,10 @@ def main(problem_params, algo_params):
         # save dataset in scratch.
         all_data = {
             'step': k,
+            'vk': v_k,
             'ys': all_ys,
-            'is_suboptimal': is_suboptimal
+            'is_suboptimal': is_suboptimal,
+            'nn_params': params_sobolev_ens,
         }
 
         bs = flax.serialization.msgpack_serialize(all_data)
@@ -1842,3 +1895,63 @@ def main(problem_params, algo_params):
 
     # }}}
 
+
+
+
+def evaluate(run_dir, problem_params, algo_params):
+
+    # given this run dir:
+    #  - get all data from corresponding msgpack serialisation
+    #  - fit nn to data to get value fct and controller
+    #  - do some closed loop sims, uniformly from the sublevel set or something like that
+
+    with gzip.open(os.path.join(run_dir, 'all_data.msgpack.gz'), 'rb') as f:
+        bs = f.read()
+
+    all_data = flax.serialization.msgpack_restore(bs)
+
+    evaluate_directly(all_data, problem_params, algo_params)
+
+def evaluate_directly(all_data, problem_params, algo_params):
+
+    # restoring this gives us a Pytree with numpy array (not jax.numpy!)
+    # leaves:
+    #   type(node) == onp.ndarray
+    # but we want
+    #   type(node) == jaxlib.xla_extension.ArrayImpl
+    # so we convert it here.
+    # wasted half an hour digging through so much code to find this out
+    all_ys = jtm(np.array, all_data['ys'])
+    is_suboptimal = np.array(all_data['is_suboptimal'])
+
+    nn_params = jtm(np.array, all_data['nn_params'])
+    vk = all_data['vk']
+
+    key = jax.random.PRNGKey(0)
+    v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
+
+    # long training, quadratic (not huber) losses, low learning rate.
+    # algo_params['lr_init'] = np.sqrt(algo_params['lr_init'] * algo_params['lr_final'])
+    algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
+    algo_params['nn_value_sweep'] = False
+
+    nn_params_full, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
+        key,
+        v_nn,
+        nn_params,
+        all_ys,            # all data
+        [0., vk],          # everything used
+        is_suboptimal,     # but only the good parts
+        problem_params,
+        algo_params,
+        is_final=True,
+        warmstart=True,
+    )
+
+    plotting_utils.plot_nn_train_outputs(training_oups)
+    pl.show()
+
+    xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
+    meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+
+    ipdb.set_trace()

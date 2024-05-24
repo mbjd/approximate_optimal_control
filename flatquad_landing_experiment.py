@@ -823,7 +823,9 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    levelsets.evaluate('euler_runs/m42t3ibi', problem_params, algo_params)
+
+    levelsets.evaluate('euler_runs/jpo31mlf', problem_params, algo_params)
+    # levelsets.evaluate('euler_runs/ff5mij89', problem_params, algo_params)
     # levelsets.main(problem_params, algo_params)
 
 

@@ -5,6 +5,11 @@
 SYS=$1
 RUN=$2
 
-rsync -av dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/${SYS}_runs/$RUN ./euler_runs
+if [ -n "$RUN" ]; then
+    rsync -av dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/${SYS}_runs/$RUN ./euler_runs
+else
+    echo got no run. pls give second argument
+    exit 1
+fi
 
 # alternative: ALL of them

@@ -20,11 +20,13 @@ import meshcat.geometry as geom
 import meshcat.transformations as tf
 
 import os
+import sys
 import gzip
 import ipdb
 import time
 import tqdm
 import pprint
+import subprocess
 from operator import itemgetter
 
 
@@ -1905,7 +1907,21 @@ def evaluate(run_dir, problem_params, algo_params):
     #  - fit nn to data to get value fct and controller
     #  - do some closed loop sims, uniformly from the sublevel set or something like that
 
-    with gzip.open(os.path.join(run_dir, 'all_data.msgpack.gz'), 'rb') as f:
+    filepath = os.path.join(run_dir, 'all_data.msgpack.gz')
+
+    if not os.path.isfile(filepath):
+        print(f'{filepath} does not exist. trying to pull from euler')
+        run_id = run_dir.split('/')[-1]
+        cmd = ['./pull_run.sh', problem_params['system_name'], run_id]
+        output = subprocess.run(cmd)
+        if output.returncode != 0:
+            print(f'failed to pull run from euler with exit code {output.returncode}')
+            sys.exit(1)
+        if not os.path.isfile(filepath):
+            print('path still does not exist')
+            sys.exit(1)
+
+    with gzip.open(filepath, 'rb') as f:
         bs = f.read()
 
     all_data = flax.serialization.msgpack_restore(bs)
@@ -1924,7 +1940,6 @@ def evaluate_directly(all_data, problem_params, algo_params):
     all_ys = jtm(np.array, all_data['ys'])
     is_suboptimal = np.array(all_data['is_suboptimal'])
 
-    nn_params = jtm(np.array, all_data['nn_params'])
     vk = all_data['vk']
 
     key = jax.random.PRNGKey(0)
@@ -1932,21 +1947,37 @@ def evaluate_directly(all_data, problem_params, algo_params):
 
     # long training, quadratic (not huber) losses, low learning rate.
     # algo_params['lr_init'] = np.sqrt(algo_params['lr_init'] * algo_params['lr_final'])
-    algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
+    # algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
     algo_params['nn_value_sweep'] = False
 
-    nn_params_full, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
-        key,
-        v_nn,
-        nn_params,
-        all_ys,            # all data
-        [0., vk],          # everything used
-        is_suboptimal,     # but only the good parts
-        problem_params,
-        algo_params,
-        is_final=True,
-        warmstart=True,
-    )
+    if 'nn_params' in all_data:
+        print('got nn params, training warm-started')
+        nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
+            key,
+            v_nn,
+            jtm(np.array, all_data['nn_params']),
+            all_ys,            # all data
+            [0., vk],          # everything used
+            is_suboptimal,     # but only the good parts
+            problem_params,
+            algo_params,
+            is_final=True,
+            warmstart=True,
+        )
+    else:
+        print('got no nn params, training from scratch')
+        nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
+            key,
+            v_nn,
+            None,
+            all_ys,            # all data
+            [0., vk],          # everything used
+            is_suboptimal,     # but only the good parts
+            problem_params,
+            algo_params,
+            is_final=True,
+            warmstart=False,
+        )
 
     plotting_utils.plot_nn_train_outputs(training_oups)
     pl.show()

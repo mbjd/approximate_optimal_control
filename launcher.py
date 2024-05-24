@@ -47,6 +47,7 @@ flatquad_configs = {
     # 'nn_value_sweep': [True, False],
     'lr_final': np.logspace(-3.5, -2.5, 4),
     'weight_decay': np.logspace(-3, -2, 4),
+    # 'lr_final': np.logspace(-4, -2, 8),
     # 'vx_loss_d': [0.3],
     # 'inv_vx_loss_fadeout': [0.],
 

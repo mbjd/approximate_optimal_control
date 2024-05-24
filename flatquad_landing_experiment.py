@@ -582,12 +582,15 @@ def base_algo_params():
         'nn_type': 'leaky',
         # 'nn_layerdims': (16, 16, 16),
         # 'nn_layerdims': (32, 32, 32),
-        'nn_layerdims': (64, 64, 64),
+        # 'nn_layerdims': (64, 64, 64),
         # 'nn_layerdims': (128, 128, 128),
         # 'nn_layerdims': (256, 256, 256),
         # 'nn_layerdims': (512, 512, 512),
         # 'nn_layerdims': (32, 32, 32, 32),
         # 'nn_layerdims': (128, 8),
+        # nicer for the launch script
+        'nn_n_layers': 3,
+        'nn_layer_dim': 64,
         'nn_batchsize': 32,
         'nn_N_epochs': 64,
         'nn_train_fraction': .98,
@@ -632,7 +635,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 1.,
 
-        'inv_vx_loss_fadeout': 50.,
+        'inv_vx_loss_fadeout': 5.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample

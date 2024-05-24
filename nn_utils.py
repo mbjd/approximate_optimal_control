@@ -322,7 +322,8 @@ class nn_wrapper():
     def __init__(self, problem_params, algo_params):
 
         self.input_dim  = problem_params['nx']
-        self.layer_dims = algo_params['nn_layerdims']
+        # self.layer_dims = algo_params['nn_layer_dims']
+        self.layer_dims = algo_params['nn_n_layers'] * (algo_params['nn_layer_dim'],)
         self.output_dim = 1
 
         if algo_params['nn_type'] == 'softplus':
@@ -335,6 +336,8 @@ class nn_wrapper():
             self.nn = my_nn_experimental(features=self.layer_dims, penultimate_dim=32, output_dim=self.output_dim)
         else:
             raise ValueError(f'NN type {algo_params["nn_type"]} unknown')
+
+        print(self.layer_dims)
 
     # so we can use it like a function :)
     def __call__(self, params, x):

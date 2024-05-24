@@ -5,8 +5,8 @@ import numpy as np
 
 from util import generate_run_commands, generate_base_command, dict_permutations, available_gpus
 
-PROJECT_NAME = 'flatquad'
-# PROJECT_NAME = 'orbits'
+# PROJECT_NAME = 'flatquad'
+PROJECT_NAME = 'orbits'
 
 flatquad_configs = {
     # 'T_value_target': [1/2, 1, 2.],
@@ -47,18 +47,19 @@ flatquad_configs = {
     # 'nn_value_sweep': [True, False],
     'lr_final': np.logspace(-3.5, -2.5, 4),
     'weight_decay': np.logspace(-3, -2, 4),
+    # 'lr_final': np.logspace(-4, -2, 8),
     # 'vx_loss_d': [0.3],
     # 'inv_vx_loss_fadeout': [0.],
 
 
     # ... and similar ones
     'nn_value_sweep': [True, False],
-    'nn_layer_dim': [64, 128, 256, 512],
+    'nn_layer_dim': [256],
     # 'lr_final': [0.002, 0.001, 0.0005],
     # 'weight_decay': [0.002, 0.001, 0.0005],
     # 'vx_loss_d': [0.2, 0.3, 0.5],
     # 'inv_vx_loss_fadeout': [0., 0.2, 0.5, 1., 2, 5],
-    'inv_vx_loss_fadeout': [1.],
+    'inv_vx_loss_fadeout': [.3, 1., 3., 10., 30.],
 
 
     # 'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
@@ -81,13 +82,14 @@ orbits_configs = {
 
     # 'seed': [1,2,3,4,5,6,7,8],
 
-    # 'lr_final': 0.001,
-    # 'weight_decay': .0001,
+    'lr_final': [0.001, 0.002, 0.005, 0.01],
+    'weight_decay': [.0001, 0.0002, 0.0005, 0.001],
     # 'lr_final': [0.0001, .0002, .0005, .001, .002, .005],
     # 'weight_decay': [.0001, .0002, .0005, .001, .002, .005],
 
     # 'vx_loss_d': [ 0.2, 0.3, 0.4, 0.5 ],
     'nn_value_sweep': [True, False],
+    'inv_vx_loss_fadeout': [0., 0.3, 1., 3., 10., 30.],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)
@@ -106,9 +108,11 @@ def main():
     if PROJECT_NAME == 'flatquad':
         import flatquad_landing_experiment as exp
         flags_combinations = dict_permutations(flatquad_configs)
+        num_gpus = 1
     elif PROJECT_NAME == 'orbits':
         import orbits_experiment as exp
         flags_combinations = dict_permutations(orbits_configs)
+        num_gpus = 0
     else:
         raise ValueError(f'Unknown project name: {PROJECT_NAME}')
 
@@ -124,9 +128,9 @@ def main():
     # submit jobs
     generate_run_commands(command_list,
                           num_cpus=1,
-                          num_gpus=0,
+                          num_gpus=num_gpus,
                           mode='euler',
-                          duration='3:59:00',
+                          duration='1:59:00',
                           prompt=True,
                           mem=8192)
 

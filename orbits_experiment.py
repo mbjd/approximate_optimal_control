@@ -76,6 +76,7 @@ def define_problem_params():
 
         # the value level below which we accept the LQR solution as correct.
         'V_f': 0.01,
+        'V_max': 1000.,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -145,21 +146,22 @@ def base_algo_params():
         # big question: should we aim for over- or underparameterisation?
         # 'nn_layerdims': (256, 16),
         'nn_type': 'leaky',
-        'nn_layerdims': (16, 16, 16),
+        'nn_n_layers': 3,
+        'nn_layer_dim': 16,
         'nn_batchsize': 32,
         'nn_N_epochs': 256,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.05,
-        'lr_final': 0.005,
-        'weight_decay': .0005,
-        'nn_warmstart_fraction': 1.,
+        'lr_final': 0.0005,
+        'weight_decay': .0001,
+        'nn_warmstart_fraction': 1/2,
 
         'nn_ensemble_size': 4,
         'nn_warm_start': True,
 
-        'nn_value_sweep': False,
+        'nn_value_sweep': True,
 
         'nn_progressbar': True,
 
@@ -176,6 +178,8 @@ def base_algo_params():
         # error of 10% we penalise less heavily.
         'vx_loss_d': 0.3,
         'v_loss_d': 0.2,
+        'min_important_v': 1.,
+        'min_important_vx': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -188,7 +192,7 @@ def base_algo_params():
         'prior_strength': 0.01,
         'v_prior': 200.,
 
-        'inv_vx_loss_fadeout': 10,
+        'inv_vx_loss_fadeout': 10.,
 
         # MAIN ALGO
         # only take a subsample of data for active learning. dense sample

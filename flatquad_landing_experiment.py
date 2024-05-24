@@ -591,21 +591,21 @@ def base_algo_params():
         # 'nn_layerdims': (128, 8),
         # nicer for the launch script
         'nn_n_layers': 3,
-        'nn_layer_dim': 64,
+        'nn_layer_dim': 256,
         'nn_batchsize': 32,
         'nn_N_epochs': 512,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
         'lr_staircase_steps': 8,
-        'lr_init': 0.05,
+        'lr_init': 0.01,
         'lr_final': 0.0001,
         'weight_decay': .003,
 
         'nn_ensemble_size': 4,
 
         'nn_warm_start': True,
-        'nn_warmstart_fraction': 1/4,
+        'nn_warmstart_fraction': 1/2,
 
         'nn_value_sweep': True,
 
@@ -823,7 +823,9 @@ if __name__ == '__main__':
 
             algo_params[k] = new_arg
 
-    levelsets.evaluate('euler_runs/m42t3ibi', problem_params, algo_params)
+
+    levelsets.evaluate('euler_runs/8dgpt7uo', problem_params, algo_params)
+    # levelsets.evaluate('euler_runs/ff5mij89', problem_params, algo_params)
     # levelsets.main(problem_params, algo_params)
 
 

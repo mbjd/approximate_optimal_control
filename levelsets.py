@@ -20,11 +20,13 @@ import meshcat.geometry as geom
 import meshcat.transformations as tf
 
 import os
+import sys
 import gzip
 import ipdb
 import time
 import tqdm
 import pprint
+import subprocess
 from operator import itemgetter
 
 
@@ -1905,7 +1907,21 @@ def evaluate(run_dir, problem_params, algo_params):
     #  - fit nn to data to get value fct and controller
     #  - do some closed loop sims, uniformly from the sublevel set or something like that
 
-    with gzip.open(os.path.join(run_dir, 'all_data.msgpack.gz'), 'rb') as f:
+    filepath = os.path.join(run_dir, 'all_data.msgpack.gz')
+
+    if not os.path.isfile(filepath):
+        print(f'{filepath} does not exist. trying to pull from euler')
+        run_id = run_dir.split('/')[-1]
+        cmd = ['./pull_run.sh', problem_params['system_name'], run_id]
+        output = subprocess.run(cmd)
+        if output.returncode != 0:
+            print(f'failed to pull run from euler with exit code {output.returncode}')
+            sys.exit(1)
+        if not os.path.isfile(filepath):
+            print('path still does not exist')
+            sys.exit(1)
+
+    with gzip.open(filepath, 'rb') as f:
         bs = f.read()
 
     all_data = flax.serialization.msgpack_restore(bs)
@@ -1913,6 +1929,12 @@ def evaluate(run_dir, problem_params, algo_params):
     evaluate_directly(all_data, problem_params, algo_params)
 
 def evaluate_directly(all_data, problem_params, algo_params):
+
+    # should these be arguments?
+
+    # instead of ensemble 'distill' only to a single NN.
+    single = True
+
 
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
     # leaves:
@@ -1924,34 +1946,82 @@ def evaluate_directly(all_data, problem_params, algo_params):
     all_ys = jtm(np.array, all_data['ys'])
     is_suboptimal = np.array(all_data['is_suboptimal'])
 
-    nn_params = jtm(np.array, all_data['nn_params'])
     vk = all_data['vk']
+    # this vk ^^ is from the penultimate round. so really a bit crappy to use this.
+    vk = problem_params['V_max']
 
     key = jax.random.PRNGKey(0)
-    v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
     # long training, quadratic (not huber) losses, low learning rate.
+    # shouldn't we rather get the algoparams from the actual experiment?
+    # so we have the same 'smoothness prior' mainly.
     # algo_params['lr_init'] = np.sqrt(algo_params['lr_init'] * algo_params['lr_final'])
-    algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
+    # algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
     algo_params['nn_value_sweep'] = False
+    # push it
+    algo_params['lr_final'] = algo_params['lr_final'] / 10
+    algo_params['lr_init'] = 0.01
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs']
 
-    nn_params_full, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
-        key,
-        v_nn,
-        nn_params,
-        all_ys,            # all data
-        [0., vk],          # everything used
-        is_suboptimal,     # but only the good parts
-        problem_params,
-        algo_params,
-        is_final=True,
-        warmstart=True,
-    )
+    if single:
+        algo_params['nn_ensemble_size'] = 1
+
+    v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
+
+    if 'nn_params' in all_data:
+        print('got nn params, training warm-started')
+        nn_params = jtm(np.array, all_data['nn_params'])
+        nn_params = jtm(lambda z: z[0:1], nn_params)
+        # ipdb.set_trace()
+        nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
+            key,
+            v_nn,
+            nn_params,
+            all_ys,            # all data
+            [0., vk],          # everything used
+            is_suboptimal,     # but only the good parts
+            problem_params,
+            algo_params,
+            is_final=True,
+            warmstart=True,
+        )
+    else:
+        print('got no nn params, training from scratch')
+        nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
+            key,
+            v_nn,
+            None,
+            all_ys,            # all data
+            [0., vk],          # everything used
+            is_suboptimal,     # but only the good parts
+            problem_params,
+            algo_params,
+            is_final=True,
+            warmstart=False,
+        )
 
     plotting_utils.plot_nn_train_outputs(training_oups)
     pl.show()
 
+    # usual upside down thing
     xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
     meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+
+    # same but faster
+    xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 15, 0]))(np.linspace(-10, 10, 201))
+    meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+
+    # grid, upright, only where v < vk
+    # xs = jax.vmap(lambda x: np.array([2 * (x%10 - 4.5), 2 * ((x//10)%10 - 4.5), 0, 1, 0, 0, 0]))(np.arange(100))
+
+    x = np.linspace(-20, 20, 80)
+    y = np.linspace(-20, 20, 80)
+    xx, yy = np.meshgrid(x, y)
+    xs = jax.vmap(lambda x, y: np.array([x, y, 0, 1, 0, 0, 0]), in_axes=(0, 0))(xx.flatten(), yy.flatten())
+
+    vs = jax.vmap(v_nn, in_axes=(None, 0))(jtm(itemgetter(0), nn_params), xs)
+    xs_inside = xs[vs < vk]
+
+    meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
 
     ipdb.set_trace()

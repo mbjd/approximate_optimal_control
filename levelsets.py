@@ -1953,6 +1953,8 @@ def evaluate_directly(all_data, problem_params, algo_params):
     key = jax.random.PRNGKey(0)
 
     # long training, quadratic (not huber) losses, low learning rate.
+    # shouldn't we rather get the algoparams from the actual experiment?
+    # so we have the same 'smoothness prior' mainly.
     # algo_params['lr_init'] = np.sqrt(algo_params['lr_init'] * algo_params['lr_final'])
     # algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
     algo_params['nn_value_sweep'] = False
@@ -1960,8 +1962,6 @@ def evaluate_directly(all_data, problem_params, algo_params):
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = 0.01
     algo_params['nn_N_epochs'] = algo_params['nn_N_epochs']
-    algo_params['v_loss_d'] = 100.
-    algo_params['weight_decay'] = 0.001
 
     if single:
         algo_params['nn_ensemble_size'] = 1

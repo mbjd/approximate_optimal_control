@@ -41,7 +41,7 @@ K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 eq = problem_params['x_eq']
 V_f = lambda x: 0.5 * (x - eq).T @ P_lqr @ (x - eq)
 
-thetas = np.linspace(0, 2 * np.pi, 1024)[:-1]
+thetas = np.linspace(0, 2 * np.pi, 512)[:-1]
 circle_xs = jax.vmap(lambda theta: np.array([np.sin(theta), np.cos(theta)]))(thetas)
 xfs = 0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr)) + problem_params['x_eq'][None, :]
 yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
@@ -52,13 +52,20 @@ vf = yf['v']
 
 # v_upper = 1000.
 
-@jax.jit
-def remesh(sols, frac):
+# if True, always start solutions from Xf again, with known sensitivity
+# issues. If False, start solutions at previous level set, like real thing.
+remesh_final = True
+
+
+@partial(jax.jit, static_argnums=2)
+def remesh(sols, frac, remesh_final):
 
     # the magic sauce.
     # if necessary: find here by bisection the largest v such that some
     # maximum distance between points is not exceeded.
-    yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+    # frac=1 -> arclength at t1
+    # frac=0 -> arclength at t0
+    yfs = jax.vmap(lambda sol: sol.evaluate(sol.t0 * (1-frac) + sol.t1 * frac))(sols)
 
     # yfs['x'] represents a closed curve in state space. consider it equal to
     # its piecewise linear interpolation for now. we want something like the
@@ -68,7 +75,7 @@ def remesh(sols, frac):
     xs = yfs['x']
     rolled_xs = np.roll(xs, -1, axis=0)
 
-    lifted_arclen=True
+    lifted_arclen=False
     if lifted_arclen:
         # compute arclentghs in full (x, λ) space.
         # but normalise gradient. only care about direction.
@@ -92,11 +99,17 @@ def remesh(sols, frac):
 
     # instead use the previous ys for that interpolation.
     # t = (1-frac) * sols.t0[0] + (frac) * sols.t1[0]
+    # ys_remesh = jax.vmap(lambda sol: sol.evaluate(sol.t0 * (1-frac) + sol.t1 * frac))(sols)
     ys_remesh = jax.vmap(lambda sol: sol.evaluate(sol.t0))(sols)
     new_v = np.interp(frac_idx, np.arange(N), ys_remesh['v'])
     new_x = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['x'][:, i]) for i in range(2)]).T
     new_vx = np.array([np.interp(frac_idx, np.arange(N), ys_remesh['vx'][:, i]) for i in range(2)]).T
     new_t = np.interp(frac_idx, np.arange(N), ys_remesh['t'])
+
+    if remesh_final:
+        new_v = jax.vmap(V_f)(new_x)
+        new_vx = jax.vmap(jax.grad(V_f))(new_x)
+        new_t = np.zeros_like(new_v)
 
     new_y = dict(x=new_x, v=new_v, vx=new_vx, t=new_t)
     return new_y
@@ -104,10 +117,10 @@ def remesh(sols, frac):
 solve_fast = jax.jit(jax.vmap(solve_backward, in_axes=(0, None)))
 # solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
 
-vmax = 470
+vmax = 420
 N=20
-levels = np.logspace(0., np.log10(vmax), N)
-levels = np.linspace(1, np.sqrt(vmax), N)**2
+levels = np.logspace(np.log10(vf*2), np.log10(vmax), N)
+levels = np.linspace(np.sqrt(vf*2), np.sqrt(vmax), N)**2
 # levels = np.linspace(1, vmax, N)
 
 sols = None
@@ -125,9 +138,10 @@ def find_min_l(yfs):
     min_l = np.min(ls)
     return min_l
 
-v_upper = vf
+# first, get ALL those solutions over the full horizon.
+
 with tqdm.tqdm(total=vmax) as pbar:
-    while v_upper < vmax:
+    for v_upper in levels:
         # otherwise it needs the increment not absolute progress.
         # https://github.com/tqdm/tqdm/issues/1264
         pbar.n = v_upper.item()
@@ -140,260 +154,340 @@ with tqdm.tqdm(total=vmax) as pbar:
 
         # step size selection just like the real thing
         min_l = find_min_l(yfs)
-        vstep = 1. * min_l
+        vstep = 3. * min_l
         v_upper = v_upper + vstep
 
         # 1. uniform solutions.
         sols_uniform = solve_fast(yfs, v_upper)
         # 2. remeshing
-        yfs = remesh(sols_uniform, 0.0)
+        yfs = remesh(sols_uniform, 1.0, remesh_final)
         # 3. remeshed solutions.
         sols = solve_fast(yfs, v_upper)
 
         # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform', c='grey')
-        pl.plot(*sols.ys['x'][::1].reshape(-1,2).T, alpha=.05, label='remeshed', c='black')
+        # pl.plot(*sols.ys['x'][::1].reshape(-1,2).T, alpha=.05, label='remeshed', c='black')
         # pl.legend()
 
         # yprev = yfs
-        yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+        if remesh_final:
+            yfs = jax.vmap(lambda sol: sol.evaluate(sol.t0))(sols)
+        else:
+            yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
 
         viridis = matplotlib.colormaps['viridis']
-        pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
+        # pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
 
         # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
 
 
+
+def plot_levelset(v, grey=False):
+    ys = jax.vmap(lambda sol: sol.evaluate(v))(sols)
+
+    if grey:
+        color = 'black'
+    else:
+        viridis = matplotlib.colormaps['viridis']
+        color = viridis(v / levels[-1])
+
+    pl.plot(*ys['x'].T, alpha=.5, color = color)
+
+'''
+vs_plot = np.linspace(vf, vmax, 51)
+for v in vs_plot:
+    plot_levelset(v)
+
+    # pl.colorbar somehow?
+
 pl.show()
-ipdb.set_trace()
+'''
 
 
-def find_collision_continuation(sols, v_upper):
+# trajectories plot
+pl.figure()
 
-    # approach it the opposite way, with trajectories.
-    # assume all "collisions" happen in the value slice covered by sols.
-    pl.plot(*sols.ys['x'][0])
-    pass
+v0, v1 = 2., 50.
+eps = 0.001  # to certainly land in interior of domain of interpolation
+# evaluate at nan too to break up line
+vs_plot = np.concatenate([np.logspace(np.log10(v0+eps), np.log10(v1-eps), 31), np.array([np.nan])])
+subsample = 32
+traj_alpha = .5
 
+# v0, v1 = (150., 300.)
 
-def find_self_intersection(xs):
+ax = pl.subplot(121)
+ax.set_aspect('equal')
+plot_levelset(v0, grey=True)
+plot_levelset(v1, grey=True)
 
-    # given a closed curve in 2d space, return all points where it intersects itself.
-    # absolutely brute force. no apologies.
+# yfs at lower value level v0
+yfs = jax.vmap(lambda sol: sol.evaluate(v0))(sols)
+# trajectories from v0 to v1 (with distribution of last traj batch!)
+sols_partial = solve_fast(yfs, v1)
 
-    # first, we want all pairs of neighboring points.
-    first_idx = np.arange(xs.shape[0])
-    second_idx = np.roll(first_idx, -1)
+yfs_uniform_lower = remesh(sols_partial, 0., False)
+yfs_uniform_upper = remesh(sols_partial, 1., False)
 
-    # we want to know if the line segment between
+sols_uniform_lower = solve_fast(yfs_uniform_lower, v1)
+sols_uniform_upper = solve_fast(yfs_uniform_upper, v1)
 
-    lfirst = xs[first_idx]
-    lsecond = xs[second_idx]
+plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_lower)
+pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
 
-    rfirst = xs[first_idx]
-    rsecond = xs[second_idx]
-
-    # for each index pari (i, j), we want to know if the line segment
-    # between lfirst and lsecond intersects the one between rfirst and rsecond.
-
-    # that is, concretely:
-    #  1. find a, b such that: lfirst + a * (lsecond - lfirst) = rfirst + b * (rsecond - rfirst)
-    #  2. check if a and b are between 0 and 1 - if so, we have an intersection.
-
-    # first step, for single line pair.
-    # lfirst + a * (lsecond - lfirst) = rfirst + b * (rsecond - rfirst)
-    # a * (lsecond - lfirst) - b * (rsecond - rfirst)= -lfirst + rfirst
-    # [lsecond-lfirst, rsecond-rfirst]  [a; b] = -lfirst + rfirst
-    # [ldir, rdir] [a; b] = -lfirst + rfirst
-    def single_intersection(lfirst, lsecond, rfirst, rsecond):
-        A = np.array([lsecond - lfirst, rsecond - rfirst]).T
-        b = -lfirst + rfirst
-        ab = np.linalg.solve(A, b)
-        return ab
-
-    # so for each index (i, j), we need:
-    # i, j = 1, 2
-    # single_intersection(lfirst[i], lsecond[i], rfirst[j], rsecond[j])
-
-    # now use vmap to do this for all pairs.
-    all_abs = jax.vmap(jax.vmap(single_intersection, in_axes=(None, None, 0, 0)), in_axes=(0, 0, None, None))(lfirst, lsecond, rfirst, rsecond)
-
-    is_inside = ((all_abs > 0.) & (all_abs < 1.)).all(axis=2)
-    all_intersection_pts = lfirst + all_abs[0][:, None] * (lsecond - lfirst)
-    ipdb.set_trace()
+ax = pl.subplot(122, sharex=ax, sharey=ax)
+ax.set_aspect('equal')
+plot_levelset(v0, grey=True)
+plot_levelset(v1, grey=True)
+plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_upper)
+pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
+pl.show()
 
 
-xs = yfs['x']
-find_self_intersection(xs)
+# intersecting level sets plot:
+pl.figure()
+vs_plot = np.linspace(vf, vmax, 21)
+v_uppers = (300, 340, np.inf)
+
+ax = None
+for k in range(3):
+    ax = pl.subplot(131 + k, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    for v in vs_plot:
+        if v < v_uppers[k]:
+            plot_levelset(v)
+pl.show()
+# try to neatly separate the two branches of the value function.
+pl.figure()
+pl.plot(*sols.ys['x'][::1].reshape(-1,2).T, alpha=.05, label='remeshed', c='black')
 
 
-print('')
-
-
+# def find_collision_continuation(sols, v_upper):
+#
+#     # approach it the opposite way, with trajectories.
+#     # assume all "collisions" happen in the value slice covered by sols.
+#     pl.plot(*sols.ys['x'][0])
+#     pass
+#
+#
+# def find_self_intersection(xs):
+#
+#     # given a closed curve in 2d space, return all points where it intersects itself.
+#     # absolutely brute force. no apologies.
+#
+#     # first, we want all pairs of neighboring points.
+#     first_idx = np.arange(xs.shape[0])
+#     second_idx = np.roll(first_idx, -1)
+#
+#     # we want to know if the line segment between
+#
+#     lfirst = xs[first_idx]
+#     lsecond = xs[second_idx]
+#
+#     rfirst = xs[first_idx]
+#     rsecond = xs[second_idx]
+#
+#     # for each index pari (i, j), we want to know if the line segment
+#     # between lfirst and lsecond intersects the one between rfirst and rsecond.
+#
+#     # that is, concretely:
+#     #  1. find a, b such that: lfirst + a * (lsecond - lfirst) = rfirst + b * (rsecond - rfirst)
+#     #  2. check if a and b are between 0 and 1 - if so, we have an intersection.
+#
+#     # first step, for single line pair.
+#     # lfirst + a * (lsecond - lfirst) = rfirst + b * (rsecond - rfirst)
+#     # a * (lsecond - lfirst) - b * (rsecond - rfirst)= -lfirst + rfirst
+#     # [lsecond-lfirst, rsecond-rfirst]  [a; b] = -lfirst + rfirst
+#     # [ldir, rdir] [a; b] = -lfirst + rfirst
+#     def single_intersection(lfirst, lsecond, rfirst, rsecond):
+#         A = np.array([lsecond - lfirst, rsecond - rfirst]).T
+#         b = -lfirst + rfirst
+#         ab = np.linalg.solve(A, b)
+#         return ab
+#
+#     # so for each index (i, j), we need:
+#     # i, j = 1, 2
+#     # single_intersection(lfirst[i], lsecond[i], rfirst[j], rsecond[j])
+#
+#     # now use vmap to do this for all pairs.
+#     all_abs = jax.vmap(jax.vmap(single_intersection, in_axes=(None, None, 0, 0)), in_axes=(0, 0, None, None))(lfirst, lsecond, rfirst, rsecond)
+#
+#     is_inside = ((all_abs > 0.) & (all_abs < 1.)).all(axis=2)
+#     all_intersection_pts = lfirst + all_abs[0][:, None] * (lsecond - lfirst)
+#     ipdb.set_trace()
+#
+#
+# xs = yfs['x']
+# find_self_intersection(xs)
+#
+#
+# print('')
+#
+#
+# # pl.figure()
+#
+# # make basically the same plot, but with the data transposed, so we plot value level sets
+# # instead of trajectories.
+# # ax = pl.figure().add_subplot(projection='3d')
+# # for each value level set:
+# for vlevel in tqdm.tqdm(range(all_vs.shape[1])):
+#     try:
+#         vvec = all_vs[:, vlevel]
+#         x0vec = all_ys[:, vlevel, 0]
+#         x1vec = all_ys[:, vlevel, 1]
+#
+#         # pl.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+#
+#         ax2d.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+#         ax.plot(x0vec, x1vec, vvec, color=cmap(vvec[0]/v1), alpha=v_alpha)
+#     except:
+#         # sometimes the last entries are NaN. Don't care
+#         pass
+#
+#     # ipdb.set_trace()
+#     # pl.savefig(f'animation_figs/orbits_{vlevel:05d}.png', dpi=400)
+#
+# thetas = np.linspace(0, 2*np.pi, 501)
+# ax2d.plot(np.sin(thetas), np.cos(thetas), color='black')
+# ax.plot(np.sin(thetas), np.cos(thetas), 0 * thetas, color='black')
+# ax2d.scatter([0], [1], [0], color='black')
+#
+# def intersection(x1,x2,x3,x4,y1,y2,y3,y4):
+#     d = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
+#     if d:
+#         xs = ((x1*y2-y1*x2)*(x3-x4) - (x1-x2)*(x3*y4-y3*x4)) / d
+#         ys = ((x1*y2-y1*x2)*(y3-y4) - (y1-y2)*(x3*y4-y3*x4)) / d
+#         if (xs >= min(x1,x2) and xs <= max(x1,x2) and
+#             xs >= min(x3,x4) and xs <= max(x3,x4)):
+#             return xs, ys
+#
+# # this is, expectedly, slow as shit.
+# # make jitted version somehow or ignore completely?
+# find_intersections = False
+# if find_intersections:
+#     # find the points where each value curve self-intersects, to plot
+#     # the decision boundary between going left or right.
+#
+#     # first only for maximum vlevel.
+#     vlevel = 101
+#     ntrajs = all_ys.shape[0]
+#
+#     # iterate over all pairs of lines. very brute force :/
+#     for i, line_a in tqdm.tqdm(enumerate(all_ys)):
+#         # only j > i bc symmetry
+#         for j, line_b in enumerate(all_ys[i+1:]):
+#             xi, yi = all_ys[i, vlevel, 0:2]
+#             xip, yip = all_ys[(i+1) % ntrajs, vlevel, 0:2]
+#
+#             xj, yj = all_ys[j, vlevel, 0:2]
+#             xjp, yjp = all_ys[(j+1) % ntrajs, vlevel, 0:2]
+#
+#             out = intersection(xi, xip, xj, xjp, yi, yip, yj, yjp)
+#             # x[i],x[i+1],x[j],x[j+1],y[i],y[i+1],y[j],y[j+1]
+#
+#             if out is not None:
+#                 print(out)
+#
+#
+# # # bit less dense plot for writeup
+# # pl.figure()
+# # for idx, name in zip([10, 20, 30, 40, 50, 80, 90], ['v_1', 'v_2', 'v_3', 'v_4', 'v_5', 'v_k', 'v_{k+1}']):
+# #     pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
+# #
+# #
+# # for i in [50, 80, 90]:
+# #     # plot short trajectory segments too. shape = (n trajectories, n points per trajectory, nx=2)
+# #     plot_states = all_ys[:, i:i+5, 0:2]
+# #
+# #     # we would like the trajectories to have equal-ish distance.
+# #     # mask out with nan until distance is large enough
+# #     d_min = 0.1
+# #     prev_pt = plot_states[0, 0, :]
+# #     for j in range(1, plot_states.shape[0]):
+# #         dist = np.linalg.norm(plot_states[j, 0, :] - prev_pt)
+# #
+# #         if dist < d_min:
+# #             # set this point to nan and go to next.
+# #             plot_states = plot_states.at[j, :, :].set(np.nan)
+# #         else:
+# #             # use this point for plotting and mark as prev_pt
+# #             prev_pt = plot_states[j, 0, :]
+# #
+# #     # also set each last one to nan to not connect.
+# #     plot_states = plot_states.at[:, -1, :].set(np.nan)
+# #     plot_states = plot_states.reshape(-1, 2)
+# #
+# #     # pl.plot(plot_states[:, 0], plot_states[:, 1], c='black', alpha=0.7, label='optimal trajectories' if i==50 else None)
+# # pl.legend()
+# # pl.gca().set_aspect('equal')
+#
+# # pl.show()
+# # ipdb.set_trace()
+#
+#
 # pl.figure()
-
-# make basically the same plot, but with the data transposed, so we plot value level sets
-# instead of trajectories.
-# ax = pl.figure().add_subplot(projection='3d')
-# for each value level set:
-for vlevel in tqdm.tqdm(range(all_vs.shape[1])):
-    try:
-        vvec = all_vs[:, vlevel]
-        x0vec = all_ys[:, vlevel, 0]
-        x1vec = all_ys[:, vlevel, 1]
-
-        # pl.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
-
-        ax2d.plot(x0vec, x1vec, color=cmap(vvec[0]/v1), alpha=v_alpha)
-        ax.plot(x0vec, x1vec, vvec, color=cmap(vvec[0]/v1), alpha=v_alpha)
-    except:
-        # sometimes the last entries are NaN. Don't care
-        pass
-
-    # ipdb.set_trace()
-    # pl.savefig(f'animation_figs/orbits_{vlevel:05d}.png', dpi=400)
-
-thetas = np.linspace(0, 2*np.pi, 501)
-ax2d.plot(np.sin(thetas), np.cos(thetas), color='black')
-ax.plot(np.sin(thetas), np.cos(thetas), 0 * thetas, color='black')
-ax2d.scatter([0], [1], [0], color='black')
-
-def intersection(x1,x2,x3,x4,y1,y2,y3,y4):
-    d = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4)
-    if d:
-        xs = ((x1*y2-y1*x2)*(x3-x4) - (x1-x2)*(x3*y4-y3*x4)) / d
-        ys = ((x1*y2-y1*x2)*(y3-y4) - (y1-y2)*(x3*y4-y3*x4)) / d
-        if (xs >= min(x1,x2) and xs <= max(x1,x2) and
-            xs >= min(x3,x4) and xs <= max(x3,x4)):
-            return xs, ys
-
-# this is, expectedly, slow as shit.
-# make jitted version somehow or ignore completely?
-find_intersections = False
-if find_intersections:
-    # find the points where each value curve self-intersects, to plot
-    # the decision boundary between going left or right.
-
-    # first only for maximum vlevel.
-    vlevel = 101
-    ntrajs = all_ys.shape[0]
-
-    # iterate over all pairs of lines. very brute force :/
-    for i, line_a in tqdm.tqdm(enumerate(all_ys)):
-        # only j > i bc symmetry
-        for j, line_b in enumerate(all_ys[i+1:]):
-            xi, yi = all_ys[i, vlevel, 0:2]
-            xip, yip = all_ys[(i+1) % ntrajs, vlevel, 0:2]
-
-            xj, yj = all_ys[j, vlevel, 0:2]
-            xjp, yjp = all_ys[(j+1) % ntrajs, vlevel, 0:2]
-
-            out = intersection(xi, xip, xj, xjp, yi, yip, yj, yjp)
-            # x[i],x[i+1],x[j],x[j+1],y[i],y[i+1],y[j],y[j+1]
-
-            if out is not None:
-                print(out)
-
-
-# # bit less dense plot for writeup
-# pl.figure()
-# for idx, name in zip([10, 20, 30, 40, 50, 80, 90], ['v_1', 'v_2', 'v_3', 'v_4', 'v_5', 'v_k', 'v_{k+1}']):
+# pl.subplot(211)
+# for idx, name in zip([20, 40], ['v_k', 'v_{k+1}']):
 #     pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
 #
 #
-# for i in [50, 80, 90]:
-#     # plot short trajectory segments too. shape = (n trajectories, n points per trajectory, nx=2)
-#     plot_states = all_ys[:, i:i+5, 0:2]
+# traj_range = (20, 40)
 #
-#     # we would like the trajectories to have equal-ish distance.
-#     # mask out with nan until distance is large enough
-#     d_min = 0.1
-#     prev_pt = plot_states[0, 0, :]
-#     for j in range(1, plot_states.shape[0]):
-#         dist = np.linalg.norm(plot_states[j, 0, :] - prev_pt)
+# # then, similar code as above. here for "uniform" sampling:
+# plot_states = all_ys[:, :, 0:2]
+# level = traj_range[0]
 #
-#         if dist < d_min:
-#             # set this point to nan and go to next.
-#             plot_states = plot_states.at[j, :, :].set(np.nan)
-#         else:
-#             # use this point for plotting and mark as prev_pt
-#             prev_pt = plot_states[j, 0, :]
+# # all_ys.shape = (N trajs, N_ts, nx)
+# d_min = 0.1
+# prev_pt = plot_states[0, level, :]
+# for j in range(1, plot_states.shape[0]):
+#     dist = np.linalg.norm(plot_states[j, level, :] - prev_pt)
 #
-#     # also set each last one to nan to not connect.
-#     plot_states = plot_states.at[:, -1, :].set(np.nan)
-#     plot_states = plot_states.reshape(-1, 2)
+#     if dist < d_min:
+#         # set this point to nan and go to next.
+#         plot_states = plot_states.at[j, :, :].set(np.nan)
+#     else:
+#         # use this point for plotting and mark as prev_pt
+#         prev_pt = plot_states[j, level, :]
 #
-#     # pl.plot(plot_states[:, 0], plot_states[:, 1], c='black', alpha=0.7, label='optimal trajectories' if i==50 else None)
+# pl.plot(plot_states[:, traj_range[0]:traj_range[1]+1, 0].flatten(), plot_states[:, traj_range[0]:traj_range[1]+1, 1].flatten(), label='uniformly sampled trajectories')
 # pl.legend()
-# pl.gca().set_aspect('equal')
-
+#
+# print('trajectories plotted (uniform)')
+# print(np.sum(~np.isnan(plot_states[:, 0, 0])))
+#
+#
+# # and for better sampling.
+# pl.subplot(212)
+# for idx, name in zip([20, 40], ['v_k', 'v_{k+1}']):
+#     pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
+#
+# traj_range = (20, 40)
+#
+# plot_states = all_ys[:, :, 0:2]
+# level = traj_range[1]
+#
+# # all_ys.shape = (N trajs, N_ts, nx)
+# d_min = 0.2
+# prev_pt = plot_states[0, level, :]
+# for j in range(1, plot_states.shape[0]):
+#     dist = np.linalg.norm(plot_states[j, level, :] - prev_pt)
+#
+#     if dist < d_min:
+#         # set this point to nan and go to next.
+#         plot_states = plot_states.at[j, :, :].set(np.nan)
+#     else:
+#         # use this point for plotting and mark as prev_pt
+#         prev_pt = plot_states[j, level, :]
+#
+# pl.plot(plot_states[:, traj_range[0]:traj_range[1]+1, 0].flatten(), plot_states[:, traj_range[0]:traj_range[1]+1, 1].flatten(), label='extrapolation guided sampling of trajectories')
+# pl.legend()
+#
+# print('trajectories plotted (smarter)')
+# print(np.sum(~np.isnan(plot_states[:, 0, 0])))
+#
+#
 # pl.show()
 # ipdb.set_trace()
-
-
-pl.figure()
-pl.subplot(211)
-for idx, name in zip([20, 40], ['v_k', 'v_{k+1}']):
-    pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
-
-
-traj_range = (20, 40)
-
-# then, similar code as above. here for "uniform" sampling:
-plot_states = all_ys[:, :, 0:2]
-level = traj_range[0]
-
-# all_ys.shape = (N trajs, N_ts, nx)
-d_min = 0.1
-prev_pt = plot_states[0, level, :]
-for j in range(1, plot_states.shape[0]):
-    dist = np.linalg.norm(plot_states[j, level, :] - prev_pt)
-
-    if dist < d_min:
-        # set this point to nan and go to next.
-        plot_states = plot_states.at[j, :, :].set(np.nan)
-    else:
-        # use this point for plotting and mark as prev_pt
-        prev_pt = plot_states[j, level, :]
-
-pl.plot(plot_states[:, traj_range[0]:traj_range[1]+1, 0].flatten(), plot_states[:, traj_range[0]:traj_range[1]+1, 1].flatten(), label='uniformly sampled trajectories')
-pl.legend()
-
-print('trajectories plotted (uniform)')
-print(np.sum(~np.isnan(plot_states[:, 0, 0])))
-
-
-# and for better sampling.
-pl.subplot(212)
-for idx, name in zip([20, 40], ['v_k', 'v_{k+1}']):
-    pl.plot(all_ys[:, idx, 0], all_ys[:, idx, 1], label=name, c=pl.colormaps['plasma'](idx/120))
-
-traj_range = (20, 40)
-
-plot_states = all_ys[:, :, 0:2]
-level = traj_range[1]
-
-# all_ys.shape = (N trajs, N_ts, nx)
-d_min = 0.2
-prev_pt = plot_states[0, level, :]
-for j in range(1, plot_states.shape[0]):
-    dist = np.linalg.norm(plot_states[j, level, :] - prev_pt)
-
-    if dist < d_min:
-        # set this point to nan and go to next.
-        plot_states = plot_states.at[j, :, :].set(np.nan)
-    else:
-        # use this point for plotting and mark as prev_pt
-        prev_pt = plot_states[j, level, :]
-
-pl.plot(plot_states[:, traj_range[0]:traj_range[1]+1, 0].flatten(), plot_states[:, traj_range[0]:traj_range[1]+1, 1].flatten(), label='extrapolation guided sampling of trajectories')
-pl.legend()
-
-print('trajectories plotted (smarter)')
-print(np.sum(~np.isnan(plot_states[:, 0, 0])))
-
-
-pl.show()
-ipdb.set_trace()
-
-
-print('done')
+#
+#
+# print('done')

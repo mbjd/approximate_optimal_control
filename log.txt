@@ -5169,3 +5169,38 @@ is kind of dumb? does it construct the v itself by integration of the (much
 stronger) vx loss in pinn style, rather than just fit the function nicely?
 should I just also include the nn params and do the much nicer retrainig
 step like this?
+
+
+2024-05-24
+
+meeting:
+
+plan:
+ - not even that off at the moment, very nice :)
+ - collect results, make nice plots, find sensible metrics to measure
+     - define (a bit more) concrete plan for that & just do it
+     - implement it in a half decent way, optimally the evaluation is also done
+       inside the euler run...
+ - comparison w/ modelfree rl algo: implementation + estimate for how much
+   work it will be?
+ - (publication after all? if so, during or after thesis?)
+
+q: know interesting results on nn approx accuracy vs n params vs
+smoothness? would really help tie together the central finding: this stuff
+works very nicely so long as everything is smooth, nonsmoothness is a
+hassle fundamentally.
+
+writing:
+
+how precise should we be in terms of math?
+ - cases where V is or is not discontinuous: investigate or brush under rug?
+ - all this differential geometry stuff: how correct? prove independence of
+   embedding, e.g.?
+
+still kinda shaky around that active learning problem description, happy
+for tips, otw continue just somehow
+
+modelfree rl for cmparison
+when to control repo
+
+https://github.com/lenarttreven/when_to_control/tree/master/experiments/normal_ppo_training

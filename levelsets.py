@@ -1937,11 +1937,7 @@ def evaluate_directly(all_data, problem_params, algo_params):
 
 
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
-    # leaves:
-    #   type(node) == onp.ndarray
-    # but we want
-    #   type(node) == jaxlib.xla_extension.ArrayImpl
-    # so we convert it here.
+    # leaves, so we convert it here.
     # wasted half an hour digging through so much code to find this out
     all_ys = jtm(np.array, all_data['ys'])
     is_suboptimal = np.array(all_data['is_suboptimal'])
@@ -1958,10 +1954,11 @@ def evaluate_directly(all_data, problem_params, algo_params):
     # algo_params['lr_init'] = np.sqrt(algo_params['lr_init'] * algo_params['lr_final'])
     # algo_params['v_loss_d'] = algo_params['vx_loss_d'] = 100.
     algo_params['nn_value_sweep'] = False
+    algo_params['lr_staircase'] = True
     # push it
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = 0.01
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs']
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] * 8
 
     if single:
         algo_params['nn_ensemble_size'] = 1

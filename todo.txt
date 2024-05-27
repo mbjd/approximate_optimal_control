@@ -242,8 +242,21 @@ do writing
  ~~~ 27 may  ~~~
 
 collect results
+ - find good set of test cases/metrics.
+   - incurred cost vs learned value?
+   - expected/mean cost wrt fixed x0s?
+   - intuitive, qualitative showcase of "works where policy smooth, fails
+     close to watershed"
+ - find nice-ish way to track those metrics. right in run itself too?
 
 do writing
+
+ - goal this week: central ideas done in terms of structure & basic
+   content. polish later.
+
+procrastination tasks:
+ - intro writing
+ - plotting nice with makefiles and stuff
 
  ~~~ 3. jun ~~~
 

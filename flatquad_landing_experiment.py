@@ -25,6 +25,7 @@ from operator import itemgetter
 # config.update("jax_enable_x64", True)
 
 
+# random test functions {{{
 
 def lqr_sanitycheck(problem_params, algo_params):
 
@@ -413,7 +414,7 @@ def manifold_testing(problem_params, algo_params):
     ipdb.set_trace()
 
 
-
+# }}}
 
 
 def define_problem_params():
@@ -824,8 +825,9 @@ if __name__ == '__main__':
             algo_params[k] = new_arg
 
 
-    levelsets.evaluate('euler_runs/8dgpt7uo', problem_params, algo_params)
+    # levelsets.evaluate('euler_runs/8dgpt7uo', problem_params, algo_params)
     # levelsets.evaluate('euler_runs/ff5mij89', problem_params, algo_params)
+    levelsets.evaluate('euler_runs/uqf3ybp8', problem_params, algo_params)
     # levelsets.main(problem_params, algo_params)
 
 

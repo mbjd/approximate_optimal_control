@@ -5204,3 +5204,18 @@ modelfree rl for cmparison
 when to control repo
 
 https://github.com/lenarttreven/when_to_control/tree/master/experiments/normal_ppo_training
+
+
+2024-05-28
+
+finally doing a good chunk of writing after spending the last 1.5 days
+explicitly finding level set intersections in the 2d case. during that i
+experimented with "unrolling" the orbits example, to polar coordinates
+basically, in which the solution seems to be always unique if we remove the
+identification between angles theta and theta+2kpi.
+
+can we also do that for the flatquad example? would probably be easier to
+solve the system written with angle (not cos/sin unit circle embedding), up
+to moderate value level, and then just say V(x) = min_k V(x + 2kpi
+e_theta) for closed loop sim... would surely give very satisfying meshcat
+simulations.

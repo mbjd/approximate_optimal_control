@@ -231,9 +231,9 @@ pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
 
 ax = pl.subplot(122, sharex=ax, sharey=ax)
 ax.set_aspect('equal')
+plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_upper)
 plot_levelset(v0, grey=True)
 plot_levelset(v1, grey=True)
-plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_upper)
 pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
 fig.tight_layout()
 

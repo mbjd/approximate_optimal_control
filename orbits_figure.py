@@ -14,6 +14,7 @@ import warnings
 from functools import partial
 
 from misc import *
+from fig_config import *
 
 import numpy as onp
 
@@ -21,6 +22,12 @@ from jax import config
 config.update("jax_enable_x64", True)
 
 from orbits_experiment import define_problem_params, base_algo_params
+
+
+cmap = matplotlib.colormaps['viridis']
+levelset_alpha=.7
+traj_alpha = .7
+
 
 problem_params = define_problem_params()
 algo_params = base_algo_params()
@@ -121,7 +128,6 @@ vmax = 420
 N=20
 levels = np.logspace(np.log10(vf*2), np.log10(vmax), N)
 levels = np.linspace(np.sqrt(vf*2), np.sqrt(vmax), N)**2
-# levels = np.linspace(1, vmax, N)
 
 sols = None
 
@@ -180,7 +186,6 @@ with tqdm.tqdm(total=vmax) as pbar:
         # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
 
 
-levelset_alpha=.7
 
 def plot_levelset(v, grey=False):
     ys = jax.vmap(lambda sol: sol.evaluate(v))(sols)
@@ -188,22 +193,20 @@ def plot_levelset(v, grey=False):
     if grey:
         color = 'black'
     else:
-        viridis = matplotlib.colormaps['viridis']
-        color = viridis(v / levels[-1])
+        color = cmap(v / levels[-1])
 
     pl.plot(*ys['x'].T, alpha=levelset_alpha, color = color)
 
 
 
 # trajectories plot
-pl.figure('trajectories')
+fig = pl.figure('trajectories', figsize=(pagewidth*.9, 0.3*pagewidth*.9), dpi=dpi)
 
 v0, v1 = 2., 50.
 eps = 0.001  # to certainly land in interior of domain of interpolation
 # evaluate at nan too to break up line
 vs_plot = np.concatenate([np.logspace(np.log10(v0+eps), np.log10(v1-eps), 51), np.array([np.nan])])
 subsample = 32 * (thetas.shape[0] // 512)
-traj_alpha = .7
 
 # v0, v1 = (150., 300.)
 
@@ -232,11 +235,20 @@ plot_levelset(v0, grey=True)
 plot_levelset(v1, grey=True)
 plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_upper)
 pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
-# pl.show()
+fig.tight_layout()
+
+pl.savefig(f'./{fig_dir}/trajectories.{fig_format}')
+
+if show:
+    pl.show()
+
+
+
+
 
 
 # intersecting level sets plot:
-pl.figure('levelsets')
+pl.figure('levelsets', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
 exp = 0.75 # between sqrt and linear. looks nicest
 vs_plot = np.linspace((vf*50)**exp, vmax**exp, 20)**(1/exp)
 v_uppers = (300, np.inf)
@@ -440,7 +452,14 @@ pl.clf()
 ks = intersecs @ np.array([1, 1])
 idx_sorted = np.argsort(ks)
 pl.figure('levelsets')
-pl.plot(*intersecs[idx_sorted].T, alpha=.5, c='black')
-pl.show()
+pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
 
-ipdb.set_trace()
+fig.tight_layout()
+pl.savefig(f'./{fig_dir}/levelsets.{fig_format}',  bbox_inches='tight')
+# norm = matplotlib.colors.Normalize(vmin=0., vmax=vmax)
+# fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=pl.gca(), orientation='vertical', label='Some Units')
+
+if show:
+    pl.show()
+
+# ipdb.set_trace()

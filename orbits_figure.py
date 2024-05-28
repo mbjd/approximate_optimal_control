@@ -41,7 +41,7 @@ K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 eq = problem_params['x_eq']
 V_f = lambda x: 0.5 * (x - eq).T @ P_lqr @ (x - eq)
 
-thetas = np.linspace(0, 2 * np.pi, 4096)[:-1]
+thetas = np.linspace(0, 2 * np.pi, 4096)
 circle_xs = jax.vmap(lambda theta: np.array([np.sin(theta), np.cos(theta)]))(thetas)
 xfs = 0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr)) + problem_params['x_eq'][None, :]
 yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
@@ -196,7 +196,7 @@ def plot_levelset(v, grey=False):
 
 
 # trajectories plot
-pl.figure()
+pl.figure('trajectories')
 
 v0, v1 = 2., 50.
 eps = 0.001  # to certainly land in interior of domain of interpolation
@@ -232,11 +232,11 @@ plot_levelset(v0, grey=True)
 plot_levelset(v1, grey=True)
 plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_upper)
 pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
-pl.show()
+# pl.show()
 
 
 # intersecting level sets plot:
-pl.figure()
+pl.figure('levelsets')
 exp = 0.75 # between sqrt and linear. looks nicest
 vs_plot = np.linspace((vf*50)**exp, vmax**exp, 20)**(1/exp)
 v_uppers = (300, np.inf)
@@ -321,7 +321,7 @@ def find_self_intersection(xs):
     dist_ratios = np.where(dist_ratios == 0, np.inf, dist_ratios)
 
     # "remove" points closer to 10 in index distance.
-    min_idx_dist = 30 * (xs.shape[0] / 1024)
+    min_idx_dist = 10 * (xs.shape[0] / 1024)
     min_circle_dist = (min_idx_dist / xs.shape[0]) * 2*np.pi
     dist_ratios = np.where(idx_dists < min_circle_dist, np.inf, dist_ratios)
 
@@ -340,8 +340,8 @@ def find_self_intersection(xs):
 
     # rather miss a collision than show a wrong one. the edge cases we can
     # just brush under the rug & show a figure without them.
-    if first_dist > 0.02 or second_dist > 0.02:
-        return None, None
+    if first_dist > 0.005 or second_dist > 0.005:
+        return None, None, None, None
 
     # pl.figure('ratios')
     # pl.subplot(121); pl.imshow(dist_ratios_old)
@@ -367,7 +367,6 @@ def find_self_intersection(xs):
     # do. attempt 1: largest and smallest mean magnitude?
     mean_mags = np.array([np.linalg.norm(seg, axis=-1).mean() for seg in segments])
 
-    print(mean_mags)
     min_seg = segments[np.argmin(mean_mags)]
     max_seg = segments[np.argmax(mean_mags)]
 
@@ -379,14 +378,14 @@ def find_self_intersection(xs):
     # pl.plot(*min_seg.T, '.-', c='orange')
     # pl.plot(*max_seg.T, '.-', c='orange')
     # pl.show()
-    return min_seg, max_seg
+    return min_seg, max_seg, xs[first_intersection[0]], xs[second_intersection[0]]
 
 
 def plot_levelset_intersect(v, grey=False):
     ys = jax.vmap(lambda sol: sol.evaluate(v))(sols)
     xs = ys['x']
 
-    seg_a, seg_b = find_self_intersection(xs)
+    seg_a, seg_b, xa, xb = find_self_intersection(xs)
 
     if seg_a is None or seg_b is None:
         seg_a = xs
@@ -400,10 +399,12 @@ def plot_levelset_intersect(v, grey=False):
 
     pl.plot(*seg_a.T, alpha=levelset_alpha, color = color)
     pl.plot(*seg_b.T, alpha=levelset_alpha, color = color)
+    return xa, xb
 
 # vs_plot = np.linspace(vf, vmax, 21)
 # v_uppers = (300, 340, np.inf)
 
+intersecs = []
 ax = pl.subplot(133, sharex=ax, sharey=ax)
 ax.set_aspect('equal')
 for v in vs_plot:
@@ -412,6 +413,34 @@ for v in vs_plot:
         if v < v_uppers[0]:
             plot_levelset(v)
         else:
-            plot_levelset_intersect(v)
+            xa, xb = plot_levelset_intersect(v)
+            # if xa is not None and xb is not None:
+                # intersecs.append(xa)
+                # intersecs.append(xb)
 
+# do it again for the intersections at finer resolution
+pl.figure('shit')
+
+sqrtspace = lambda a, b, n: np.linspace(np.sqrt(a), np.sqrt(b), n)**2
+
+print('second round')
+vs = 315 + sqrtspace(0, vmax-315, 30)
+for v in vs:
+    xa, xb = plot_levelset_intersect(v)
+    if xa is not None and xb is not None:
+        print(v)
+        intersecs.append(xa)
+        intersecs.append(xb)
+intersecs = np.array(intersecs)
+pl.plot(*intersecs.T, '. ', c='red')
+pl.clf()
+
+# now, sort this 'intersecs' array appropriately.
+# the broad direction of the line. worked haha :)
+ks = intersecs @ np.array([1, 1])
+idx_sorted = np.argsort(ks)
+pl.figure('levelsets')
+pl.plot(*intersecs[idx_sorted].T, alpha=.5, c='black')
 pl.show()
+
+ipdb.set_trace()

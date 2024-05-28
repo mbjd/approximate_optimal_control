@@ -1303,7 +1303,7 @@ def main(problem_params, algo_params):
             if problem_params['nx'] == 2:
                 pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')
                 pl.plot(proposed_states[:, 0], proposed_states[:, 1], 'o', label='proposed points')
-            elif problem_params['nx'] == 7:
+            elif problem_params['nx'] == 7 and problem_params['system_name'] == 'flatquad':
                 pl.subplot(131)
                 # x/y
                 pl.plot(all_valueband_pts[:, 0], all_valueband_pts[:, 1], '.', label='all points')

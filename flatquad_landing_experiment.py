@@ -434,7 +434,7 @@ def define_problem_params():
 
         # unpack for easier names
         Fl, Fr = u
-        posx, posy, sinPhi, cosPhi, vx, vy, omega = x
+        posx, posy, Phi, vx, vy, omega = x
 
         # Phi' = omega
         # d/dt sin(Phi) = cos(Phi) Phi' = cosPhi omega
@@ -443,25 +443,26 @@ def define_problem_params():
         xdot = np.array([
             vx,
             vy,
-            cosPhi * omega,
-            -sinPhi * omega,
-            -sinPhi * (Fl + Fr) / m,
-            cosPhi * (Fl + Fr) / m - g,
+            omega,
+            -np.sin(Phi) * (Fl + Fr) / m,
+            np.cos(Phi) * (Fl + Fr) / m - g,
             (Fr-Fl) * r / I,
         ])
 
         return xdot
 
-    x_eq = np.array([0, 0, 0, 1, 0, 0, 0], dtype=float)
+    x_eq = np.array([0, 0, 0, 0, 0, 0], dtype=float)
 
     def l(x, u):
         Fl, Fr = u
-        posx, posy, sin_Phi, cos_Phi, vx, vy, omega = x
+        posx, posy, Phi, vx, vy, omega = x
+        sinPhi = np.sin(Phi)
+        cosPhi = np.cos(Phi)
 
         # penalise deviation from cos(Phi)=1, sin(Phi)=0 just in cartesian ambient space
         # derivatives should be the same still (bc sin'(0) = 1)
 
-        state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), np.deg2rad(30), .5, .5, np.deg2rad(120)])
+        state_length_scales = np.array([0.3, 0.3, np.deg2rad(30), .5, .5, np.deg2rad(120)])
         Q = np.diag(1/state_length_scales**2)
         state_cost = (x - x_eq).T @ Q @ (x - x_eq)
 
@@ -470,8 +471,8 @@ def define_problem_params():
         # this here is basically a state-dependent linear map of the inputs, i.e. M(x) u with M(x) a 3x2 matrix.
         # the overall input cost will be acc.T M(x).T Q M(x) acc, so for each state it is still a nice quadratic in u.
         accelerations = np.array([
-            -sin_Phi * (Fl + Fr) / m,
-            cos_Phi * (Fl + Fr) / m - g,
+            -sinPhi * (Fl + Fr) / m,
+            cosPhi * (Fl + Fr) / m - g,
             (Fr - Fl) * r / I,
         ])
 
@@ -484,7 +485,7 @@ def define_problem_params():
 
     problem_params = {
 
-        'system_name': 'flatquad',
+        'system_name': 'flatquad_phi',
 
         # dynamics X x U -> TxX, stage cost X x U -> R
         'f': f,
@@ -492,10 +493,10 @@ def define_problem_params():
 
         # state & input space dimensions
         # if manifold, the dimension of the ambient space, not the manifold!
-        'nx': 7,
+        'nx': 6,
         'nu': 2,
 
-        'state_names': ("x", "y", "sinPhi", "cosPhi", "vx", "vy", "omega"),
+        'state_names': ("x", "y", "Phi", "vx", "vy", "omega"),
 
         'u_eq': np.ones(2) * m * g / 2,
         'x_eq': x_eq,
@@ -517,15 +518,16 @@ def define_problem_params():
 
         # in this case only the unit circle for angle parameterisation.
         # / 2 so its jacobian is normalised.
-        'm': lambda x: (x[2]**2 + x[3]**2 - 1) / 2,
+        'm': None,
 
         # projection operation onto the manifold -- great for resetting if
         # we stray off the manifold due to numerical errors.
-        'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
+        # 'project_M': lambda x: x.at[2:4].set(x[2:4] / np.linalg.norm(x[2:4])),
+        'project_M': lambda x: x,
 
         'x_extent': np.array([
             20,  20,  # x and y, [m]
-            1., 1.,   # sinPhi and cosPhi [1] (but irrelevant -- see sampling fct)
+            20.,  #
             20,  20,  # vx and vy, [m/s]
             20*np.pi  # omega [rad/s]
         ]),
@@ -592,9 +594,9 @@ def base_algo_params():
         # 'nn_layerdims': (128, 8),
         # nicer for the launch script
         'nn_n_layers': 3,
-        'nn_layer_dim': 256,
+        'nn_layer_dim': 64,
         'nn_batchsize': 32,
-        'nn_N_epochs': 512,
+        'nn_N_epochs': 1024,
         'nn_train_fraction': .98,
 
         'lr_staircase': False,
@@ -627,8 +629,8 @@ def base_algo_params():
         'v_loss_d': 0.1,
 
         # above those thresholds relative loss is used
-        'min_important_v': 0.1,
-        'min_important_vx': 0.1,
+        'min_important_v': 1.,
+        'min_important_vx': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -638,7 +640,7 @@ def base_algo_params():
         # just an additional weak loss term that makes the value function
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
-        'prior_strength': 0.01,
+        'prior_strength': 0.00,
         'v_prior': 1.,
 
         'inv_vx_loss_fadeout': 5.,
@@ -750,22 +752,6 @@ def base_algo_params():
             maxval= extent,
         ) * scale
 
-
-        # for the manifold part: uniform sampling from unit circle.
-
-        # if we instead generate this by drawing Phi ~ U[-pi, pi]
-        # we can apply the same scaling logic to the angle and only
-        # then convert to ambient space representation...
-
-        # generate 2D gaussian & normalise
-        xy = jax.random.normal(key=manifoldkey, shape=(2,))
-        xy = xy / np.linalg.norm(xy)
-
-        # indices of sinPhi and cosPhi states.
-        assert problem_params['state_names'][2] == 'sinPhi'
-        assert problem_params['state_names'][3] == 'cosPhi'
-        x_pt = x_pt.at[2:4].set(xy)
-
         return x_pt
 
     # just pass on the entire functions :)
@@ -827,8 +813,8 @@ if __name__ == '__main__':
 
     # levelsets.evaluate('euler_runs/8dgpt7uo', problem_params, algo_params)
     # levelsets.evaluate('euler_runs/ff5mij89', problem_params, algo_params)
-    levelsets.evaluate('euler_runs/uqf3ybp8', problem_params, algo_params)
-    # levelsets.main(problem_params, algo_params)
+    # levelsets.evaluate('euler_runs/uqf3ybp8', problem_params, algo_params)
+    levelsets.main(problem_params, algo_params)
 
 
 

@@ -5218,4 +5218,21 @@ can we also do that for the flatquad example? would probably be easier to
 solve the system written with angle (not cos/sin unit circle embedding), up
 to moderate value level, and then just say V(x) = min_k V(x + 2kpi
 e_theta) for closed loop sim... would surely give very satisfying meshcat
-simulations.
+simulations. did a short experiment but probably it is very okay to call
+that "out of scope" and not bother.
+
+wrote more in "central ideas" section and started implementation details.
+former is content-wise 90% ready, asked for feedback about that. latter is
+still VERY rough. points to continue: prune&train write (and motivate) loss
+functions cleanly.
+
+
+
+
+
+
+
+qs for next time:
+ - how much of that boilerplate is required/wanted? like index of figures?
+   list of all abbreviations/math symbols? table of tables????
+ - publication?!

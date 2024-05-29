@@ -693,6 +693,9 @@ def base_algo_params():
         'showfigs': True,
 
         'ipdb_interval': 8,
+
+        # EVALUATION
+        'eval': '',  # instead of None bc argparse wants same type.
     }
 
     def sample_states_batched(key, N, extent, log_min_scale=0):
@@ -827,8 +830,12 @@ if __name__ == '__main__':
 
     # levelsets.evaluate('euler_runs/8dgpt7uo', problem_params, algo_params)
     # levelsets.evaluate('euler_runs/ff5mij89', problem_params, algo_params)
-    levelsets.evaluate('euler_runs/uqf3ybp8', problem_params, algo_params)
-    # levelsets.main(problem_params, algo_params)
+    # levelsets.evaluate('euler_runs/uqf3ybp8', problem_params, algo_params)
+
+    if algo_params['eval'] == '':
+        levelsets.main(problem_params, algo_params)
+    else:
+        levelsets.evaluate(algo_params['eval'], problem_params, algo_params)
 
 
 

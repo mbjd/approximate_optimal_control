@@ -84,7 +84,9 @@ def set_value_target(all_ys, v_k, problem_params, algo_params):
     return v_next
 
 
-def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True):
+def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True, T=10.):
+
+    # now simulates with state = {'x': system state, 'cost': control cost}.
 
     if ensemble:
         # we have a whole NN ensemble. use the mean here.
@@ -95,15 +97,22 @@ def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True)
     else:
         v_fct = lambda x: v_nn(params, x)
 
-    def forwardsim_rhs(t, x, args):
+    def forwardsim_rhs(t, y, args):
+
+        x = y['x']
+        cost = y['cost']
 
         lam_x = jax.jacobian(v_fct)(x).squeeze()
         # lam_x = P_lqr @ x  # <- for lqr instead
         u = pontryagin_utils.u_star_general(x, lam_x, problem_params)
-        return problem_params['f'](x, u)
+        return {
+                'x': problem_params['f'](x, u),
+                'cost': problem_params['l'](x, u),
+        }
 
 
     term = diffrax.ODETerm(forwardsim_rhs)
+
     step_ctrl = diffrax.PIDController(
         atol=algo_params['pontryagin_solver_atol'],
         rtol=algo_params['pontryagin_solver_rtol'],
@@ -118,8 +127,16 @@ def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True)
     else:
         solver = diffrax.Tsit5()
 
+    # start at 0 cost. the incurred cost is integrated up. in the end
+    # to estimate inf horizon cost, either integrate for very long, or add terminal LQR.
+
+    y0 = {
+        'x': x0,
+        'cost': 0.,
+    }
+
     forward_sol = diffrax.diffeqsolve(
-        term, solver, t0=0., t1=10., dt0=0.01, y0=x0,
+        term, solver, t0=0., t1=T, dt0=0.01, y0=y0,
         stepsize_controller=step_ctrl, saveat=saveat,
         max_steps = algo_params['pontryagin_solver_maxsteps'],
         throw=algo_params['throw'],
@@ -136,7 +153,7 @@ def meshcat_forward_sims(x0s, v_nn, nn_params, problem_params, algo_params):
     trajs = jax.vmap(sim)(x0s)
 
     # convert to old (theta) repr. ugly hardcoded i know
-    ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys)
+    ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(trajs.ys['x'])
 
     solsdict = {'t': trajs.ts, 'x': ys}
 
@@ -1958,7 +1975,7 @@ def evaluate_directly(all_data, problem_params, algo_params):
     # push it
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = 0.01
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] * 8
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] * 64
 
     if single:
         algo_params['nn_ensemble_size'] = 1
@@ -2000,25 +2017,102 @@ def evaluate_directly(all_data, problem_params, algo_params):
     plotting_utils.plot_nn_train_outputs(training_oups)
     pl.show()
 
-    # usual upside down thing
-    xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
-    meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
 
-    # same but faster
-    xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 15, 0]))(np.linspace(-10, 10, 201))
-    meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+    # here do all the nice evaluation metrics we can imagine.
+    # for each metric:
+    # - do experiment
+    # - write data in some big output dict
+    # - save that dict, again in msgpack format so we can later plot data.
 
-    # grid, upright, only where v < vk
-    # xs = jax.vmap(lambda x: np.array([2 * (x%10 - 4.5), 2 * ((x//10)%10 - 4.5), 0, 1, 0, 0, 0]))(np.arange(100))
+    # take this in algoparams?
+    eval_meshcat = False
+    eval_controlcost_2d = True
 
-    x = np.linspace(-20, 20, 80)
-    y = np.linspace(-20, 20, 80)
-    xx, yy = np.meshgrid(x, y)
-    xs = jax.vmap(lambda x, y: np.array([x, y, 0, 1, 0, 0, 0]), in_axes=(0, 0))(xx.flatten(), yy.flatten())
+    eval_outputs = dict()
 
-    vs = jax.vmap(v_nn, in_axes=(None, 0))(jtm(itemgetter(0), nn_params), xs)
-    xs_inside = xs[vs < vk]
+    if eval_meshcat:
+        # usual upside down thing
+        xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
+        meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
 
-    meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
+        # same but faster
+        xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 15, 0]))(np.linspace(-10, 10, 201))
+        meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+
+        # grid, upright, only where v < vk
+        # xs = jax.vmap(lambda x: np.array([2 * (x%10 - 4.5), 2 * ((x//10)%10 - 4.5), 0, 1, 0, 0, 0]))(np.arange(100))
+
+        x = np.linspace(-20, 20, 80)
+        y = np.linspace(-20, 20, 80)
+        xx, yy = np.meshgrid(x, y)
+        xs = jax.vmap(lambda x, y: np.array([x, y, 0, 1, 0, 0, 0]), in_axes=(0, 0))(xx.flatten(), yy.flatten())
+
+        vs = jax.vmap(v_nn, in_axes=(None, 0))(jtm(itemgetter(0), nn_params), xs)
+        xs_inside = xs[vs < vk]
+
+        meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
+
+    if eval_controlcost_2d:
+
+        # - make 2d grid covering the state space
+        # - evaluate v_mean and v_std on that grid
+        # - forward simulate and record control cost
+        #   ("infinite horizon" = long horizon + terminal lqr)
+
+        # for the orbits example.
+        assert problem_params['system_name'] == 'orbits'
+
+        N_grid = 256
+        # extent of 2 is good enough for plot
+        x = np.linspace(-2, 2, N_grid)
+        y = np.linspace(-2, 2, N_grid)
+        xx, yy = np.meshgrid(x, y)
+        xs = np.column_stack([xx.flatten(), yy.flatten()])
+
+        # just above what it needs empirically
+        algo_params['pontryagin_solver_maxsteps'] = 180
+        sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params, T=30.)
+        sols = jax.vmap(sim)(xs)
+
+        if not (sols.stats['num_steps'] < algo_params['pontryagin_solver_maxsteps']).all():
+            print('eval_controlcost_2d: warning, solver step limit reached, plz increase')
+
+        solver_steps = sols.stats['num_steps'].reshape(N_grid, N_grid)
+
+        last_ys = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+        last_costs = last_ys['cost']
+
+        # correct for inf horizon with lqr. to make this better, stop ODE
+        # solver once low? though for 2D problem seems to be good like this
+        K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+        eq = problem_params['x_eq']
+        lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_ys['x'])
+        costs = (last_costs + lqr_terminalcosts).reshape(N_grid, N_grid)
+
+        # 1 size ensemble
+        params = jtm(itemgetter(0), nn_params)
+        vs = jax.vmap(v_nn, in_axes=(None, 0))(params, xs).reshape(N_grid, N_grid)
+
+        # then, in the plotting script do this but nicer:
+        # levels=np.linspace(0, 1000, 50)
+        # ax = pl.subplot(211)
+        # pl.contour(xx, yy, vs, levels=levels)
+        # pl.xlabel('learned v')
+        # ax = pl.subplot(212, sharex=ax, sharey=ax)
+        # pl.contour(xx, yy, costs, levels=levels)
+        # pl.xlabel('incurred cost')
+        # pl.show()
+
+        eval_outputs['xx'] = xx
+        eval_outputs['yy'] = yy
+        eval_outputs['learned_v'] = vs
+        eval_outputs['controlcost'] = costs
+
+    # TODO something like
+    # output_dir = some nice directory for data
+    # write eval_outputs as msgpack.gz in that dir, named with run id
+    # so we can make a nice plotting script that reads that data
+
+
 
     ipdb.set_trace()

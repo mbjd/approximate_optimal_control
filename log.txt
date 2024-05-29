@@ -5231,8 +5231,85 @@ functions cleanly.
 
 
 
+2024-05-08
+
+currently struggling to think of a sensible set of metrics, plots, results
+to showcase. what do we want for sure?
+
+common to all examples:
+
+ - control cost vs learned value function. maybe distribution of the ratio?
+
+easy example: orbits.
+
+ - compare w/ reference sol. plot value function in
+   2d state with contourf. maybe plot the reference sol too.
+
+ - control cost vs learned value function, as function of state? so we
+   nicely see the smooth vs nonsmooth part.
+
+
+flatquad example (and other nontrivial examples if applicable).
+
+ - uniform x0 over learned sublevel set. also find out control cost vs
+   reported value. plot cdf/histogram of both of them?
+
+ - plot that control cost vs value along a couple intersting x0 sweeps.
+
+ - link to meshcat screencaps? otherwise the intuitive explanation might
+   suffer
+
+
+ - comparison with sac??
+
+ablation studies.
+
+ vary together:
+ - AL batch size and sampling strategy? (so we see: uncertainty sampling
+   useful if low data, otherwise unimportant)
+
+ - show complete failure for pendulum case due to discontinuity / long thin
+   lines?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 qs for next time:
  - how much of that boilerplate is required/wanted? like index of figures?
    list of all abbreviations/math symbols? table of tables????
  - publication?!
+ - balance between "we present this and it works" and also talking about
+   failures along the way? only in discussion? only where it currently
+   still fails?
+
+

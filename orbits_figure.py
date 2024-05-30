@@ -239,7 +239,7 @@ def plot_levelset(v, grey=False):
 
 
 
-# trajectories plot
+# trajectories plot {{{
 fig = pl.figure('trajectories', figsize=(pagewidth*.9, 0.3*pagewidth*.9), dpi=dpi)
 
 v0, v1 = 2., 50.
@@ -282,28 +282,9 @@ pl.savefig(f'./{fig_dir}/trajectories.{fig_format}')
 if show:
     pl.show()
 
+# }}}
 
-
-
-
-
-# intersecting level sets plot:
-pl.figure('levelsets', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
-exp = 0.75 # between sqrt and linear. looks nicest
-vs_plot = np.linspace((vf*50)**exp, vmax**exp, 20)**(1/exp)
-v_uppers = (300, np.inf)
-
-ax = None
-for k in range(2):
-    ax = pl.subplot(131 + k, sharex=ax, sharey=ax)
-    ax.set_aspect('equal')
-    for v in vs_plot:
-        if v < v_uppers[k]:
-            plot_levelset(v)
-
-# uniform-ish time grid for all sols.
-ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(np.linspace(np.sqrt(sol.t0+0.0001), np.sqrt(sol.t1-0.01), 128)**2))(sols)
-
+# levelset intersection calculation definition {{{
 
 def find_self_intersection(xs):
 
@@ -423,6 +404,27 @@ def plot_levelset_intersect(v, grey=False):
     pl.plot(*seg_b.T, alpha=levelset_alpha, color = color)
     return xa, xb
 
+# }}}
+
+# intersecting level sets plot {{{
+pl.figure('levelsets', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
+exp = 0.75 # between sqrt and linear. looks nicest
+vs_plot = np.linspace((vf*50)**exp, vmax**exp, 20)**(1/exp)
+v_uppers = (300, np.inf)
+
+ax = None
+for k in range(2):
+    ax = pl.subplot(131 + k, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+    for v in vs_plot:
+        if v < v_uppers[k]:
+            plot_levelset(v)
+
+# uniform-ish time grid for all sols.
+ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(np.linspace(np.sqrt(sol.t0+0.0001), np.sqrt(sol.t1-0.01), 128)**2))(sols)
+
+
+
 # vs_plot = np.linspace(vf, vmax, 21)
 # v_uppers = (300, 340, np.inf)
 
@@ -472,4 +474,99 @@ pl.savefig(f'./{fig_dir}/levelsets.{fig_format}',  bbox_inches='tight')
 if show:
     pl.show()
 
+# }}}
+
+# results plot {{{
+
+sysname = problem_params['system_name']
+fpath = os.path.join(data_dir, f'{sysname}_controlcosts.msgpack.gz')
+with gzip.open(fpath, 'rb') as f:
+    bs = f.read()
+eval_outputs = jtm(np.array, flax.serialization.msgpack_restore(bs))
+
+# here we kinda have to be smart to compare the reference sol in the right
+# way...
+
+# also generally, what do we plot?
+# learned value? closed loop trajectories?
+# ref trajectories?
+
+def imshow_like_contourf(xx, yy, vals, **kwargs):
+    extent = (xx.min(), xx.max(), yy.min(), yy.max())
+    img = vals[::-1]  # flip in vertical axis
+    if 'levels' in kwargs:
+        levels = kwargs['levels']
+        vmin, vmax = levels[0], levels[-1]
+        pl.imshow(img, vmin=vmin, vmax=vmax, extent=extent)
+    else:
+        pl.imshow(img, extent=extent)
+
+
+xx = eval_outputs['xx']
+yy = eval_outputs['yy']
+learned_v = eval_outputs['learned_v']
+controlcost = eval_outputs['controlcost']
+
+ax = pl.subplot(121)
+ax.set_aspect('equal')
+levels = np.linspace(-2.2, 3., 30)
+pl.contour(xx, yy, np.log10(learned_v), levels=levels)
+pl.xlabel('learned v, contour')
+
+pl.subplot(122, sharex=ax, sharey=ax)
+imshow_like_contourf(xx, yy, np.log10(learned_v), levels=levels)
+pl.xlabel('learned v, imshow')
+
+fig = pl.figure()
+ratio = controlcost / learned_v
+ratio = ratio.at[learned_v > 1000].set(np.nan)
+imshow_like_contourf(xx, yy, np.log10(ratio))
+pl.colorbar()
+pl.xlabel('cost ratio')
+
+# and the most interesting thing finally: control cost vs 'reference'
+# solution.
+
+# # unwrap the angle.
+# xs = sols.ys['x']
+# xs = np.where(xs == np.inf, np.nan, xs)
+# phis = np.arctan2(xs[:, :, 0], xs[:, :, 1])
+# phis = np.unwrap(phis, axis=1)
+#
+# idx = ~np.isnan(phis)
+#
+# # expand state z = (x, phi).
+# zs = np.concatenate([xs[idx], phis[idx, None]], axis=-1)
+# xs = xs[idx]
+# vs = sols.ys['v'][idx]
+# vxs = sols.ys['vx'][idx]
+#
+# # learn the function z -> v very nicely.
+# # dumbest possible classifier: nearest neighbor.
+#
+# def v_ref(x):
+#
+#     phis = np.arctan2(x[0], x[1]) + np.arange(-1, 2) * 2 * np.pi
+#
+#     def v_local(phi):
+#         z = np.concatenate([x, np.array([phi])])
+#         dists = np.linalg.norm(zs - z[None, :], axis=1)
+#         closest_idx = np.argmin(dists)
+#         closest_v = vs[closest_idx]
+#         closest_x = zs[closest_idx, 0:2]
+#         closest_vx = vxs[closest_idx]
+#         v = closest_v + closest_vx @ (x - closest_x)
+#         return closest_v
+#
+#     v_candidates = jax.vmap(v_local)(phis)
+#     return np.min(v_candidates)
+#
+#
+# v_ref(np.array([0.1, 1.1]))
 # ipdb.set_trace()
+#
+#
+# fig.tight_layout()
+# pl.savefig(f'./{fig_dir}/orbits_results.{fig_format}',  bbox_inches='tight')
+
+# }}}

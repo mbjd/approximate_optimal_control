@@ -1975,7 +1975,7 @@ def evaluate_directly(all_data, problem_params, algo_params):
     # push it
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = 0.01
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] * 64
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] * 8
 
     if single:
         algo_params['nn_ensemble_size'] = 1
@@ -2029,6 +2029,7 @@ def evaluate_directly(all_data, problem_params, algo_params):
     eval_controlcost_2d = True
 
     eval_outputs = dict()
+    data_dir = 'plot_data'
 
     if eval_meshcat:
         # usual upside down thing
@@ -2107,7 +2108,14 @@ def evaluate_directly(all_data, problem_params, algo_params):
         eval_outputs['yy'] = yy
         eval_outputs['learned_v'] = vs
         eval_outputs['controlcost'] = costs
+        eval_outputs['vk'] = vk
 
+        bs = flax.serialization.msgpack_serialize(eval_outputs)
+        sysname = problem_params['system_name']
+        fpath = os.path.join(data_dir, f'{sysname}_controlcosts.msgpack.gz')
+        with gzip.open(fpath, 'wb') as f:
+            f.write(bs)
+        print(f'wrote to: {fpath}')
 
 
     # TODO something like

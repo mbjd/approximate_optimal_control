@@ -149,7 +149,7 @@ def base_algo_params():
         'nn_n_layers': 3,
         'nn_layer_dim': 16,
         'nn_batchsize': 32,
-        'nn_N_epochs': 256,
+        'nn_N_epochs': 512,
         'nn_train_fraction': .98,
         'lr_staircase': False,
         'lr_staircase_steps': 8,

@@ -1659,7 +1659,8 @@ def main(problem_params, algo_params):
     #         <same>
     #     ...
 
-    if 'SCRATCH' in os.environ:
+    euler = 'SCRATCH' in os.environ
+    if euler:
         # assume we are on euler, save wandb files in scratch!
         sys = problem_params['system_name']
         save_dir = os.path.join(os.environ['SCRATCH'], f'{sys}_runs')
@@ -1687,6 +1688,8 @@ def main(problem_params, algo_params):
 
         # save figures on euler scratch or locally to not destroy wandb storage
         run_dir = os.path.join(save_dir, str(wandb.run.id))
+        if not euler:
+            run_dir = os.path.join(save_dir, 'local_runs', str(wandb.run.id))
 
     else:
         # still make a local folder for figs & pickles, name it with timestamp.

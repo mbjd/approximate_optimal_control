@@ -5,8 +5,8 @@ import numpy as np
 
 from util import generate_run_commands, generate_base_command, dict_permutations, available_gpus
 
-# PROJECT_NAME = 'flatquad'
-PROJECT_NAME = 'orbits'
+PROJECT_NAME = 'flatquad'
+# PROJECT_NAME = 'orbits'
 
 flatquad_configs = {
     # 'T_value_target': [1/2, 1, 2.],
@@ -90,6 +90,7 @@ orbits_configs = {
     # 'vx_loss_d': [ 0.2, 0.3, 0.4, 0.5 ],
     'nn_value_sweep': [True, False],
     'inv_vx_loss_fadeout': [0., 0.3, 1., 3., 10., 30.],
+    'nn_layer_dim': [16, 32],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)

@@ -5231,7 +5231,7 @@ functions cleanly.
 
 
 
-2024-05-08
+2024-05-29
 
 currently struggling to think of a sensible set of metrics, plots, results
 to showcase. what do we want for sure?
@@ -5293,7 +5293,26 @@ for flatquad, just need to define relevant metrics i guess.
 
 
 
+2024-05-30
 
+did some writing. mostly procrastinating with math nitpickiness. only
+slowly progressing towards software-engineering wise implementation of a
+sane test process.
+
+disabling asymmetric v loss as I think that has no influence. rather, the
+sweeping is doing the heavy lifting (of determining which solution it is).
+loss function only has to aid. simplifying now to reflect that.
+
+also want to test if applying scaling to v loss too makes sense. probably
+does similar thing to asymmetric v loss but avoiding the "slowed down"
+optimisation due to linear region.
+
+is our staircase hack just a shit implementaiton of jax.lax.stop_gradient?
+
+noticed vx loss was defined very inconsistently (scaling entry-wise vs
+whole vector), refactored a bit, i think it is different now, both cases
+scale the whole vector now. planning to do euler runs to see if it broke
+something.
 
 
 
@@ -5314,5 +5333,6 @@ qs for next time:
  - balance between "we present this and it works" and also talking about
    failures along the way? only in discussion? only where it currently
    still fails?
+ - how to decide what the hell even to plot? suggestions?
 
 

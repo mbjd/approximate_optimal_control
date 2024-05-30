@@ -503,9 +503,6 @@ class nn_wrapper():
         rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
         underestimation = v_pred < y['v']
 
-        # v_loss_huber = underestimation * rel_err_smoothhuber + ~underestimation * rel_err_sq
-        v_loss_huber = jax.lax.select(underestimation, rel_err_smoothhuber, rel_err_sq)
-
         # also output a flag that says whether we are in the linear-ish
         # region (-> outlier) or not (not outlier)
         smooth_huber_linear = rel_err_sq / d**2 > 1
@@ -513,7 +510,18 @@ class nn_wrapper():
 
         # v_loss = use_quadratic_loss * rel_err_sq + ~use_quadratic_loss * rel_err_sq
         v_loss = jax.lax.select(use_quadratic_loss, rel_err_sq, rel_err_smoothhuber)
+        # v_loss = rel_err_sq  # basic one again.
 
+        # factor this scaling out, calculate only once here.
+        scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
+        scaling = jax.lax.select(
+            v_rel_err > 0,
+            np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
+            1.
+        )
+        # cheat autodiff with very fine staircase approx
+        L = 10000.
+        scaling = np.floor(L * scaling) / L
 
         lossterms = dict()
         lossterms['v'] = v_loss
@@ -565,93 +573,42 @@ class nn_wrapper():
             # orthogonal projection to tangent space at current x
             P_tangent = np.eye(problem_params['nx']) - P_normal
 
-            proj_label = y['vx'] @ P_tangent
-
-            vx_label_loss_quadratic = np.sum( (vx_pred @ P_tangent - proj_label)**2 / (algo_params['min_important_vx'] + np.sum(proj_label**2)) )
-
-
-            # previously, in 03b7942 where milk and honey flows
-            # this is NOT the same 'standard' parameterisation as above!
-            # d = algo_params['vx_loss_d']
-            # lengthscale = d
-            # vx_label_loss = 2 * (np.sqrt(lengthscale + vx_label_loss) - np.sqrt(lengthscale))
-
-
-            # same parameterisation as above: d = size of the quadratic region
-            # rel_err_smoothhuber = d**2 * 2 * (np.sqrt(1 + rel_err_sq/d**2) - 1)
-            d = algo_params['vx_loss_d']
-            vx_label_loss_huber = d**2 * 2 * (np.sqrt(1 + vx_label_loss_quadratic/d**2) - 1)
-            # as d->infty this reduces to the quadratic loss vx_label_loss_quadratic.
-
-            smooth_huber_linear = vx_label_loss_huber / d**2 > 1
-            aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
-
-            # vx_label_loss = vx_label_loss_quadratic * use_quadratic_loss + vx_label_loss_huber * ~use_quadratic_loss
-            vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
-
-            # disable gradient for larger ones hehehe
-            # this is basically the same as throwing out outliers and then doing a second training run,
-            # but with the complications arising from nonconvexity. i feel like value sweep should be able
-            # to not care about this too much and "bring with it" the correct solution from both sides.
-            # vx_label_loss = np.clip(vx_label_loss, 0, 1)
-
-            # or, do the same smoothly with tanh??
-            # vx_label_loss = d * np.tanh(vx_label_loss / d)
-
-            # if this is 0, scaling=1 always so nothing happens.
-            # if small we have "slow" dropoff.
-            # if >1 we have dropoff smaller than 1.
-            scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
-
-            scaling = jax.lax.select(
-                v_rel_err > 0,
-                np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
-                1.
-            )
-
-            # cheat autodiff
-            L = 10000.
-            scaling = np.floor(L * scaling) / L
-            vx_label_loss = vx_label_loss * scaling
-
-
-
+            # could refactor even more here -- if not manifold: P_tangent = I
+            vx_err = (vx_pred - y['vx']) @ P_tangent
+            vx_normaliser = algo_params['min_important_vx'] + np.linalg.norm(y['vx'] @ P_tangent)
+            vx_label_loss_quadratic = np.sum( (vx_err / vx_normaliser)**2  )
+            # vx_label_loss_quadratic = np.sum( (vx_err)**2 / (algo_params['min_important_vx'] + np.sum(proj_label**2)) )
 
             vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
 
-
-            # vx_reg_loss = 0.
-
-            vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss
-
-
-            # overwrites the 'vx' already present, which was calculated without consideration
-            # of the manifold and the fact that the normal direction is not important.
-            # lossterms['vx'] = vx_loss  # this one is kind of unnecessary
-            lossterms['vx_reg'] = vx_reg_loss
-            lossterms['vx_label'] = vx_label_loss
         else:
 
-            vx_label_loss_quadratic =  np.sum( (vx_pred - y['vx'])**2 ) / (algo_params['min_important_vx'] + np.linalg.norm(y['vx']))**2
+            # cartesian state space.
+            # define reg_loss too just so we can have a unified formula below
+            vx_err = (vx_pred - y['vx'])
+            vx_normaliser = algo_params['min_important_vx'] + np.linalg.norm(y['vx'])
+            vx_label_loss_quadratic = np.sum( (vx_err / vx_normaliser)**2  )
+            # vx_label_loss_quadratic =  np.sum( (vx_err)**2 ) / (algo_params['min_important_vx'] + np.linalg.norm(y['vx']))**2
+            vx_reg_loss = 0.
 
-            # repetiton of the code from manifold case :(
-            # takes regular quadratic loss, transforms it into "huber" loss and applies scaling
-            d = algo_params['vx_loss_d']
-            vx_label_loss_huber = d**2 * 2 * (np.sqrt(1 + vx_label_loss_quadratic/d**2) - 1)
-            smooth_huber_linear = vx_label_loss_huber / d**2 > 1
-            aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
-            vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
 
-            scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
-            L = 10000.
-            scaling = np.floor(L * scaling) / L
-            vx_label_loss = vx_label_loss * scaling
 
-            # regular R^n state space.
+        # factor the 'huberization' out as well. above if/else cases only have
+        # to calculate vx_label_loss_quadratic.
+        # this is always done, set like d=10 or 100 to 'disable'.
+        d = algo_params['vx_loss_d']
+        vx_label_loss_huber = d**2 * 2 * (np.sqrt(1 + vx_label_loss_quadratic/d**2) - 1)
+        smooth_huber_linear = vx_label_loss_huber / d**2 > 1
+        aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
+        vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
 
-            vx_loss = vx_label_loss
-            lossterms['vx_label'] = vx_loss
+        # scaling from above
+        vx_label_loss = vx_label_loss * scaling
 
+        # reg loss defined in if/else branches
+        vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss
+        lossterms['vx_reg'] = vx_reg_loss
+        lossterms['vx_label'] = vx_label_loss
 
 
         assert nn_sobolev_weights.shape == (2,)

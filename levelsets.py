@@ -2017,7 +2017,6 @@ def evaluate_directly(all_data, problem_params, algo_params):
     plotting_utils.plot_nn_train_outputs(training_oups)
     pl.show()
 
-
     # here do all the nice evaluation metrics we can imagine.
     # for each metric:
     # - do experiment
@@ -2026,7 +2025,8 @@ def evaluate_directly(all_data, problem_params, algo_params):
 
     # take this in algoparams?
     eval_meshcat = False
-    eval_controlcost_2d = True
+    eval_controlcost_common = False
+    eval_controlcost_2d = problem_params['system_name'] == 'orbits'
 
     eval_outputs = dict()
     data_dir = 'plot_data'
@@ -2117,12 +2117,35 @@ def evaluate_directly(all_data, problem_params, algo_params):
             f.write(bs)
         print(f'wrote to: {fpath}')
 
+    if eval_controlcost_common:
 
-    # TODO something like
-    # output_dir = some nice directory for data
-    # write eval_outputs as msgpack.gz in that dir, named with run id
-    # so we can make a nice plotting script that reads that data
+        # adapted (yet to adapt...) from above.
+        raise NotImplementedError()
 
+        # xs = TODO sample states batched (uniform) plus rejection sampling for value sublevel set.
+
+        algo_params['pontryagin_solver_maxsteps'] = 180
+        sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params, T=30.)
+        sols = jax.vmap(sim)(xs)
+
+        if not (sols.stats['num_steps'] < algo_params['pontryagin_solver_maxsteps']).all():
+            print('eval_controlcost_common: warning, solver step limit reached, plz increase')
+
+        solver_steps = sols.stats['num_steps'].reshape(N_grid, N_grid)
+
+        last_ys = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+        last_costs = last_ys['cost']
+
+        # correct for inf horizon with lqr.
+        if problem_params['m'] is not None:
+            # in manifold case this should work the same.
+            # P and K are wrt ambient space so we can 'blindly' use them here.
+            # but check again to be sure.
+            ipdb.set_trace()
+        K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+        eq = problem_params['x_eq']
+        lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_ys['x'])
+        costs = (last_costs + lqr_terminalcosts).reshape(N_grid, N_grid)
 
 
     ipdb.set_trace()

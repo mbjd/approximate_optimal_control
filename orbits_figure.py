@@ -1,26 +1,29 @@
 #!/usr/bin/env python
+
 import jax
 import jax.numpy as np
 import diffrax
+import flax
 
-import pontryagin_utils
+from jax import config
+config.update("jax_enable_x64", True)
 
-import ipdb
+import numpy as onp
 import scipy
 import matplotlib
 import matplotlib.pyplot as pl
+
+import os
+import ipdb
 import tqdm
+import gzip
+import pickle
 import warnings
 from functools import partial
 
 from misc import *
 from fig_config import *
-
-import numpy as onp
-
-from jax import config
-config.update("jax_enable_x64", True)
-
+import pontryagin_utils
 from orbits_experiment import define_problem_params, base_algo_params
 
 
@@ -28,6 +31,10 @@ cmap = matplotlib.colormaps['viridis']
 levelset_alpha=.7
 traj_alpha = .7
 
+N_trajs = 4096
+
+
+# define basics {{{
 
 problem_params = define_problem_params()
 algo_params = base_algo_params()
@@ -43,26 +50,6 @@ algo_params['pontryagin_solver_maxsteps'] = 128
 solve_backward, f_extended = pontryagin_utils.define_backward_solver(problem_params, algo_params)
 
 K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
-
-
-eq = problem_params['x_eq']
-V_f = lambda x: 0.5 * (x - eq).T @ P_lqr @ (x - eq)
-
-thetas = np.linspace(0, 2 * np.pi, 4096)
-circle_xs = jax.vmap(lambda theta: np.array([np.sin(theta), np.cos(theta)]))(thetas)
-xfs = 0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr)) + problem_params['x_eq'][None, :]
-yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
-
-
-yf = jtm(itemgetter(0), yfs)
-vf = yf['v']
-
-# v_upper = 1000.
-
-# if True, always start solutions from Xf again, with known sensitivity
-# issues. If False, start solutions at previous level set, like real thing.
-remesh_final = True
-
 
 @partial(jax.jit, static_argnums=2)
 def remesh(sols, frac, remesh_final):
@@ -122,69 +109,122 @@ def remesh(sols, frac, remesh_final):
     return new_y
 
 solve_fast = jax.jit(jax.vmap(solve_backward, in_axes=(0, None)))
-# solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
+
+
+
+eq = problem_params['x_eq']
+V_f = lambda x: 0.5 * (x - eq).T @ P_lqr @ (x - eq)
+
+thetas = np.linspace(0, 2 * np.pi, N_trajs)
+circle_xs = jax.vmap(lambda theta: np.array([np.sin(theta), np.cos(theta)]))(thetas)
+xfs = 0.1 * circle_xs @ np.linalg.inv(scipy.linalg.sqrtm(P_lqr)) + problem_params['x_eq'][None, :]
+yfs = jax.vmap(lambda xf: dict(x=xf, v=V_f(xf), vx=jax.grad(V_f)(xf), t=0.))(xfs)
+
+yf = jtm(itemgetter(0), yfs)
+vf = yf['v']
 
 vmax = 420
 N=20
 levels = np.logspace(np.log10(vf*2), np.log10(vmax), N)
 levels = np.linspace(np.sqrt(vf*2), np.sqrt(vmax), N)**2
+# solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
+# }}}
 
-sols = None
 
-def find_min_l(yfs):
+# make or read data {{{
 
-    def l_of_y(y):
-        x = y['x']
-        vx = y['vx']
-        u = pontryagin_utils.u_star_general(x, vx, problem_params)
-        return problem_params['l'](x, u)
+fpath_sols = os.path.join('plot_data', 'orbits_refsol.msgpack.gz')
+fpath_treedef = os.path.join('plot_data', 'orbits_refsol_treedef.pickle')
 
-    ls = jax.vmap(l_of_y)(yfs)
+make_data = False
+if make_data:
 
-    min_l = np.min(ls)
-    return min_l
 
-# first, get ALL those solutions over the full horizon.
+    remesh_final = True
+    sols = None
 
-with tqdm.tqdm(total=vmax) as pbar:
-    for v_upper in levels:
-        # otherwise it needs the increment not absolute progress.
-        # https://github.com/tqdm/tqdm/issues/1264
-        pbar.n = v_upper.item()
-        pbar.refresh()
+    def find_min_l(yfs):
 
-        # alright so it has to work a bit differently.
-        # 1. get solutions starting at uniformly spaced points on dVk
-        # 2. remesh them to be equidistant at dVk+1
-        # 3. get solutions again.
+        def l_of_y(y):
+            x = y['x']
+            vx = y['vx']
+            u = pontryagin_utils.u_star_general(x, vx, problem_params)
+            return problem_params['l'](x, u)
 
-        # step size selection just like the real thing
-        min_l = find_min_l(yfs)
-        vstep = 3. * min_l
-        v_upper = v_upper + vstep
+        ls = jax.vmap(l_of_y)(yfs)
 
-        # 1. uniform solutions.
-        sols_uniform = solve_fast(yfs, v_upper)
-        # 2. remeshing
-        yfs = remesh(sols_uniform, 1.0, remesh_final)
-        # 3. remeshed solutions.
-        sols = solve_fast(yfs, v_upper)
+        min_l = np.min(ls)
+        return min_l
 
-        # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform', c='grey')
-        # pl.plot(*sols.ys['x'][::1].reshape(-1,2).T, alpha=.05, label='remeshed', c='black')
-        # pl.legend()
+    # stable manifold calculation. remeshing followed by recreating the
+    # solutions all the way from Xf.
 
-        # yprev = yfs
-        if remesh_final:
-            yfs = jax.vmap(lambda sol: sol.evaluate(sol.t0))(sols)
-        else:
-            yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+    with tqdm.tqdm(total=vmax) as pbar:
+        for v_upper in levels:
+            # otherwise it needs the increment not absolute progress.
+            # https://github.com/tqdm/tqdm/issues/1264
+            pbar.n = v_upper.item()
+            pbar.refresh()
 
-        viridis = matplotlib.colormaps['viridis']
-        # pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
+            # alright so it has to work a bit differently.
+            # 1. get solutions starting at uniformly spaced points on dVk
+            # 2. remesh them to be equidistant at dVk+1
+            # 3. get solutions again.
 
-        # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
+            # step size selection just like the real thing
+            min_l = find_min_l(yfs)
+            vstep = 3. * min_l
+            v_upper = v_upper + vstep
 
+            # 1. uniform solutions.
+            sols_uniform = solve_fast(yfs, v_upper)
+            # 2. remeshing
+            yfs = remesh(sols_uniform, 1.0, remesh_final)
+            # 3. remeshed solutions.
+            sols = solve_fast(yfs, v_upper)
+
+            # pl.plot(*sols_uniform.ys['x'].reshape(-1,2).T, alpha=.3, label='uniform', c='grey')
+            # pl.plot(*sols.ys['x'][::1].reshape(-1,2).T, alpha=.05, label='remeshed', c='black')
+            # pl.legend()
+
+            # yprev = yfs
+            if remesh_final:
+                yfs = jax.vmap(lambda sol: sol.evaluate(sol.t0))(sols)
+            else:
+                yfs = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
+
+            viridis = matplotlib.colormaps['viridis']
+            # pl.plot(*yfs['x'].T, '-', alpha=.5, color = viridis(v_upper / levels[-1]) )
+
+            # pl.plot(*sols.ys['x'].reshape(-1, 2).T, color='black', alpha=.1 )
+    # now we have the sols object.
+
+    print('saving sols...')
+    # flattens into list of array leaves
+    sols_flat, sols_shape = jax.tree_util.tree_flatten(sols)
+
+    bs = flax.serialization.msgpack_serialize(sols_flat)
+    with gzip.open(fpath_sols, 'wb') as f:
+        f.write(bs)
+
+    with open(fpath_treedef, 'wb') as f:
+        pickle.dump(sols_shape, f)
+
+
+else:
+    print('make_data=False. instead reading from file.')
+
+    with gzip.open(fpath_sols, 'rb') as f:
+        bs = f.read()
+    sols_flat = flax.serialization.msgpack_restore(bs)
+    sols_flat = jtm(np.array, sols_flat)  # np array -> jax array
+
+    with open(fpath_treedef, 'rb') as f:
+        sols_shape = pickle.load(f)
+
+    # i really did not think this would just work...
+    sols = jax.tree_util.tree_unflatten(sols_shape, sols_flat)
+# }}}
 
 
 def plot_levelset(v, grey=False):
@@ -206,7 +246,7 @@ v0, v1 = 2., 50.
 eps = 0.001  # to certainly land in interior of domain of interpolation
 # evaluate at nan too to break up line
 vs_plot = np.concatenate([np.logspace(np.log10(v0+eps), np.log10(v1-eps), 51), np.array([np.nan])])
-subsample = 32 * (thetas.shape[0] // 512)
+subsample = 32 * (N_trajs // 512)
 
 # v0, v1 = (150., 300.)
 
@@ -264,36 +304,6 @@ for k in range(2):
 # uniform-ish time grid for all sols.
 ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(np.linspace(np.sqrt(sol.t0+0.0001), np.sqrt(sol.t1-0.01), 128)**2))(sols)
 
-
-# trying this basic approach again. find all pairs of line segments, for
-# each find intersection point with simple linear system, find if it is
-# actually within the segment or outside. sadly this seems pretty brittle
-# numerically especially as we go to smaller segment lengths...
-
-# first step, for single line pair.
-# l1 + a(l2-l1) = r1 + b (r2-r1)
-# (l2-l1) a - (r2-r1) b = r1 - l1
-# [A matrix] [a; b] = r1 - l1
-# and in the end, we have the point of intersection given by the original
-# eq! can't believe how long i got that wrong
-def single_intersection(l1, l2, r1, r2):
-    A = np.column_stack([l2-l1, r2-r1]).T
-    b = r1 - l1
-    ab = np.linalg.solve(A, b)
-
-    intersection_pt_left = l1 + ab[0] * (l2 - l1)
-    intersection_pt_right = r1 + ab[1] * (r2 - r1)
-    ldir = A[:, 0] / np.linalg.norm(A[:, 0])
-    rdir = A[:, 1] / np.linalg.norm(A[:, 1])
-    angle = np.angle((A[0, 0]+1j*A[0, 1]) / (A[1, 0]+1j*A[1,1]))
-
-    is_good = np.allclose(A @ ab, b)
-    is_inside = np.logical_and(ab > 0.0001, ab < 0.9999).all()
-
-
-    return ab, intersection_pt_left, angle, is_good, is_inside
-
-intersect_vmapjit = jax.jit(jax.vmap(jax.vmap(single_intersection, in_axes=(None, None, 0, 0)), in_axes=(0, 0, None, None)))
 
 def find_self_intersection(xs):
 

@@ -20,3 +20,4 @@ figures_*
 run_*
 euler_runs/
 report_figs/
+local_runs/

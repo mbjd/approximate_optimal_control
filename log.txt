@@ -5281,7 +5281,10 @@ ablation studies.
 
 
 
-
+finally managed to actually start. now the evaluation thing calculates
+control cost and vnn for a 2d grid of states (orbits example). then we can
+output this to a file and read again in plotting scripts. similar situation
+for flatquad, just need to define relevant metrics i guess.
 
 
 

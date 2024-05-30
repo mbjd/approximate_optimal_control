@@ -1691,7 +1691,7 @@ def main(problem_params, algo_params):
     else:
         # still make a local folder for figs & pickles, name it with timestamp.
         t = int(time.time())
-        run_dir = os.path.join(save_dir, f'run_{t}')
+        run_dir = os.path.join(save_dir, 'local_runs', f'run_{t}')
         os.makedirs(run_dir, exist_ok=True)
 
 
@@ -2107,6 +2107,8 @@ def evaluate_directly(all_data, problem_params, algo_params):
         eval_outputs['yy'] = yy
         eval_outputs['learned_v'] = vs
         eval_outputs['controlcost'] = costs
+
+
 
     # TODO something like
     # output_dir = some nice directory for data

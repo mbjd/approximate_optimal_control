@@ -512,11 +512,6 @@ class nn_wrapper():
         v_loss = jax.lax.select(use_quadratic_loss, rel_err_sq, rel_err_smoothhuber)
         # v_loss = rel_err_sq  # basic one again.
 
-        lossterms = dict()
-        lossterms['v'] = v_loss
-        # lossterms['v_rel_err'] = v_rel_err
-        # lossterms['vx'] = vx_loss
-
         # nn_sobolev_weights = np.array(algo_params['nn_sobolev_weights'])
         nn_sobolev_weights = np.array([algo_params['nn_sobolev_weight_v'], algo_params['nn_sobolev_weight_vx']])
 
@@ -600,15 +595,12 @@ class nn_wrapper():
             1.
         )
         # cheat autodiff
-        scaling = jax.lax.stop_grad(scaling)
+        scaling = jax.lax.stop_gradient(scaling)
 
         vx_label_loss = vx_label_loss * scaling
 
         # reg loss defined in if/else branches
         vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss
-
-        lossterms['vx_reg'] = vx_reg_loss
-        lossterms['vx_label'] = vx_label_loss
 
 
         assert nn_sobolev_weights.shape == (2,)
@@ -618,6 +610,11 @@ class nn_wrapper():
 
         loss = normalised_weights @ sobolev_losses
 
+
+        lossterms = dict()
+        lossterms['v'] = v_loss
+        lossterms['vx_reg'] = vx_reg_loss
+        lossterms['vx_label'] = vx_label_loss
         lossterms['total_loss'] = loss
         aux_output['lossterms'] = lossterms
 

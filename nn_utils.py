@@ -599,15 +599,14 @@ class nn_wrapper():
             np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
             1.
         )
-        # cheat autodiff with very fine staircase approx.
-        # is this just jax.lax.stop_gradient???
-        L = 10000.
-        scaling = np.floor(L * scaling) / L
+        # cheat autodiff
+        scaling = jax.lax.stop_grad(scaling)
 
         vx_label_loss = vx_label_loss * scaling
 
         # reg loss defined in if/else branches
         vx_loss = vx_label_loss + algo_params['vx_normal_regularisation'] * vx_reg_loss
+
         lossterms['vx_reg'] = vx_reg_loss
         lossterms['vx_label'] = vx_label_loss
 

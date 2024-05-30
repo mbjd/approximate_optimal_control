@@ -512,17 +512,6 @@ class nn_wrapper():
         v_loss = jax.lax.select(use_quadratic_loss, rel_err_sq, rel_err_smoothhuber)
         # v_loss = rel_err_sq  # basic one again.
 
-        # factor this scaling out, calculate only once here.
-        scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
-        scaling = jax.lax.select(
-            v_rel_err > 0,
-            np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
-            1.
-        )
-        # cheat autodiff with very fine staircase approx
-        L = 10000.
-        scaling = np.floor(L * scaling) / L
-
         lossterms = dict()
         lossterms['v'] = v_loss
         # lossterms['v_rel_err'] = v_rel_err
@@ -533,6 +522,8 @@ class nn_wrapper():
 
         if 'nn_sobolev_weight_vxx' in algo_params and algo_params['nn_sobolev_weight_vxx'] != 0.:
             raise NotImplementedError('vxx loss is stale code, do not use')
+
+        nx = problem_params['nx']
 
         if problem_params['m'] is not None:
 
@@ -550,7 +541,7 @@ class nn_wrapper():
 
             # this is trivial if the normal space is 1D (scalar constraint fct)
             B = jax.jacobian(problem_params['m'])(y['x'])
-            assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
+            assert B.shape == (nx,), 'only manifolds of codimension 1 supported rn'
 
             # if codimension > 1, we will have to do one of:
             #  1. define m such that B is always an orthonormal basis (and sanity check)
@@ -567,31 +558,30 @@ class nn_wrapper():
             B = B / np.linalg.norm(B)
 
             # the main dish.
-
             # orthogonal projection to normal space at current x
             P_normal = np.outer(B, B)  # B @ B.T also calculates dot product :(
             # orthogonal projection to tangent space at current x
-            P_tangent = np.eye(problem_params['nx']) - P_normal
-
-            # could refactor even more here -- if not manifold: P_tangent = I
-            vx_err = (vx_pred - y['vx']) @ P_tangent
-            vx_normaliser = algo_params['min_important_vx'] + np.linalg.norm(y['vx'] @ P_tangent)
-            vx_label_loss_quadratic = np.sum( (vx_err / vx_normaliser)**2  )
-            # vx_label_loss_quadratic = np.sum( (vx_err)**2 / (algo_params['min_important_vx'] + np.sum(proj_label**2)) )
-
-            vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
+            P_tangent = np.eye(nx) - P_normal
 
         else:
 
-            # cartesian state space.
-            # define reg_loss too just so we can have a unified formula below
-            vx_err = (vx_pred - y['vx'])
-            vx_normaliser = algo_params['min_important_vx'] + np.linalg.norm(y['vx'])
-            vx_label_loss_quadratic = np.sum( (vx_err / vx_normaliser)**2  )
-            # vx_label_loss_quadratic =  np.sum( (vx_err)**2 ) / (algo_params['min_important_vx'] + np.linalg.norm(y['vx']))**2
-            vx_reg_loss = 0.
+            # Rn has empty normal space (wrt itself)
+            P_normal = np.zeros((nx, nx))
+            P_tangent = np.eye(nx)
 
 
+
+
+
+        # factor out this entire calculation too. if cartesian, we naturally have
+        # P_tangent = I reducing this to the previous calculation, and P_normal=0
+        # so zero regularisation loss.
+        vx_err = (vx_pred - y['vx']) @ P_tangent
+        vx_normaliser = algo_params['min_important_vx'] + np.linalg.norm(y['vx'] @ P_tangent)
+        vx_label_loss_quadratic = np.sum( (vx_err / vx_normaliser)**2  )
+        # vx_label_loss_quadratic = np.sum( (vx_err)**2 / (algo_params['min_important_vx'] + np.sum(proj_label**2)) )
+
+        vx_reg_loss = np.sum( (vx_pred @ P_normal)**2 )
 
         # factor the 'huberization' out as well. above if/else cases only have
         # to calculate vx_label_loss_quadratic.
@@ -602,7 +592,18 @@ class nn_wrapper():
         aux_output['vx_loss_linear'] = underestimation & smooth_huber_linear
         vx_label_loss = jax.lax.select(use_quadratic_loss, vx_label_loss_quadratic, vx_label_loss_huber)
 
-        # scaling from above
+        # now the scaling is here again (only needed once)
+        scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
+        scaling = jax.lax.select(
+            v_rel_err > 0,
+            np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
+            1.
+        )
+        # cheat autodiff with very fine staircase approx.
+        # is this just jax.lax.stop_gradient???
+        L = 10000.
+        scaling = np.floor(L * scaling) / L
+
         vx_label_loss = vx_label_loss * scaling
 
         # reg loss defined in if/else branches

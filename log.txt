@@ -5367,9 +5367,31 @@ writing: 'red thread' very important! give to others to read too.
 
 
 
+immediate, tiny next tasks:
+
+ - make first shitty version of 'orbits' plots and put in report to see how
+   it looks
+
+ - do controlcost eval for flatquad.
+   - how to get x0 that are the same for each run, but also in each run's
+     sublevel set? possibly just learn to V=2000 but only test up to a bit
+     lower?
+   - try to get SAC working for same case.
+     - discretise system, try dts. also discretise inputs??
+
+ - optionally, compute ref sol for orbits by unwrapping angle to isolate
+   local solutions if motivated.
+
+ - report:
+   - go over notation & unify, use lenart's preamble
+   - write where it is most necessary.
+     - half-empty parts in central ideas
+     - implementation
+     - intro
 
 
 
-
-
+just spent like 2 hours adapting notation to the "vector bold, scalar
+normal" style. man this is boring work. should probably first work on
+clearing up notation for V, V_theta, V_mean, V_std, \tilde V.
 

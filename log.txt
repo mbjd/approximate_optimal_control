@@ -5324,15 +5324,52 @@ something.
 
 
 
+2024-05-31
 
+meeting q&a:
 
-qs for next time:
  - how much of that boilerplate is required/wanted? like index of figures?
    list of all abbreviations/math symbols? table of tables????
- - publication?!
- - balance between "we present this and it works" and also talking about
-   failures along the way? only in discussion? only where it currently
-   still fails?
+   a: really none necessary. table of contents yes. notation list maybe
+   especially to help myself stay with one convention. rest not important
+   (but easy with right \usepackage).
+
  - how to decide what the hell even to plot? suggestions?
+   for sure: distribution of control cost vs learned value, control cost vs
+   "reference" cost (2d: ref sol, others: sac?)
+   closer investigation of discontinuous points?
+   a: SAC decent baseline. watch out for Δt, important tuning param. use
+   same x0 as eval of our solution.
+   for 2d systems, 'proper' ref sol probably not so relevant. cool if time
+   allows.
+
+ - balance between
+   a) "we present this and it works", only present algo and then the
+      results
+   b) also talking about failures along the way, or difficulties *within*
+      the algo? only in discussion? only where it currently still fails?
+      highlight some failure cases in results?
+   a: minimise intuition. only say what we can say with high confidence.
+   maybe a tiny bit in discussion, but clearly marked as such. dead end
+   results only if they are interesting in some way.
+
+ - publication?!
+   a: after handin, maybe meet florian to talk about this. L&B will be
+   happy to support but unsure if within their expertise.
+
+other advice
+
+notation: recommendation of fat vectors/matrices (and also abstract linear
+maps therefore probably?) in general go over notation to unify
+
+writing: 'red thread' very important! give to others to read too.
+
+
+
+
+
+
+
+
 
 

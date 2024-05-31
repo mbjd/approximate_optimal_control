@@ -17,26 +17,22 @@ api = wandb.Api()
 
 # now for all of them hehehehe :)
 
+
+
+def delete_pngs(runs):
+    deleted = 0
+    for run in (pbar := tqdm.tqdm(runs)):
+        for file in run.files():
+            if file.name.endswith('png'):
+                file.delete()
+                deleted += file.size
+            pbar.set_description(f'{deleted/1e6:.2f} MB')
+
 runs = api.runs(path='mbjd-projects/levelsets_flatquad', order='+created_at')
-
-deleted = 0
-
-for run in tqdm.tqdm(runs, position=0):
-    for file in (pbar := tqdm.tqdm(run.files(), position=1)):
-        if file.name.endswith('png'):
-            file.delete()
-            deleted += file.size
-            pbar.set_description(f'{deleted/1e6} MB')
+delete_pngs(runs)
 
 runs = api.runs(path='mbjd-projects/levelsets_orbits', order='+created_at')
-
-for run in tqdm.tqdm(runs, position=0):
-    for file in (pbar := tqdm.tqdm(run.files(), position=1)):
-        if file.name.endswith('png'):
-            file.delete()
-            deleted += file.size
-            pbar.set_description(f'{deleted/1e6} MB')
-
+delete_pngs(runs)
 
 '''
 extension = ".png"

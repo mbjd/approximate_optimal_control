@@ -1,25 +1,24 @@
 #!/usr/bin/env python
 
+import argparse
+import time
+from operator import itemgetter
+
+import diffrax
+import ipdb
 import jax
 import jax.numpy as np
-import diffrax
+import matplotlib.pyplot as pl
+import meshcat
+import meshcat.geometry as geom
+import meshcat.transformations as tf
+import numpy as onp
+import tqdm
 
 import levelsets
 import pontryagin_utils
 import visualiser
 from misc import *
-
-import matplotlib.pyplot as pl
-import meshcat
-import meshcat.geometry as geom
-import meshcat.transformations as tf
-
-import ipdb
-import time
-import numpy as onp
-import tqdm
-import argparse
-from operator import itemgetter
 
 # from jax import config
 # config.update("jax_enable_x64", True)

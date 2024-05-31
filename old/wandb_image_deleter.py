@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 import ipdb
-import wandb
 import tqdm
+
+import wandb
+
 api = wandb.Api()
 
 # sorry wandb api, you will have to suffer to reach the storage limit

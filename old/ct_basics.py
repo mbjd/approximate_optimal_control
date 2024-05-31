@@ -2,11 +2,10 @@
 # mostly in the form of a diffrax sol object for a SINGLE trajectory. 
 # use vmap if you want more. 
 
+import ipdb
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as pl
-
-import ipdb
 
 
 def find_zero_on_trajectory(sol, fct, lower, upper, tol=1e-5, i_max=50):

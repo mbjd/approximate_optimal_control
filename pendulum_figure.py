@@ -1,23 +1,21 @@
 #!/usr/bin/env python
-import jax
-import jax.numpy as np
-import diffrax
-
-import pontryagin_utils
-
-import ipdb
-import scipy
-import matplotlib
-import matplotlib.pyplot as pl
-import tqdm
 import warnings
 from functools import partial
 
+import diffrax
+import ipdb
+import jax
+import jax.numpy as np
+import matplotlib
+import matplotlib.pyplot as pl
+import numpy as onp
+import scipy
+import tqdm
+from jax import config
+
+import pontryagin_utils
 from misc import *
 
-import numpy as onp
-
-from jax import config
 config.update("jax_enable_x64", True)
 
 

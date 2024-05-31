@@ -1,26 +1,23 @@
 # jax
+from functools import partial
+from typing import Optional, Sequence
+
+import flax
+import ipdb
 import jax
 import jax.numpy as np
-import optax
 import jax_tqdm
-
-# cheating on equinox :/
-import flax
-from flax import linen as nn
-from typing import Sequence, Optional
-
-# but not for everything
+import optax
 from equinox import filter_jit
+from flax import linen as nn
+
+from misc import *
 
 # other, trivial stuff
 # import numpy as onp
 # import matplotlib.pyplot as pl
 
-import ipdb
 
-# from tqdm import tqdm
-from functools import partial
-from misc import *
 
 
 

@@ -1,9 +1,6 @@
-import wandb
-
-
-
-import wandb
 import random  # for demo script
+
+import wandb
 
 wandb.login()
 

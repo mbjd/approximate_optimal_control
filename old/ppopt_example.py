@@ -3,8 +3,8 @@
 # copied from https://github.com/TAMUparametric/PPOPT/blob/903f1f7b6c219eb9f445847444839a501b9b2558/doc/control_allocation_example.rst
 
 
-import numpy as np
 import ipdb
+import numpy as np
 
 # Vehicle Parameters
 m = 5.0  # Vehicle mass [kg]
@@ -90,6 +90,7 @@ CRb = np.concatenate((-FMCmdMin.reshape((m, 1)), FMCmdMax.reshape((m, 1))), 0)
 
 
 from ppopt.mpqp_program import MPQP_Program as mpqp_program
+
 prog = mpqp_program(A, b, c, H, Q, CRa, CRb, F)
 
 
@@ -98,7 +99,8 @@ prog.process_constraints()
 
 
 print('solving problem!!!')
-from ppopt.mp_solvers.solve_mpqp import solve_mpqp, mpqp_algorithm
+from ppopt.mp_solvers.solve_mpqp import mpqp_algorithm, solve_mpqp
+
 solution = solve_mpqp(prog, mpqp_algorithm.combinatorial)
 
 

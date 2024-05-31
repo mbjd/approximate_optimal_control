@@ -1,18 +1,16 @@
+import time
+
+import ipdb
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as pl
-
-import pontryagin_utils
-
-import ipdb
-import time
-import numpy as onp
-import tqdm
-
 import meshcat
 import meshcat.geometry as geom
 import meshcat.transformations as tf
+import numpy as onp
+import tqdm
 
+import pontryagin_utils
 
 
 class TextTexture(geom.Texture):

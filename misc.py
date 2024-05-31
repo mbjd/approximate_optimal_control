@@ -1,27 +1,24 @@
+import operator
+import time
+from operator import itemgetter
+
+import diffrax
+import ipdb
 import jax
 import jax.numpy as np
-import numpy as onp
-import diffrax
-
-import nn_utils
-import plotting_utils
-import pontryagin_utils
-import visualiser
-
 import matplotlib
 import matplotlib.pyplot as pl
 import meshcat
 import meshcat.geometry as geom
 import meshcat.transformations as tf
-
-import ipdb
-import time
+import numpy as onp
 import tqdm
-import operator
-
 from jax.tree_util import tree_map as jtm
 
-from operator import itemgetter
+import nn_utils
+import plotting_utils
+import pontryagin_utils
+import visualiser
 
 # various small utility functions.
 

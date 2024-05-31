@@ -1,22 +1,19 @@
 #!/usr/bin/env python
-import jax
-import jax.numpy as np
-import diffrax
-
-import pontryagin_utils
-
-import ipdb
-import scipy
-import matplotlib
-import matplotlib.pyplot as pl
-import tqdm
 import warnings
 from functools import partial
 
+import diffrax
+import ipdb
+import jax
+import jax.numpy as np
+import matplotlib
+import matplotlib.pyplot as pl
 import numpy as onp
-
+import scipy
+import tqdm
 from jax.config import config
 
+import pontryagin_utils
 
 
 # simple control system. double integrator with friction term.

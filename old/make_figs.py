@@ -1,18 +1,16 @@
 #!/usr/bin/env python
 
+import diffrax
 import jax
 import jax.numpy as np
-
-import diffrax
-
 import matplotlib
-matplotlib.use('Qt5Agg')
-import matplotlib.pyplot as pl
-import matplotlib.ticker as mticker
 
-import ipdb
+matplotlib.use('Qt5Agg')
 import os
 
+import ipdb
+import matplotlib.pyplot as pl
+import matplotlib.ticker as mticker
 import numpy as onp
 import scipy
 

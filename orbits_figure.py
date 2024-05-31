@@ -1,31 +1,30 @@
 #!/usr/bin/env python
 
-import jax
-import jax.numpy as np
 import diffrax
 import flax
-
+import jax
+import jax.numpy as np
 from jax import config
+
 config.update("jax_enable_x64", True)
 
-import numpy as onp
-import scipy
-import matplotlib
-import matplotlib.pyplot as pl
-
-import os
-import ipdb
-import tqdm
 import gzip
+import os
 import pickle
 import warnings
 from functools import partial
 
-from misc import *
-from fig_config import *
-import pontryagin_utils
-from orbits_experiment import define_problem_params, base_algo_params
+import ipdb
+import matplotlib
+import matplotlib.pyplot as pl
+import numpy as onp
+import scipy
+import tqdm
 
+import pontryagin_utils
+from fig_config import *
+from misc import *
+from orbits_experiment import base_algo_params, define_problem_params
 
 cmap = matplotlib.colormaps['viridis']
 levelset_alpha=.7

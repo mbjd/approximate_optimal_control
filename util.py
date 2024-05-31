@@ -5,7 +5,7 @@ import json
 import multiprocessing
 import os
 import sys
-from typing import Dict, Optional, Any, List, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import jax.numpy as jnp
 import numpy as np

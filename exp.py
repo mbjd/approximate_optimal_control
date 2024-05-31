@@ -6,10 +6,11 @@ import imageio
 import jax
 import jax.random as jr
 import matplotlib.pyplot as plt
-import wandb
 from brax import envs
 from jax.nn import swish
 from mbpo.optimizers.policy_optimizers.sac.sac_brax_env import SAC
+
+import wandb
 
 ENTITY = 'dbalduin'
 

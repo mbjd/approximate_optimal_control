@@ -1,13 +1,12 @@
-import jax
-import jax.numpy as np
-import diffrax
-
-import matplotlib.pyplot as pl
-
-import ipdb
-import tqdm
 import time
 from operator import itemgetter
+
+import diffrax
+import ipdb
+import jax
+import jax.numpy as np
+import matplotlib.pyplot as pl
+import tqdm
 
 import pontryagin_utils
 import visualiser

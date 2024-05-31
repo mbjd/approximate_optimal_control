@@ -3,7 +3,8 @@ import sys
 
 import numpy as np
 
-from util import generate_run_commands, generate_base_command, dict_permutations, available_gpus
+from util import (available_gpus, dict_permutations, generate_base_command,
+                  generate_run_commands)
 
 PROJECT_NAME = 'flatquad'
 # PROJECT_NAME = 'orbits'

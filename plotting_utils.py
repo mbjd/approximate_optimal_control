@@ -1,25 +1,22 @@
 # jax
+import time
+from functools import partial
+
+import ipdb
 import jax
 import jax.numpy as np
-
-# other, trivial stuff
-import numpy as onp
-
 # import tk as tkinter
 # import matplotlib
 # matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as pl
-
-import ipdb
-import time
+# other, trivial stuff
 import numpy as onp
 
-from functools import partial
 cmap = 'viridis'
 
 import pontryagin_utils
-
 from misc import *
+
 
 def plot_sol(sol, problem_params):
 

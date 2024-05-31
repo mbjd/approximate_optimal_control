@@ -1,9 +1,7 @@
+import diffrax
+import ipdb
 import jax
 import jax.numpy as np
-import ipdb
-
-import diffrax
-
 import numpy as onp
 import scipy
 

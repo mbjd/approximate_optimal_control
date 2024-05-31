@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
+import flax
 import jax
 import jax.numpy as jnp
-import flax
-
 import numpy as onp
 
 A = jnp.arange(10)

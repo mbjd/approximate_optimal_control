@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
-import jax.numpy as np
 import jax
-
+import jax.numpy as np
 import matplotlib.pyplot as pl
 
 # try to answer qualitatively the question: 

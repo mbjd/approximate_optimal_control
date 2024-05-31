@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-import matplotlib.pyplot as pl
 import ipdb
 import jax
 import jax.numpy as np
+import matplotlib.pyplot as pl
 
 
 def f(a, b):

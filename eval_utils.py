@@ -1,11 +1,9 @@
+import diffrax
+import ipdb
 import jax
 import jax.numpy as np
 
-import diffrax
-
 import pontryagin_utils
-
-import ipdb
 
 
 def closed_loop_eval_nn_ensemble(problem_params, algo_params, V_nn, nn_params, x0s):

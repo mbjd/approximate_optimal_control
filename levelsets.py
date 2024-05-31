@@ -1,35 +1,31 @@
-import jax
-import jax.numpy as np
-import numpy as onp
+import gzip
+import os
+import pprint
+import subprocess
+import sys
+import time
+from operator import itemgetter
+
 import diffrax
 import equinox
 import flax
-
-import wandb
-
-import nn_utils
-import plotting_utils
-import pontryagin_utils
-import visualiser
-from misc import *
-
+import ipdb
+import jax
+import jax.numpy as np
 import matplotlib
 import matplotlib.pyplot as pl
 import meshcat
 import meshcat.geometry as geom
 import meshcat.transformations as tf
-
-import os
-import sys
-import gzip
-import ipdb
-import time
+import numpy as onp
 import tqdm
-import pprint
-import subprocess
-from operator import itemgetter
 
-
+import nn_utils
+import plotting_utils
+import pontryagin_utils
+import visualiser
+import wandb
+from misc import *
 
 # helper functions {{{
 

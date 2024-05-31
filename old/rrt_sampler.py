@@ -1,14 +1,14 @@
+import time
+
+import diffrax
+import ipdb
 import jax
 import jax.numpy as np
 import matplotlib.pyplot as pl
-import diffrax
-
-import pontryagin_utils
-
-import ipdb
-import time
 import numpy as onp
 import tqdm
+
+import pontryagin_utils
 
 
 def rrt_sample(problem_params, algo_params): 
@@ -395,7 +395,6 @@ def rrt_sample(problem_params, algo_params):
 
         # we want alpha to minimise || close_sols_xs_at_v_est.T alpha - new_state ||
         # subject to alpha >= 0 and sum(alpha) == 1. 
-
         # qpax wants: 0.5 x.T Q x + q.T x, s.t. Ax = b and Gx <= h. 
         # multiplying out the norm and letting Φ = close_sols_xs_at_v_est.T, we have: 
         #   (Φ α - new_state).T @ (Φ α - new_state) 

@@ -1,5 +1,6 @@
-import aim
 import math
+
+import aim
 
 # Initialize a new run
 run = aim.Run()

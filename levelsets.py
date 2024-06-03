@@ -119,7 +119,9 @@ def forward_sim_nn(x0, v_nn, params, problem_params, algo_params, ensemble=True,
     saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
     if problem_params['m'] is not None and algo_params['project_manifold']:
-        solver = pontryagin_utils.ProjectionSolver(project=problem_params['project_M'])
+        # projection only for state, not cost ofc
+        project = lambda y: {'x': problem_params['project_M'](y['x']), 'cost': y['cost']}
+        solver = pontryagin_utils.ProjectionSolver(project=project)
     else:
         solver = diffrax.Tsit5()
 
@@ -191,32 +193,37 @@ def prune_and_train(key, v_nn, params_sobolev_ens, all_ys, v_interval, previousl
 
     # 0. redefining functions that were previously stolen from main's scope {{{
 
-    def v_meanstd(x, vmap_params):
+    def def_v_meanstds(v_nn):
 
-        # find (empirical) mean and std. dev of value function.
-        vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
+        def v_meanstd(x, vmap_params):
 
-        v_mean = vs_ensemble.mean()
-        v_std = vs_ensemble.std()
+            # find (empirical) mean and std. dev of value function.
+            vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
 
-        return v_mean, v_std
+            v_mean = vs_ensemble.mean()
+            v_std = vs_ensemble.std()
 
-    def vx_meanstd(x, vmap_params):
+            return v_mean, v_std
 
-        # vmap for nn ensemble.
-        vx_fct = jax.jacobian(v_nn, argnums=1)
-        ensemble_vxs = jax.vmap(vx_fct, in_axes=(0, None))(vmap_params, x)
+        def vx_meanstd(x, vmap_params):
 
-        # now we have all_vxs.shape == (N_ensemble, nx)
-        # we want ensemble mean and std across axis 0.
-        # stds will be individual for each coordinate, sum/mean whatever later if you want.
-        vx_mean = ensemble_vxs.mean(axis=0)
-        vx_std = ensemble_vxs.std(axis=0)
+            # vmap for nn ensemble.
+            vx_fct = jax.jacobian(v_nn, argnums=1)
+            ensemble_vxs = jax.vmap(vx_fct, in_axes=(0, None))(vmap_params, x)
 
-        return vx_mean, vx_std
+            # now we have all_vxs.shape == (N_ensemble, nx)
+            # we want ensemble mean and std across axis 0.
+            # stds will be individual for each coordinate, sum/mean whatever later if you want.
+            vx_mean = ensemble_vxs.mean(axis=0)
+            vx_std = ensemble_vxs.std(axis=0)
 
-    v_meanstds = jax.vmap(v_meanstd, in_axes=(0, None))
-    vx_meanstds = jax.vmap(vx_meanstd, in_axes=(0, None))
+            return vx_mean, vx_std
+
+        v_meanstds = jax.vmap(v_meanstd, in_axes=(0, None))
+        vx_meanstds = jax.vmap(vx_meanstd, in_axes=(0, None))
+        return v_meanstds, vx_meanstds
+
+    v_meanstds, vx_meanstds = def_v_meanstds(v_nn)
 
     # }}}
 
@@ -1027,7 +1034,7 @@ def main(problem_params, algo_params):
             # or, actually, should we be optimistic there too? then we get
             # an outer approximation of the lower sublevel set, meaning we
             # don't propose points *right* at the boundary which could be
-            # good right?
+            # good right?  -> this doesn't happen most of the time anyway
             is_in_range = np.logical_and(value_interval[0] <= v_means, optimistic_vs <= value_interval[1])
 
             interesting_x0s = x_pts[is_in_range]
@@ -1730,7 +1737,9 @@ def main(problem_params, algo_params):
         is_in_Vnext = v_means <= v_next_target
         inside_xs = test_pts * is_in_Vnext[:, None]
         # data extent in sampling fct is with respect to x_eq!
-        data_extent = np.abs(inside_xs - problem_params['x_eq'][None, :]).max(axis=0)
+        # data_extent = np.abs(inside_xs - problem_params['x_eq'][None, :]).max(axis=0)
+        # this more correct?
+        data_extent = np.abs(inside_xs).max(axis=0)
 
         OK = False
         i = 0
@@ -1924,10 +1933,10 @@ def evaluate(run_dir, problem_params, algo_params):
     #  - do some closed loop sims, uniformly from the sublevel set or something like that
 
     filepath = os.path.join(run_dir, 'all_data.msgpack.gz')
+    run_id = run_dir.split('/')[-1]
 
     if not os.path.isfile(filepath):
         print(f'{filepath} does not exist. trying to pull from euler')
-        run_id = run_dir.split('/')[-1]
         cmd = ['./pull_run.sh', problem_params['system_name'], run_id]
         output = subprocess.run(cmd)
         if output.returncode != 0:
@@ -1942,9 +1951,9 @@ def evaluate(run_dir, problem_params, algo_params):
 
     all_data = flax.serialization.msgpack_restore(bs)
 
-    evaluate_directly(all_data, problem_params, algo_params)
+    evaluate_directly(all_data, run_id, problem_params, algo_params)
 
-def evaluate_directly(all_data, problem_params, algo_params):
+def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
     # should these be arguments?
 
@@ -1960,7 +1969,8 @@ def evaluate_directly(all_data, problem_params, algo_params):
 
     vk = all_data['vk']
     # this vk ^^ is from the penultimate round. so really a bit crappy to use this.
-    vk = problem_params['V_max']
+    v_train = problem_params['V_max']
+    v_sim = v_train  # set smaller maybe nicer results???
 
     key = jax.random.PRNGKey(0)
 
@@ -1972,26 +1982,59 @@ def evaluate_directly(all_data, problem_params, algo_params):
     algo_params['nn_value_sweep'] = False
     algo_params['lr_staircase'] = True
     # push it
-    algo_params['lr_final'] = algo_params['lr_final'] / 10
-    algo_params['lr_init'] = 0.01
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] * 8
+    algo_params['lr_final'] = algo_params['lr_final'] / 2
+    algo_params['lr_init'] = algo_params['lr_final'] * 2
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] # just for developping stuff below
 
     if single:
         algo_params['nn_ensemble_size'] = 1
 
     v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
+    def def_v_meanstds(v_nn):
+
+        def v_meanstd(x, vmap_params):
+
+            # find (empirical) mean and std. dev of value function.
+            vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
+
+            v_mean = vs_ensemble.mean()
+            v_std = vs_ensemble.std()
+
+            return v_mean, v_std
+
+        def vx_meanstd(x, vmap_params):
+
+            # vmap for nn ensemble.
+            vx_fct = jax.jacobian(v_nn, argnums=1)
+            ensemble_vxs = jax.vmap(vx_fct, in_axes=(0, None))(vmap_params, x)
+
+            # now we have all_vxs.shape == (N_ensemble, nx)
+            # we want ensemble mean and std across axis 0.
+            # stds will be individual for each coordinate, sum/mean whatever later if you want.
+            vx_mean = ensemble_vxs.mean(axis=0)
+            vx_std = ensemble_vxs.std(axis=0)
+
+            return vx_mean, vx_std
+
+        v_meanstds = jax.vmap(v_meanstd, in_axes=(0, None))
+        vx_meanstds = jax.vmap(vx_meanstd, in_axes=(0, None))
+        return v_meanstds, vx_meanstds
+
+    v_meanstds, vx_meanstds = def_v_meanstds(v_nn)
+
+    trainkey, key = jax.random.split(key)
     if 'nn_params' in all_data:
         print('got nn params, training warm-started')
         nn_params = jtm(np.array, all_data['nn_params'])
         nn_params = jtm(lambda z: z[0:1], nn_params)
         # ipdb.set_trace()
         nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
-            key,
+            trainkey,
             v_nn,
             nn_params,
             all_ys,            # all data
-            [0., vk],          # everything used
+            [0., v_train],          # everything used
             is_suboptimal,     # but only the good parts
             problem_params,
             algo_params,
@@ -2001,11 +2044,11 @@ def evaluate_directly(all_data, problem_params, algo_params):
     else:
         print('got no nn params, training from scratch')
         nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
-            key,
+            trainkey,
             v_nn,
             None,
             all_ys,            # all data
-            [0., vk],          # everything used
+            [0., v_train],          # everything used
             is_suboptimal,     # but only the good parts
             problem_params,
             algo_params,
@@ -2024,11 +2067,13 @@ def evaluate_directly(all_data, problem_params, algo_params):
 
     # take this in algoparams?
     eval_meshcat = False
-    eval_controlcost_common = False
+    eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
 
     eval_outputs = dict()
     data_dir = 'plot_data'
+
+    # make another context manager thing to DRY the file output?
 
     if eval_meshcat:
         # usual upside down thing
@@ -2048,7 +2093,7 @@ def evaluate_directly(all_data, problem_params, algo_params):
         xs = jax.vmap(lambda x, y: np.array([x, y, 0, 1, 0, 0, 0]), in_axes=(0, 0))(xx.flatten(), yy.flatten())
 
         vs = jax.vmap(v_nn, in_axes=(None, 0))(jtm(itemgetter(0), nn_params), xs)
-        xs_inside = xs[vs < vk]
+        xs_inside = xs[vs < v_train]
 
         meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
 
@@ -2107,44 +2152,90 @@ def evaluate_directly(all_data, problem_params, algo_params):
         eval_outputs['yy'] = yy
         eval_outputs['learned_v'] = vs
         eval_outputs['controlcost'] = costs
-        eval_outputs['vk'] = vk
+        eval_outputs['v_train'] = v_train
 
         bs = flax.serialization.msgpack_serialize(eval_outputs)
         sysname = problem_params['system_name']
-        fpath = os.path.join(data_dir, f'{sysname}_controlcosts.msgpack.gz')
+        fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_2d.msgpack.gz')
         with gzip.open(fpath, 'wb') as f:
             f.write(bs)
-        print(f'wrote to: {fpath}')
+        print(f'eval_controlcost_2d: wrote to {fpath}')
 
     if eval_controlcost_common:
 
         # adapted (yet to adapt...) from above.
-        raise NotImplementedError()
+        make_x0s = True
+
+        if make_x0s:
+            # find extent for sampling.
+            x0key, key = jax.random.split(key)
+            inside = all_ys['v'] <= v_sim
+            ys_relevant = jtm(lambda n: n[inside & ~is_suboptimal], all_ys)
+            extent = np.abs(ys_relevant['x']).max(axis=0) * 1.5
+
+            # sample uniform states from extent box.
+            x0s = algo_params['sample_states_batched'](x0key, 10000, extent, log_min_scale=-2)
+
+            # find out which ones are within given sublevel set.
+            v_means, v_stds = v_meanstds(x0s, nn_params)
+
+            xs = x0s[v_means < v_sim]
+
+        else:
+
+            pass
+
 
         # xs = TODO sample states batched (uniform) plus rejection sampling for value sublevel set.
 
-        algo_params['pontryagin_solver_maxsteps'] = 180
-        sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params, T=30.)
+        algo_params['pontryagin_solver_maxsteps'] = 250
+        sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params, T=10.)
         sols = jax.vmap(sim)(xs)
 
         if not (sols.stats['num_steps'] < algo_params['pontryagin_solver_maxsteps']).all():
             print('eval_controlcost_common: warning, solver step limit reached, plz increase')
 
-        solver_steps = sols.stats['num_steps'].reshape(N_grid, N_grid)
+        solver_steps = sols.stats['num_steps']
 
         last_ys = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
-        last_costs = last_ys['cost']
+        # last_costs = last_ys['cost']
+        traj_costs = (sols.ys['cost'] * (sols.ys['cost'] != np.inf)).max(axis=1)
 
         # correct for inf horizon with lqr.
         if problem_params['m'] is not None:
             # in manifold case this should work the same.
             # P and K are wrt ambient space so we can 'blindly' use them here.
             # but check again to be sure.
-            ipdb.set_trace()
+            pass
+            # ipdb.set_trace()
+
         K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
         eq = problem_params['x_eq']
         lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_ys['x'])
-        costs = (last_costs + lqr_terminalcosts).reshape(N_grid, N_grid)
+        costs = (traj_costs + lqr_terminalcosts)
+
+        # what data do we want?
+        eval_outputs = {
+            'x0s': xs,
+            'v_mean': v_means,
+            'v_stds': v_stds,
+            'sols_t': sols.ts,
+            'sols_cost': sols.ys['cost'],
+            'sols_cost_with_lqr': costs,
+            'sols_xs': sols.ys['x'],
+        }
+
+        # put run id in this file name too?
+        bs = flax.serialization.msgpack_serialize(eval_outputs)
+        sysname = problem_params['system_name']
+        fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_common.msgpack.gz')
+        with gzip.open(fpath, 'wb') as f:
+            f.write(bs)
+        print(f'eval_controlcost_common: wrote to {fpath}')
+
+        pl.plot(v_means[v_means < v_sim], costs, '. ')
+        pl.show()
+        ipdb.set_trace()
 
 
     ipdb.set_trace()

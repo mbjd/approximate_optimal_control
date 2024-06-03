@@ -1193,6 +1193,7 @@ def main(problem_params, algo_params):
 
                 return carry, oup
 
+            raise NotImplementedError('this works, but without the newest adaptation of considering training data here. ')
             sigma_relative = v_stds / sigma_maxs
 
             final_carry, oups = jax.lax.scan(scan_fct, sigma_relative, None, length=N_proposals)
@@ -1205,16 +1206,26 @@ def main(problem_params, algo_params):
 
             data_ranges = all_valueband_pts.ptp(axis=0)
 
+            # how do we sensibly choose this factor?  roughly, we can imagine
+            # "packing" the state space with spheres defined by these kernel.
+            # then, we have the goal of "filling" up the region where we have
+            # no data (= high sigma relative after this adaptation) with a
+            # roughly evenly spaced data, without afterwards also filling up
+            # the already known region. probably easiest to not have too high
+            # standards here and find something that works a bit better than
+            # uniform sampling.
+
+            # adaptive kernel scales with extent of value levelset.
+
+            lengthscales = algo_params['relative_kernel_lengthscale'] * data_ranges
+            k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscales)**2))
+
             def scan_fct(sigmas, inp):
 
                 # find max sigma.
                 proposal_idx = np.argmax(sigmas)
                 proposal = all_valueband_pts[proposal_idx]
 
-                # adaptive kernel scales with extent of value levelset.
-                lengthscales = (1/4) * data_ranges
-
-                k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscales)**2))
 
                 weights = jax.vmap(lambda x: 1 - k(x, proposal))(all_valueband_pts)
 
@@ -1227,18 +1238,30 @@ def main(problem_params, algo_params):
 
             sigma_relative = v_stds / sigma_maxs
 
-            # ys_in_valueinterval = np.logical_and(all_ys['v'] >= value_interval[0], all_ys['v'] <= value_interval[1])
+            ys_in_valueinterval = np.logical_and(all_ys['v'] >= value_interval[0], all_ys['v'] <= value_interval[1])
 
-            # TODO finish this or scrap it.
-            # TODO also do this in non-adaptive version?
-            # for each data point x we already have, reduce sigma the same as w/ proposals.
-            # k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscales)**2))
-            # huge kernel matrix
-            # ks = jax.vmap(k, jax.vmap(k, in_axes=(0, None)), in_axes=(None, 0))(all_valueband_pts, xs)
+            if algo_params['consider_old_data']:
+                prev_datapts = all_ys['x'][ys_in_valueinterval]
+                # TODO also do this in non-adaptive version?
+                # for each data point x we already have, reduce sigma the same as w/ proposals.
+                # huge kernel matrix. k_ij = k(valueband pt i, data pt j).
+
+                ks = jax.vmap(jax.vmap(k, in_axes=(0, None)), in_axes=(None, 0))(all_valueband_pts, prev_datapts)
+
+                # prod over which axis? we want for each valueband pt the added
+                # influence of all prev_datapts. thus, product over prev_datapts axis,
+                # which is 0.
+                factors = (1-ks).prod(axis=0)
+                # pl.scatter(all_valueband_pts[:, 0], all_valueband_pts[:, 1], c=factors)
+                # pl.show()
+                # ipdb.set_trace()
+
+                sigma_relative_adjusted = sigma_relative * factors
+            else:
+                sigma_relative_adjusted = sigma_relative
 
 
-
-            final_carry, oups = jax.lax.scan(scan_fct, sigma_relative, None, length=N_proposals)
+            final_carry, oups = jax.lax.scan(scan_fct, sigma_relative_adjusted, None, length=N_proposals)
             proposal_idxs = oups
 
 

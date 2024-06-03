@@ -586,11 +586,11 @@ class nn_wrapper():
 
         # now the scaling is here again (only needed once)
         scaling = np.clip(np.exp(v_rel_err * algo_params['inv_vx_loss_fadeout']), 0., 1.)
-        scaling = jax.lax.select(
-            v_rel_err > 0,
-            np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
-            1.
-        )
+        # scaling = jax.lax.select(
+        #     v_rel_err > 0,
+        #     np.exp(-(v_rel_err * algo_params['inv_vx_loss_fadeout'])**2),
+        #     1.
+        # )
         # cheat autodiff
         scaling = jax.lax.stop_gradient(scaling)
 

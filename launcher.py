@@ -61,7 +61,9 @@ flatquad_configs = {
     # 'weight_decay': [0.002, 0.001, 0.0005],
     # 'vx_loss_d': [0.2, 0.3, 0.5],
     # 'inv_vx_loss_fadeout': [0., 0.2, 0.5, 1., 2, 5],
-    'inv_vx_loss_fadeout': [.3, 1., 3., 10., 30.],
+    'consider_old_data': [True, False],
+    'inv_vx_loss_fadeout': [3.],
+    'relative_kernel_lengthscale': [1/8, 1/4, 1/2],
 
 
     # 'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
@@ -91,8 +93,10 @@ orbits_configs = {
 
     # 'vx_loss_d': [ 0.2, 0.3, 0.4, 0.5 ],
     'nn_value_sweep': [True, False],
-    'inv_vx_loss_fadeout': [0., 0.3, 1., 3., 10., 30.],
+    'inv_vx_loss_fadeout': [3.],
+    'consider_old_data': [True, False],
     'nn_layer_dim': [16, 32],
+    'relative_kernel_lengthscale': [1/8, 1/4, 1/2],
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)

@@ -666,6 +666,8 @@ def base_algo_params():
         'initial_batchsize': 128,
         'active_learning_batchsize': 128,
         'include_future_data': False,
+        'consider_old_data': True,
+        'relative_kernel_lengthscale': 1/4,
 
         # the max. time horizon by which we aim to grow the known level set
         # in one iteration.

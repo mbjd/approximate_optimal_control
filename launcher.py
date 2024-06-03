@@ -56,6 +56,7 @@ flatquad_configs = {
     # ... and similar ones
     'nn_value_sweep': [True, False],
     'nn_layer_dim': [256],
+    # 'thin_data': [False],
     # 'lr_final': [0.002, 0.001, 0.0005],
     # 'weight_decay': [0.002, 0.001, 0.0005],
     # 'vx_loss_d': [0.2, 0.3, 0.5],
@@ -134,7 +135,7 @@ def main():
                           mode='euler',
                           duration='1:59:00',
                           prompt=True,
-                          mem=8192)
+                          mem=16384)
 
 
 if __name__ == '__main__':

@@ -1771,7 +1771,35 @@ def main(problem_params, algo_params):
 
         if v_k >= problem_params['V_max']:
             # just quit here, data and nn params that lead to this were saved last iteration
-            break
+            # def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params, x0s=None):
+
+            # or, rather call eval_directly here? with eval_controlcost and
+            # also data saving right inside... but then we'd also like to put
+            # some controlcost evals on wandb.
+
+            # prob. should retrain here if going higher with thin_data=True...
+            costs, x0s, v_means, v_stds = eval_controlcost(key, problem_params['V_max'], v_nn, params_sobolev_ens, all_ys, is_suboptimal, problem_params, algo_params)
+
+            all_data = {'vk': v_k, 'ys': all_ys, 'is_suboptimal': is_suboptimal, 'nn_params': params_sobolev_ens}
+            # TODO wandb run id and some place to store on euler
+            # evaluate_directly(all_data, 'test_run_id', problem_params, algo_params)
+
+            # what fraction of the points is below the given ratio of achieved / estimated cost?
+            def frac_below(ratio):
+                return ((costs / v_means) <= ratio).mean()
+
+            cost_dict = {
+                    'frac_ratio_005': frac_below(1 + 0.05),
+                    'frac_ratio_050': frac_below(1 + 0.50),
+                    'frac_ratio_500': frac_below(1 + 5.00),
+            }
+            if algo_params['wandb']:
+                wandb.log(cost_dict)
+            else:
+                print('final cost dict:')
+                pprint.pprint(cost_dict)
+
+            break  # aaaand exit everything.
 
         # set next value target
         v_next_target = set_value_target(all_ys, v_k, problem_params, algo_params)
@@ -2075,7 +2103,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     # this vk ^^ is from the penultimate round. so really a bit crappy to use this.
     # v_train = problem_params['V_max']
     # v_sim = v_train * 4/5
-    v_sim = v_train = 2000
+    v_sim = v_train = all_data['vk']
 
     key = jax.random.PRNGKey(0)
 
@@ -2238,7 +2266,6 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     if eval_controlcost_common:
 
         # def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, problem_params, algo_params, x0s=None):
-        ipdb.set_trace()
         evalkey, key = jax.random.split(key)
         costs, x0s, v_means, v_stds = eval_controlcost(evalkey, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params)
 
@@ -2258,9 +2285,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
             f.write(bs)
         print(f'eval_controlcost_common: wrote to {fpath}')
 
-        # pl.plot(v_means[v_means < v_sim], costs, '. ')
-        # pl.show()
-        ipdb.set_trace()
+        pl.plot(v_means[v_means < v_sim], costs, '. ')
+        pl.show()
 
 
-    ipdb.set_trace()

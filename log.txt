@@ -5395,3 +5395,67 @@ just spent like 2 hours adapting notation to the "vector bold, scalar
 normal" style. man this is boring work. should probably first work on
 clearing up notation for V, V_theta, V_mean, V_std, \tilde V.
 
+
+
+2024-06-03
+
+even smaller tasks:
+ - controlcost eval: make switch between
+    a) generate x0s from sublevel set BELOW learned one, write to file
+    b) read thoe x0s
+   then do forward sims & save data.
+
+plotting control cost vs learned v. it deteriorates quickly for v above the
+first intersection of distinct solutions. some of them are accurate but
+many of them also like 10 or 100x worse. why am i doing this just now for
+the first time? this is shite
+
+    as a result, felt the urge to revisit that idea of properly taking into
+    account previously generated data in the proposal generation. atm we
+    are "assuming" we have no data outside the known set, then making the
+    proposals and optimal trajectories, but then learning with the whole
+    (old & new) dataset. probably we end up generating "too much" data in
+    regions where we already have it.
+
+    obvious approach is this: give propose_pts the ys in current level set,
+    then before making any proposals do the same kernel scaling thing but
+    with current data, as if they were also proposals. this should leave
+    the "empty" regions to be filled with more data.
+
+    plan: implement, run all tests, if good good, otherwise leave it. no
+    time for too much twiddling.
+
+other way too late implementation idea: maybe uncertainty in terms of vx is
+actually not that bad? bc then it makes more data near the problematic
+discontinuities which might help them. kind of like chebyshev points for
+fitting polynomials. not sure though
+
+
+
+
+
+anyways. what are sensible *metrics* for controlcost? should do some
+hyperparam sweeps with that in mind (instead of optimising for fast vk
+progress which is meaningless if solution is incorrect).
+
+afterwards in the report it is probably nicest to plot a cdf of cost ratios
+(achieved / estimated), or a scatter plot v_estimated vs v achieved, or
+v estimated vs (achieved / estimated).
+
+ratio of achieved/estimated cost? some sort of percentile summary of that?
+
+calculating now: what percentage of x0s (from scale mixture type sample)
+has a ratio of achieved / estimated value lower than 1 + {0.05, 0.5, 5}. we
+want all of these to be high, and optimising for those in hyperparam
+selection seems reasonable (after all there is no "incentive" to
+artificially boost these by overestimation of v --- but could still turn
+out like that if we try to optimise too hard...)
+
+sneaking in some euler runs before maintenance shutdown, including some
+stats about controlcost in the end. tried to do flatquad without thin_data,
+becomes really unreliable. is it just a fundamental limitation of the NNs?
+they won't take in any more data even for arguably still quite simple
+functions, and 512 layer size? certainly sucks. also closed loop
+performance really leaves a lot to be desired.  thinking of just producing
+results a *tiny bit* beyond the first intersection....
+

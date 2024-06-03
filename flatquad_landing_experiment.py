@@ -506,7 +506,8 @@ def define_problem_params():
 
         # the value level below which we accept the LQR solution as correct.
         'V_f': 0.001,
-        'V_max': 1500.,
+        'V_max': 5000.,
+        # 'V_max': 50.,
 
         # constraint equation defining the state space manifold as its 0-levelset.
         # if R^n, set this to None
@@ -599,7 +600,7 @@ def base_algo_params():
         'lr_staircase': False,
         'lr_staircase_steps': 8,
         'lr_init': 0.01,
-        'lr_final': 0.0001,
+        'lr_final': 0.001,
         'weight_decay': .003,
 
         'nn_ensemble_size': 4,

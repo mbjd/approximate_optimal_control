@@ -1220,6 +1220,40 @@ def main(problem_params, algo_params):
             lengthscales = algo_params['relative_kernel_lengthscale'] * data_ranges
             k = lambda x, y: algo_params['proposal_kernel_scaling'] * np.exp(-np.sum(((x-y) / lengthscales)**2))
 
+            sigma_relative = v_stds / sigma_maxs
+
+            ys_in_valueinterval = np.logical_and(all_ys['v'] >= value_interval[0], all_ys['v'] <= value_interval[1])
+
+            if algo_params['consider_old_data']:
+                prev_datapts = all_ys['x'][ys_in_valueinterval]
+                # TODO also do this in non-adaptive version?
+                # for each data point x we already have, reduce sigma the same as w/ proposals.
+                # huge kernel matrix. k_ij = k(valueband pt i, data pt j).
+
+                save_memory = True
+                if not save_memory:
+                    ks = jax.vmap(jax.vmap(k, in_axes=(0, None)), in_axes=(None, 0))(all_valueband_pts, prev_datapts)
+                    factors = (1-ks).prod(axis=0)
+
+                else:
+                    # alternative: only calculate the kernel matrix row-wise, looping over prev_datapts, to save memory.
+                    # factors are the same, I checked.
+                    # could also loop the other way, and save more memory if more valueband_pts than prev_datapts. but
+                    # might take longer in turn.
+                    def body(partial_factors, prev_datapt):
+                        k_row = jax.vmap(k, in_axes=(0, None))(all_valueband_pts, prev_datapt)
+                        partial_factors = partial_factors * (1 - k_row)
+                        return partial_factors, None
+
+                    factors, _ = jax.lax.scan(body, np.ones(all_valueband_pts.shape[0],), prev_datapts)
+
+
+                sigma_relative_adjusted = sigma_relative * factors
+            else:
+                sigma_relative_adjusted = sigma_relative
+
+
+
             def scan_fct(sigmas, inp):
 
                 # find max sigma.
@@ -1235,31 +1269,6 @@ def main(problem_params, algo_params):
                 oup = proposal_idx
 
                 return carry, oup
-
-            sigma_relative = v_stds / sigma_maxs
-
-            ys_in_valueinterval = np.logical_and(all_ys['v'] >= value_interval[0], all_ys['v'] <= value_interval[1])
-
-            if algo_params['consider_old_data']:
-                prev_datapts = all_ys['x'][ys_in_valueinterval]
-                # TODO also do this in non-adaptive version?
-                # for each data point x we already have, reduce sigma the same as w/ proposals.
-                # huge kernel matrix. k_ij = k(valueband pt i, data pt j).
-
-                ks = jax.vmap(jax.vmap(k, in_axes=(0, None)), in_axes=(None, 0))(all_valueband_pts, prev_datapts)
-
-                # prod over which axis? we want for each valueband pt the added
-                # influence of all prev_datapts. thus, product over prev_datapts axis,
-                # which is 0.
-                factors = (1-ks).prod(axis=0)
-                # pl.scatter(all_valueband_pts[:, 0], all_valueband_pts[:, 1], c=factors)
-                # pl.show()
-                # ipdb.set_trace()
-
-                sigma_relative_adjusted = sigma_relative * factors
-            else:
-                sigma_relative_adjusted = sigma_relative
-
 
             final_carry, oups = jax.lax.scan(scan_fct, sigma_relative_adjusted, None, length=N_proposals)
             proposal_idxs = oups

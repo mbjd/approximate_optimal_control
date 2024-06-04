@@ -5467,6 +5467,7 @@ consider_old_data keeps performance the same, it also looks like it makes
 it worse though in terms of progress speed. cost evaluation was not done
 for almost all runs because it stopped due to memory limit :(
 
+
 coding:
  - sac reference
  - controlcost calculation & plotting scripts
@@ -5486,4 +5487,65 @@ report:
      - intro
 
 
+tried making SAC run. it runs, but performs shit. really not in the mood
+for another long algo tuning session though. also i am doubting whether it
+is even a sensible comparison to make as we are addressing a *really*
+different problem (discrete vs cont. time, discount vs undiscounted), and
+any concrete cost comparison would be relatively meaningless. and for a
+qualitative, also almost meaningless comparison i think this is too much
+effort. or am I just rationalising my laziness like this?
 
+is the learned vs actual cost in any way meaningful, in a concrete sense?
+i.e. can we say that if they are actually similar, then we are also close
+to optimal? i guess there *might* be a "wrong" value function reporting 10x
+optimal cost for each state, and also achieving that suboptimal cost in
+closed loop somehow.
+
+can we argue this: we expect the *value* to be estimated quite accurately
+(because: V continuous so less approximation issues than vx, vx still
+"helps" get an accurate V fit, active learning [perhaps misguidedly]
+centered around decreasing v uncertainty), and so ASSUME that learned v is
+about equal to optimal v for practical purposes. data seems to support this
+because closed loop cost is either almost the same or much worse, but never
+much better than learned v (except close to origin where v is learned w/
+low absolute, not relative error). ???
+
+what do we do? weasel around concretely comparing w/ anything else? compare
+with local trajectory optimiser still? which is close enough to continuous
+time with fancy collocation type method. could be made nicer if we manage
+to keep track of both local solutions near the watershed.
+
+doing orbits results plot. maaan the more i plot results the worse they
+look
+
+trying a local run, flatquad, with these arguments:
+--nn_layer_dim=64
+--wandb=False
+--showfigs=True
+--lr_init=0.05
+--nn_N_epochs=1024
+--active_learning_batchsize=1024
+--relative_kernel_lengthscale=0.1
+--nn_warmstart_fraction=0.02
+
+which seems quite nice. huge batch size looks like it makes the
+local/global thing easier again. can be 'offset' with smaller epochs for
+similar total steps -- function is still equally simple. maybe this is our
+key to nice plots in results? but still only progress is good, no clue
+about accuracy. will have to wait for euler.
+
+is the consider_old_data flag doing weird stuff because the "thick" regions
+(low l(x, u), long trajectories) contain much more data (but also larger
+empty regions)? prompting data generation in precisely the other parts of
+the state space. what do? maybe only take one point per trajectory to
+inform the active learning stuff? would make sense also because for the
+proposals we are also only considering one point...
+
+
+
+TODO tomorrow.
+
+ - make results section, basic structure and first plots, no matter how
+   shitty.
+
+ - look at rest of TODOs from past few days & plan in todo.txt.

@@ -278,12 +278,11 @@ def prune_and_train(key, v_nn, params_sobolev_ens, all_ys, v_interval, previousl
 
     else:
 
-        # this operation here apparently often causes
-        # "jaxlib.xla_extension.XlaRuntimeError: RESOURCE_EXHAUSTED: Out of
-        # memory while trying to allocate 1707606016 bytes".
-        # that's 1.7 GB -- so we probably already have quite a few things going on elsewhere.
-        # still, it seems wasteful to allocate all this memory. for relatively small outputs.
-        # (is it copying nn_params every time?)
+        # this operation here apparently often causes RESOURCE_EXHAUSTED.
+        # while allocating 1.7 GB -- so we probably already have quite a few
+        # things going on elsewhere. still, it seems wasteful to allocate all
+        # this memory. for relatively small outputs. (is it copying nn_params
+        # every time?)
 
         # do it with scan instead?
         if save_memory:
@@ -1240,6 +1239,8 @@ def main(problem_params, algo_params):
             ys_in_valueinterval = np.logical_and(all_ys['v'] >= value_interval[0], all_ys['v'] <= value_interval[1])
 
             if algo_params['consider_old_data']:
+
+                # here: only consider one point per trajectory? if so, which one?
                 prev_datapts = all_ys['x'][ys_in_valueinterval]
 
                 # TODO also do this in non-adaptive version?

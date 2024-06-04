@@ -627,8 +627,8 @@ def base_algo_params():
         'v_loss_d': 0.1,
 
         # above those thresholds relative loss is used
-        'min_important_v': 0.1,
-        'min_important_vx': 0.1,
+        'min_important_v': 1.,
+        'min_important_vx': 1.,
 
         # penalisation of the extra value derivative which is defined in the ambient space
         # but normal to the state manifold.
@@ -639,7 +639,7 @@ def base_algo_params():
         # large-ish at the problematic state of being upside down but
         # otherwise at equilibrium.
         'prior_strength': 0.01,
-        'v_prior': 1.,
+        'v_prior': 10.,
 
         'inv_vx_loss_fadeout': 5.,
 
@@ -665,8 +665,8 @@ def base_algo_params():
         # larger = nicer! but don't kill our poor RAM
         'initial_batchsize': 128,
         'active_learning_batchsize': 128,
-        'include_future_data': False,
-        'consider_old_data': True,
+        'include_future_data': False,  # shit idea
+        'consider_old_data': True,     # less shit idea?
         'relative_kernel_lengthscale': 1/4,
 
         # the max. time horizon by which we aim to grow the known level set

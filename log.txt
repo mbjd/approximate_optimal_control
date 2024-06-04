@@ -5459,3 +5459,31 @@ functions, and 512 layer size? certainly sucks. also closed loop
 performance really leaves a lot to be desired.  thinking of just producing
 results a *tiny bit* beyond the first intersection....
 
+
+2024-06-04
+
+results from yesterday seem not that great. at the very best
+consider_old_data keeps performance the same, it also looks like it makes
+it worse though in terms of progress speed. cost evaluation was not done
+for almost all runs because it stopped due to memory limit :(
+
+coding:
+ - sac reference
+ - controlcost calculation & plotting scripts
+   (prepare so we are ready when euler runs again)
+ - optionally, compute ref sol for orbits by unwrapping angle to isolate
+   local solutions if motivated???
+
+report:
+ - make first shitty version of 'orbits' plots and put in report to see how
+   it looks
+
+ - report:
+   - go over notation & unify, use lenart's preamble
+   - write where it is most necessary.
+     - half-empty parts in central ideas
+     - implementation
+     - intro
+
+
+

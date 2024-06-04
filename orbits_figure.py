@@ -1,5 +1,18 @@
 #!/usr/bin/env python
 
+# makes figures, saves in fig_dir:
+
+# - levelsets and trajectories for orbits system reference solution, for
+#   use in central ideas section. no input data. saves data in data_dir;
+#   set make_data=False to read instead of regenerating.
+
+# - orbits results plot.
+
+#   reads plot_data/orbits_{RUN_ID}_controlcosts_common.msgpack.gz from
+#   data_dir. make that by running ./orbits_experiment --eval=RUN_ID. make
+#   sure in levelsets.evaluate that eval_controlcost_2d is on.
+#   newest plots:  --eval=euler_runs/ht0oafhr
+
 import diffrax
 import flax
 import jax
@@ -132,8 +145,8 @@ levels = np.linspace(np.sqrt(vf*2), np.sqrt(vmax), N)**2
 
 # make or read data {{{
 
-fpath_sols = os.path.join('plot_data', 'orbits_refsol.msgpack.gz')
-fpath_treedef = os.path.join('plot_data', 'orbits_refsol_treedef.pickle')
+fpath_sols = os.path.join(data_dir, 'orbits_refsol.msgpack.gz')
+fpath_treedef = os.path.join(data_dir, 'orbits_refsol_treedef.pickle')
 
 make_data = False
 if make_data:
@@ -276,7 +289,7 @@ plot_levelset(v1, grey=True)
 pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
 fig.tight_layout()
 
-pl.savefig(f'./{fig_dir}/trajectories.{fig_format}')
+pl.savefig(f'./{fig_dir}/trajectories.{fig_format}', dpi=dpi)
 
 if show:
     pl.show()
@@ -466,7 +479,7 @@ pl.figure('levelsets')
 pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
 
 fig.tight_layout()
-pl.savefig(f'./{fig_dir}/levelsets.{fig_format}',  bbox_inches='tight')
+pl.savefig(f'./{fig_dir}/levelsets.{fig_format}',  bbox_inches='tight', dpi=dpi)
 # norm = matplotlib.colors.Normalize(vmin=0., vmax=vmax)
 # fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=pl.gca(), orientation='vertical', label='Some Units')
 
@@ -476,9 +489,8 @@ if show:
 # }}}
 
 # results plot {{{
-
-sysname = problem_params['system_name']
-fpath = os.path.join(data_dir, f'{sysname}_controlcosts.msgpack.gz')
+# no point in not hardcoding here...
+fpath = os.path.join(data_dir, 'orbits_ht0oafhr_controlcosts_2d.msgpack.gz')
 with gzip.open(fpath, 'rb') as f:
     bs = f.read()
 eval_outputs = jtm(np.array, flax.serialization.msgpack_restore(bs))
@@ -506,25 +518,43 @@ yy = eval_outputs['yy']
 learned_v = eval_outputs['learned_v']
 controlcost = eval_outputs['controlcost']
 
+# ax = pl.subplot(121)
+# ax.set_aspect('equal')
+# levels = np.linspace(-2.2, 3., 30)
+# pl.contour(xx, yy, np.log10(learned_v), levels=levels)
+# pl.xlabel('learned v, contour')
+
+
+
+
+learned_v_masked = np.where(learned_v > levels[-1], np.nan, learned_v)
+# pl.subplot(121)
+# ax.set_aspect('equal')
+# imshow_like_contourf(xx, yy, np.log10(learned_v_masked), levels=levels)
+# pl.colorbar()
+# pl.xlabel('learned cost')
+
+fig = pl.figure('orbits_results', figsize=(pagewidth, 0.4*pagewidth))
+
 ax = pl.subplot(121)
+# imshow_like_contourf(xx, yy, learned_v_masked)
 ax.set_aspect('equal')
-levels = np.linspace(-2.2, 3., 30)
-pl.contour(xx, yy, np.log10(learned_v), levels=levels)
-pl.xlabel('learned v, contour')
-
-pl.subplot(122, sharex=ax, sharey=ax)
-imshow_like_contourf(xx, yy, np.log10(learned_v), levels=levels)
-pl.xlabel('learned v, imshow')
-
-fig = pl.figure()
-ratio = controlcost / learned_v
-ratio = ratio.at[learned_v > 1000].set(np.nan)
-imshow_like_contourf(xx, yy, np.log10(ratio))
+pl.contourf(xx, yy, learned_v, levels=levels)
 pl.colorbar()
-pl.xlabel('cost ratio')
+pl.xlabel('learned cost')
+
+ax = pl.subplot(122, sharex=ax, sharey=ax)
+ax.set_aspect('equal')
+ratio = controlcost / learned_v_masked
+imshow_like_contourf(xx, yy, np.log10(ratio))
+pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
+pl.colorbar()
+pl.xlabel('log10(achieved cost / learned cost)')
 
 # and the most interesting thing finally: control cost vs 'reference'
-# solution.
+# solution. was again too much work to do that. would have been cool, maybe
+# later \o/ but i guess visually comparing with the level sets of the ref
+# sol should be adequate too.
 
 # # unwrap the angle.
 # xs = sols.ys['x']
@@ -563,9 +593,10 @@ pl.xlabel('cost ratio')
 #
 # v_ref(np.array([0.1, 1.1]))
 # ipdb.set_trace()
-#
-#
-# fig.tight_layout()
-# pl.savefig(f'./{fig_dir}/orbits_results.{fig_format}',  bbox_inches='tight')
+
+fig.tight_layout()
+pl.savefig(f'./{fig_dir}/orbits_results.{fig_format}', bbox_inches='tight', dpi=dpi)
+if show:
+    pl.show()
 
 # }}}

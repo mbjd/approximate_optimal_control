@@ -29,6 +29,7 @@ from misc import *
 
 # helper functions {{{
 
+save_memory = True
 
 def def_v_meanstds(v_nn):
 
@@ -277,7 +278,21 @@ def prune_and_train(key, v_nn, params_sobolev_ens, all_ys, v_interval, previousl
 
     else:
 
-        v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
+        # this operation here apparently often causes
+        # "jaxlib.xla_extension.XlaRuntimeError: RESOURCE_EXHAUSTED: Out of
+        # memory while trying to allocate 1707606016 bytes".
+        # that's 1.7 GB -- so we probably already have quite a few things going on elsewhere.
+        # still, it seems wasteful to allocate all this memory. for relatively small outputs.
+        # (is it copying nn_params every time?)
+
+        # do it with scan instead?
+        if save_memory:
+            # or map even nicer. no need for carry, almost same as vmap.
+            v_meanstds_params = lambda ys: v_meanstds(ys, params_sobolev_ens)
+            v_nn_means, v_nn_stds = jax.lax.map(v_meanstds_params, all_ys['x'])
+        else:
+            # old version. certified the same.
+            v_nn_means, v_nn_stds = jax.vmap(v_meanstds, in_axes=(0, None))(all_ys['x'], params_sobolev_ens)
 
         # otherwise we might throw out some data already here if we know a better solution
         if algo_params['pruning_strategy'] in ('conservative', 'conservative_past'):
@@ -1226,16 +1241,11 @@ def main(problem_params, algo_params):
 
             if algo_params['consider_old_data']:
                 prev_datapts = all_ys['x'][ys_in_valueinterval]
+
                 # TODO also do this in non-adaptive version?
                 # for each data point x we already have, reduce sigma the same as w/ proposals.
-                # huge kernel matrix. k_ij = k(valueband pt i, data pt j).
 
-                save_memory = True
-                if not save_memory:
-                    ks = jax.vmap(jax.vmap(k, in_axes=(0, None)), in_axes=(None, 0))(all_valueband_pts, prev_datapts)
-                    factors = (1-ks).prod(axis=0)
-
-                else:
+                if save_memory:
                     # alternative: only calculate the kernel matrix row-wise, looping over prev_datapts, to save memory.
                     # factors are the same, I checked.
                     # could also loop the other way, and save more memory if more valueband_pts than prev_datapts. but
@@ -1246,6 +1256,11 @@ def main(problem_params, algo_params):
                         return partial_factors, None
 
                     factors, _ = jax.lax.scan(body, np.ones(all_valueband_pts.shape[0],), prev_datapts)
+
+                else:
+                    # huge kernel matrix. k_ij = k(valueband pt i, data pt j).
+                    ks = jax.vmap(jax.vmap(k, in_axes=(0, None)), in_axes=(None, 0))(all_valueband_pts, prev_datapts)
+                    factors = (1-ks).prod(axis=0)
 
 
                 sigma_relative_adjusted = sigma_relative * factors
@@ -2061,6 +2076,8 @@ def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem
     # forward simulation & control cost calculation for supplied initial states x0s,
     # or if x0s=None we sample some here.
 
+    # refactor this into outer function (with sublevel set sampling) and inner one (taking x0s directly)?
+
     v_meanstds, vx_meanstds = def_v_meanstds(v_nn)
 
     if x0s is None:
@@ -2319,5 +2336,19 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
         pl.plot(v_means[v_means < v_sim], costs, '. ')
         pl.show()
+
+
+    if eval_controlcost_lines:
+
+        def eval_controlcost_line(xl, xr, N):
+            # linspace -> project to manifold.
+            xs = np.linspace(xl, xr, N)
+            xs = jax.vmap(problem_params['project_M'])(xs)
+
+            costs, _, v_means, v_stds = eval_controlcost(key, None, v_nn, nn_params, None, None, problem_params, algo_params)
+
+            return costs, v_means, v_stds
+
+        # define some lines? vhat interesting?
 
 

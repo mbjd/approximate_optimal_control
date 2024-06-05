@@ -44,7 +44,7 @@ def define_problem_params():
         err = x - np.array([0, 1])
         distpenalty = err.T @ Q @ err
         rotspeed = x[0]**2 + x[1]**2 - 1
-        vpenalty = (x[0]**2 + x[1]**2 - 1)**2
+        vpenalty = (rotspeed)**2
         inp_penalty = 10 * u**2
         return 100 * (vpenalty + 0.1 * distpenalty + inp_penalty).reshape()
 

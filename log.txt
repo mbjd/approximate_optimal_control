@@ -5528,11 +5528,12 @@ trying a local run, flatquad, with these arguments:
 --relative_kernel_lengthscale=0.1
 --nn_warmstart_fraction=0.02
 
-which seems quite nice. huge batch size looks like it makes the
-local/global thing easier again. can be 'offset' with smaller epochs for
-similar total steps -- function is still equally simple. maybe this is our
-key to nice plots in results? but still only progress is good, no clue
-about accuracy. will have to wait for euler.
+which seems quite nice. results in local_runs/run_1717508890 (cab machine).
+huge batch size looks like it makes the local/global thing easier again.
+can be 'offset' with smaller epochs for similar total steps -- function is
+still equally simple. maybe this is our key to nice plots in results? but
+still only progress is good, no clue about accuracy. will have to wait for
+euler.
 
 is the consider_old_data flag doing weird stuff because the "thick" regions
 (low l(x, u), long trajectories) contain much more data (but also larger
@@ -5549,3 +5550,29 @@ TODO tomorrow.
    shitty.
 
  - look at rest of TODOs from past few days & plan in todo.txt.
+
+
+
+2024-06-05
+
+bounded weights and lipschitz activation means the NN is lipschitz. do
+bounded weights also tell us anything about lipschitzness of gradient?
+consider the layer x -> σ(Wx + b).
+
+
+how to structure results section???
+
+ - introduce orbits system, show results -> basic working
+   plot: learned v, controlcost vs v, (also ref sol vs controlcost)?
+ - introduce flatquad system, show results -> half working
+   plot: (relative) control cost vs learned cost?
+         (relative) control cost cdf?
+         control cost and learned cost along state sweep(s)?
+          - plus also "reference" solution from trajectory optimiser?
+   meshcat videos somehow? would be really cool
+
+
+nach zmittag first: continue results skeleton, moving fast and breaking
+things.  do NOT be concerned w/ earlier sections or further non-euler param
+tuning.
+

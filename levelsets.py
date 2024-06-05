@@ -1241,6 +1241,15 @@ def main(problem_params, algo_params):
             if algo_params['consider_old_data']:
 
                 # here: only consider one point per trajectory? if so, which one?
+                # uppermost?
+
+                # also, if value_interval is not entirely untouched (i.e. if in
+                # the last round data in that region was already used to train,
+                # but now we have to re-do a part of it bc too large
+                # uncertainty), then this is not entirely correct right? the
+                # data point did already decrease model uncertainty during
+                # training so we should probably not count it again here
+
                 prev_datapts = all_ys['x'][ys_in_valueinterval]
 
                 # TODO also do this in non-adaptive version?
@@ -1402,7 +1411,7 @@ def main(problem_params, algo_params):
 
 
         if do_replace:
-            print('warning -- had too few points to sammple, resorting to choice(replace=True)')
+            print('warning -- had too few points to sample, resorting to choice(replace=True)')
 
 
 

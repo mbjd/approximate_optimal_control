@@ -5576,3 +5576,26 @@ nach zmittag first: continue results skeleton, moving fast and breaking
 things.  do NOT be concerned w/ earlier sections or further non-euler param
 tuning.
 
+
+about trajectory optimisation baseline. also not particularly liking most
+of the options.
+
+- myriad: no pip, loads of dependencies, including ipopt through apt, thin
+  documentation
+
+- trajax: looks nicer software engineering wise. but NO documentation at
+  all, and fundamentally discrete time (could cheat though by augmenting
+  with input integrator to convert ZOH to linear interp).
+
+- own one: with input vector -> piecewise linear interpolation for ct ->
+  diffrax solver (small fixed step) w/ cost in dynamics -> minimisation via
+  standard adam or something. (= direct single shooting)
+  surely this would work but also might take a couple days to work
+  properly...
+
+- resurrect the continuous time ddp from way back? (really probably not
+  smart)
+
+not sure what to do aaah
+
+results section is now there as a skeleton.

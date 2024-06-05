@@ -2359,6 +2359,21 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
             return costs, v_means, v_stds
 
-        # define some lines? vhat interesting?
+
+        raise NotImplementedError()
+        xas = None # TODO interesting sequence of first states (N_states, nx)
+        xbs = None # TODO interesting sequence of second states (N_states, nx)
+
+        eval_outputs = {
+                'xas': xas,
+                'xbs': xbs,
+        }
+
+        bs = flax.serialization.msgpack_serialize(eval_outputs)
+        sysname = problem_params['system_name']
+        fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_common.msgpack.gz')
+        with gzip.open(fpath, 'wb') as f:
+            f.write(bs)
+        print(f'eval_controlcost_common: wrote to {fpath}')
 
 

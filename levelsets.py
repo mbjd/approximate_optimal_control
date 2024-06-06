@@ -1827,36 +1827,19 @@ def main(problem_params, algo_params):
         v_k, test_pts_known, estimator_metrics = estimate_value_level(v_means, v_stds, test_pts_known, upper_v=v_next_target)
 
         if v_k >= problem_params['V_max']:
-            # just quit here, data and nn params that lead to this were saved last iteration
-            # def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params, x0s=None):
 
             # or, rather call eval_directly here? with eval_controlcost and
             # also data saving right inside... but then we'd also like to put
             # some controlcost evals on wandb.
 
             # prob. should retrain here if going higher with thin_data=True...
-            costs, x0s, v_means, v_stds = eval_controlcost_randomsample(key, problem_params['V_max'], v_nn, params_sobolev_ens, all_ys, is_suboptimal, problem_params, algo_params)
 
             all_data = {'vk': v_k, 'ys': all_ys, 'is_suboptimal': is_suboptimal, 'nn_params': params_sobolev_ens}
-            # TODO wandb run id and some place to store on euler
-            # evaluate_directly(all_data, 'test_run_id', problem_params, algo_params)
+            run_id = run_dir.split('/')[-1]
+            evaluate_directly(all_data, run_id, problem_params, algo_params)
 
-            # what fraction of the points is below the given ratio of achieved / estimated cost?
-            def frac_below(ratio):
-                return ((costs / v_means) <= ratio).mean()
+            break
 
-            cost_dict = {
-                    'frac_ratio_005': frac_below(1 + 0.05),
-                    'frac_ratio_050': frac_below(1 + 0.50),
-                    'frac_ratio_500': frac_below(1 + 5.00),
-            }
-            if algo_params['wandb']:
-                wandb.log(cost_dict)
-            else:
-                print('final cost dict:')
-                pprint.pprint(cost_dict)
-
-            break  # aaaand exit everything.
 
         # set next value target
         v_next_target = set_value_target(all_ys, v_k, problem_params, algo_params)
@@ -2142,11 +2125,14 @@ def eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params):
 
 def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
-    # should these be arguments?
+    # calculate various evaluation metrics.
+    # - retrain NN with FULL dataset and slightly modified algoparams to account for that.
+    # - calculate different metrics, writing results to a file
+    #   the file is NOT in the run dir, but in ./plot_data or $SCRATCH/plot_data if euler.
+    #   sorry for the mess but the plotting scripts are already written that way :/
 
     # instead of ensemble 'distill' only to a single NN.
     single = False
-
 
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
     # leaves, so we convert it here.
@@ -2172,7 +2158,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     # push it
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = algo_params['lr_final'] * 2
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] / 10 # just for developping stuff below
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs']
     algo_params['weight_decay'] = algo_params['weight_decay'] / 100  # less wd for whole data set.
 
     if single:
@@ -2225,15 +2211,22 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     # - save that dict, again in msgpack format so we can later plot data.
 
     # take this in algoparams?
-    eval_meshcat = False
+    eval_meshcat = not 'SCRATCH' in os.environ # == not euler
     eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
     eval_controlcost_lines = True
 
-    eval_outputs = dict()
     data_dir = 'plot_data'
 
-    # TODO figure out a good place to store this stuff already on euler?
+    # on euler replicate basically our data_dir in full.
+    # TODO make another pull script that syncs euler to local, for plotting.
+    # TODO also test this
+    # in contrast to the run_dir for wandb we store everything in this plot_data
+    # directory but NAMED after the run id.
+    if 'SCRATCH' in os.environ:
+        data_dir = os.path.join(os.environ['SCRATCH'], data_dir)
+        os.makedirs(data_dir, exist_ok=True)
+
 
     # make another context manager thing to DRY the file output?
 
@@ -2345,8 +2338,22 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
             f.write(bs)
         print(f'eval_controlcost_common: wrote to {fpath}')
 
-        pl.plot(v_means[v_means < v_sim], costs, '. ')
-        pl.show()
+        # what fraction of the points is below the given ratio of achieved / estimated cost?
+        def frac_below(ratio):
+            return ((costs / v_means) <= ratio).mean()
+
+        cost_dict = {
+                'frac_ratio_005': frac_below(1 + 0.05),
+                'frac_ratio_050': frac_below(1 + 0.50),
+                'frac_ratio_500': frac_below(1 + 5.00),
+        }
+
+        if algo_params['wandb']:
+            wandb.log(cost_dict)
+        else:
+            print('final cost dict:')
+            pprint.pprint(cost_dict)
+
 
 
     if eval_controlcost_lines:

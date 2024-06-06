@@ -5573,7 +5573,7 @@ how to structure results section???
 
 
 nach zmittag first: continue results skeleton, moving fast and breaking
-things.  do NOT be concerned w/ earlier sections or further non-euler param
+things. do NOT be concerned w/ earlier sections or further non-euler param
 tuning.
 
 
@@ -5596,6 +5596,47 @@ of the options.
 - resurrect the continuous time ddp from way back? (really probably not
   smart)
 
-not sure what to do aaah
+not sure what to do aaah this sucks
 
 results section is now there as a skeleton.
+
+
+next tasks:
+
+ - prepare eval (plots, code, data juggling) as far as possible without
+   euler
+ - clean up already written parts of report
+
+
+2024-06-06
+
+finished function to plot control cost along line. doing all the evals
+right after run now. saving results in .msgpack.gz files in plot_data or
+$SCRATCH/plot_data.
+
+feeling massively overwhelmed by the mess of files, directories and results
+i am making. is that a good reason to completely revamp all of this
+somehow?
+
+we have these separate components:
+ - euler run calculates all relevant data already and puts it on scratch
+ - pull script pulls ALL plot data from euler to local. (TODO)
+ - plot script works the same as it did until now
+
+which is pretty nice already right? and if we want to get different metrics
+from previous euler runs we recover the state with all_data msgpack stored
+in each run_dir, go to it with some adapted eval function and plot the
+data. but would be nice if we could avoid that.
+
+also for all sorts of sweeps it would be useful to get the list of wandb
+ids. how?
+- set dummy algo_params['sweep_name'] string by which we can easily filter
+- go to wandb, find runs (sweep_name or otherwise), un-hide ID as column of
+  run table, export csv.
+- the exported csvs also have all the algoparams in it. we could also save
+  the csvs separately, read them from the plotting script first, then get
+  the relevant data & plot... like:
+    $(get csv from wandb export) > sweep.csv
+    ./plot_sweep.py sweep.csv
+  maybe w a plotting script that automatically plots the relevant columns?
+  maybe that is too much.

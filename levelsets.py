@@ -1835,7 +1835,7 @@ def main(problem_params, algo_params):
             # some controlcost evals on wandb.
 
             # prob. should retrain here if going higher with thin_data=True...
-            costs, x0s, v_means, v_stds = eval_controlcost(key, problem_params['V_max'], v_nn, params_sobolev_ens, all_ys, is_suboptimal, problem_params, algo_params)
+            costs, x0s, v_means, v_stds = eval_controlcost_randomsample(key, problem_params['V_max'], v_nn, params_sobolev_ens, all_ys, is_suboptimal, problem_params, algo_params)
 
             all_data = {'vk': v_k, 'ys': all_ys, 'is_suboptimal': is_suboptimal, 'nn_params': params_sobolev_ens}
             # TODO wandb run id and some place to store on euler
@@ -2081,7 +2081,7 @@ def evaluate(run_dir, problem_params, algo_params):
 
     evaluate_directly(all_data, run_id, problem_params, algo_params)
 
-def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params, x0s=None):
+def eval_controlcost_randomsample(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params):
 
     # forward simulation & control cost calculation for supplied initial states x0s,
     # or if x0s=None we sample some here.
@@ -2090,35 +2090,38 @@ def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem
 
     v_meanstds, vx_meanstds = def_v_meanstds(v_nn)
 
-    if x0s is None:
-        # find extent for sampling.
-        xkey, key = jax.random.split(key)
-        inside = all_ys['v'] <= v_sim
-        ys_relevant = jtm(lambda n: n[inside & ~is_suboptimal], all_ys)
-        extent = np.abs(ys_relevant['x']).max(axis=0) * 1.5
+    # find extent for sampling.
+    xkey, key = jax.random.split(key)
+    inside = all_ys['v'] <= v_sim
+    ys_relevant = jtm(lambda n: n[inside & ~is_suboptimal], all_ys)
+    extent = np.abs(ys_relevant['x']).max(axis=0) * 1.5
 
-        # sample uniform states from extent box.
-        xs = algo_params['sample_states_batched'](xkey, 10000, extent, log_min_scale=-2)
+    # sample uniform states from extent box.
+    xs = algo_params['sample_states_batched'](xkey, 10000, extent, log_min_scale=-2)
 
-        # find out which ones are within given sublevel set.
-        v_means, v_stds = v_meanstds(xs, nn_params)
-        idx = v_means < v_sim
-        x0s = xs[idx]
-        v_means = v_means[idx]
-        v_stds = v_stds[idx]
+    # find out which ones are within given sublevel set.
+    v_means, v_stds = v_meanstds(xs, nn_params)
+    idx = v_means < v_sim
+    x0s = xs[idx]
+    v_means = v_means[idx]
+    v_stds = v_stds[idx]
+
+    return eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params)
 
 
-    else:
-        print('using supplied x0s.')
-        v_means, v_stds = v_meanstds(x0s, nn_params)
+
+def eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params):
+
+    # do this again if coming from eval_controlcost_randomsample \o/
+    v_meanstds, vx_meanstds = def_v_meanstds(v_nn)
+    v_means, v_stds = v_meanstds(x0s, nn_params)
 
     sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params, T=10.)
     sols = jax.vmap(sim)(x0s)
 
-    if not (sols.stats['num_steps'] < algo_params['pontryagin_solver_maxsteps']).all():
-        print('eval_controlcost_common: warning, solver step limit reached, plz increase')
-
-    solver_steps = sols.stats['num_steps']
+    # if not (sols.stats['num_steps'] < algo_params['pontryagin_solver_maxsteps']).all():
+        # print('eval_controlcost_common: warning, solver step limit reached, plz increase')
+    # solver_steps = sols.stats['num_steps']
 
     # last_ys = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
     # difference: if t1 not reached this is still a valid state, not NaN
@@ -2127,18 +2130,11 @@ def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem
 
     traj_costs = (sols.ys['cost'] * (sols.ys['cost'] != np.inf)).max(axis=1)
 
-    # correct for inf horizon with lqr.
-    if problem_params['m'] is not None:
-        # in manifold case this should work the same.
-        # P and K are wrt ambient space so we can 'blindly' use them here.
-        # but check again to be sure.
-        pass
-        # ipdb.set_trace()
-
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
     eq = problem_params['x_eq']
     lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_xs)
     costs = (traj_costs + lqr_terminalcosts)
+
     return costs, x0s, v_means, v_stds
 
 
@@ -2149,7 +2145,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     # should these be arguments?
 
     # instead of ensemble 'distill' only to a single NN.
-    single = True
+    single = False
 
 
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
@@ -2177,6 +2173,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = algo_params['lr_final'] * 2
     algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] / 10 # just for developping stuff below
+    algo_params['weight_decay'] = algo_params['weight_decay'] / 100  # less wd for whole data set.
 
     if single:
         algo_params['nn_ensemble_size'] = 1
@@ -2188,7 +2185,8 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     if 'nn_params' in all_data:
         print('got nn params, training warm-started')
         nn_params = jtm(np.array, all_data['nn_params'])
-        nn_params = jtm(lambda z: z[0:1], nn_params)
+        if single:
+            nn_params = jtm(lambda z: z[0:1], nn_params)
         # ipdb.set_trace()
         nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
             trainkey,
@@ -2230,9 +2228,12 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     eval_meshcat = False
     eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
+    eval_controlcost_lines = True
 
     eval_outputs = dict()
     data_dir = 'plot_data'
+
+    # TODO figure out a good place to store this stuff already on euler?
 
     # make another context manager thing to DRY the file output?
 
@@ -2326,7 +2327,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
         # def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, problem_params, algo_params, x0s=None):
         evalkey, key = jax.random.split(key)
-        costs, x0s, v_means, v_stds = eval_controlcost(evalkey, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params)
+        costs, x0s, v_means, v_stds = eval_controlcost_randomsample(evalkey, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params)
 
         # what data do we want?
         eval_outputs = {
@@ -2350,30 +2351,66 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
     if eval_controlcost_lines:
 
-        def eval_controlcost_line(xl, xr, N):
+        N=256
+
+        def eval_controlcost_line(x_pts):
+            # x_pts: (2, nx) array with start and end of sweep
+
             # linspace -> project to manifold.
+            xl, xr = x_pts
             xs = np.linspace(xl, xr, N)
             xs = jax.vmap(problem_params['project_M'])(xs)
 
-            costs, _, v_means, v_stds = eval_controlcost(key, None, v_nn, nn_params, None, None, problem_params, algo_params)
+            costs, _, v_means, v_stds = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
 
-            return costs, v_means, v_stds
+            # return a nice dict so we can vmap and have all relevant results
+            return {
+                    'xl': xl,
+                    'xr': xr,
+                    'costs': costs,
+                    'v_means': v_means,
+                    'v_stds': v_stds,
+            }
 
+        # some states which make cool plots
+        # (N, 2, nx) array
+        if problem_params['system_name'] == 'flatquad':
+            test_cases = np.array([
+                [ [-10, 0, 0,  1, 0, 0, 0], [+10, 0, 0,  1, 0, 0, 0] ],  # easy case: sweep x
+                [ [-10, 0, 0, -1, 0, 5, 0], [+10, 0, 0, -1, 0, 5, 0] ],  # usual one: upside down, moving upwards, sweep over x
+                [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right
+            ])
 
-        raise NotImplementedError()
-        xas = None # TODO interesting sequence of first states (N_states, nx)
-        xbs = None # TODO interesting sequence of second states (N_states, nx)
+        elif problem_params['system_name'] == 'orbits':
+            test_cases = np.array([
+                [ [-2, 1], [2, 1] ],  # easy case: sweep x
+                [ [-2, -1], [ 2, -1] ],  # usual one: upside down, moving upwards, sweep over x
+                [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right
+            ])
 
-        eval_outputs = {
-                'xas': xas,
-                'xbs': xbs,
-        }
+        else:
+            sysname = problem_params['system_name']
+            raise NotImplementedError(f'eval_controlcost_lines: unknwon system name {sysname}')
+
+        test_cases = test_cases.astype(float)
+
+        '''
+        # to get a feel for it.
+        for c in test_cases:
+            xs = np.linspace(c[0], c[1], N)
+            xs = jax.vmap(problem_params['project_M'])(xs)
+            meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+        '''
+
+        ipdb.set_trace()
+        # somehow this works with vmap but not with jax.lax.map...
+        eval_outputs = jax.vmap(eval_controlcost_line)(test_cases)
 
         bs = flax.serialization.msgpack_serialize(eval_outputs)
         sysname = problem_params['system_name']
-        fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_common.msgpack.gz')
+        fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_lines.msgpack.gz')
         with gzip.open(fpath, 'wb') as f:
             f.write(bs)
-        print(f'eval_controlcost_common: wrote to {fpath}')
+        print(f'eval_controlcost_lines: wrote to {fpath}')
 
 

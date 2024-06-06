@@ -696,6 +696,9 @@ def base_algo_params():
 
         'ipdb_interval': 8,
 
+        # set this in euler launch script to filter wandb. does nothing otw.
+        'sweep_name': 'default',
+
         # EVALUATION
         'eval': '',  # instead of None bc argparse wants same type.
     }
@@ -837,6 +840,7 @@ if __name__ == '__main__':
     if algo_params['eval'] == '':
         levelsets.main(problem_params, algo_params)
     else:
+        algo_params['wandb'] = False
         levelsets.evaluate(algo_params['eval'], problem_params, algo_params)
 
 

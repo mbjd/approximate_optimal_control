@@ -248,6 +248,9 @@ def base_algo_params():
 
         'ipdb_interval': 8,
 
+        # set this in euler launch script to filter wandb. does nothing otw.
+        'sweep_name': 'default',
+
         # EVALUATION
         'eval': '',  # instead of None bc argparse wants same type.
     }

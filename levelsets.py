@@ -2158,7 +2158,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
     # push it
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = algo_params['lr_final'] * 2
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs']
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] / 10
     algo_params['weight_decay'] = algo_params['weight_decay'] / 100  # less wd for whole data set.
 
     if single:
@@ -2385,7 +2385,8 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
             test_cases = np.array([
                 [ [-10, 0, 0,  1, 0, 0, 0], [+10, 0, 0,  1, 0, 0, 0] ],  # easy case: sweep x
                 [ [-10, 0, 0, -1, 0, 5, 0], [+10, 0, 0, -1, 0, 5, 0] ],  # usual one: upside down, moving upwards, sweep over x
-                [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right
+                [ [-10, 0, 0, -1, 0, 15, 0], [+10, 0, 0, -1, 0, 15, 0] ],  # same but faster
+                [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right to varying degrees
             ])
 
         elif problem_params['system_name'] == 'orbits':
@@ -2409,7 +2410,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
             meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
         '''
 
-        ipdb.set_trace()
+        # ipdb.set_trace()
         # somehow this works with vmap but not with jax.lax.map...
         eval_outputs = jax.vmap(eval_controlcost_line)(test_cases)
 

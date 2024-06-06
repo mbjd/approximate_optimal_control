@@ -5636,7 +5636,30 @@ ids. how?
 - the exported csvs also have all the algoparams in it. we could also save
   the csvs separately, read them from the plotting script first, then get
   the relevant data & plot... like:
-    $(get csv from wandb export) > sweep.csv
+    $(./human.sh --export-csv-from-wandb) > sweep.csv
     ./plot_sweep.py sweep.csv
   maybe w a plotting script that automatically plots the relevant columns?
   maybe that is too much.
+
+
+todo fr:
+ - make sure all this euler data juggling business works. test for simple
+   case, fix bugs if needed, then do the real work:
+   - make param sweep over everything relevant to find good base settings,
+     achieving low control cost.
+   - do the interesting sweeps for the results section
+   - additional plotting scripts to visualise those
+     (according to plan just above)
+
+   case result & different sweeps to plot.
+
+wat do now though?
+ - fiddle with traj opt for reference solution
+ - include another example to try???
+
+
+trying to implement own very simple traj opt. diffrax w fixed step,
+piecewise linear interp of input vector, define cost and grad, use
+optimiser. was probably a dump idea. first order things work like shit
+(wildly ill conditioned hessian), second order wants hessian which diffrax
+apparently can't do

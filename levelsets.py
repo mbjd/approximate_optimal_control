@@ -2136,6 +2136,10 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
     # instead of ensemble 'distill' only to a single NN.
     single = False
 
+    # retrain even if data present, modify nn params in ipdb session.
+    # use this if one of the NNs seems to not want to achieve low loss.
+    surgery = True
+
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
     # leaves, so we convert it here.
     # wasted half an hour digging through so much code to find this out
@@ -2170,7 +2174,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
     v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
     nn_params_savepath = os.path.join(run_dir, 'nn_params_final.msgpack.gz')
-    if os.path.isfile(nn_params_savepath):
+    if os.path.isfile(nn_params_savepath) and not surgery:
         print(f'evaluate_directly: reading final nn params from {nn_params_savepath}')
         # bs = flax.serialization.msgpack_serialize(nn_params)
         # with gzip.open(nn_params_savepath, 'wb') as f:
@@ -2187,10 +2191,17 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
         # retrain on all data & save.
         trainkey, key = jax.random.split(key)
         if 'nn_params' in all_data:
+
             print('got nn params, training warm-started')
             nn_params = jtm(np.array, all_data['nn_params'])
+
             if single:
                 nn_params = jtm(lambda z: z[0:1], nn_params)
+
+            if surgery:
+                # do for example: nn_params = jtm(lambda n: n[np.array([0, 0, 2, 3])], nn_params)
+                ipdb.set_trace()
+
             # ipdb.set_trace()
             nn_params, training_oups, _, _ = prune_and_train(
                 trainkey,
@@ -2205,6 +2216,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
                 warmstart=True,
             )
         else:
+
             print('got no nn params, training from scratch')
             nn_params, training_oups, _, _ = prune_and_train(
                 trainkey,

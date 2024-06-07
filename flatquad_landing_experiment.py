@@ -838,6 +838,13 @@ if __name__ == '__main__':
     # levelsets.evaluate('euler_runs/uqf3ybp8', problem_params, algo_params)
 
     if algo_params['eval'] == '':
+
+        # hacking this to make remaining larger batchsize run worth it.
+        if algo_params['active_learning_batchsize'] > 256:
+            # if more data, ratio>1, we want less epochs.
+            ratio = algo_params['active_learning_batchsize'] / 256
+            algo_params['nn_warmstart_fraction'] = algo_params['nn_warmstart_fraction'] / ratio
+
         levelsets.main(problem_params, algo_params)
     else:
         algo_params['wandb'] = False

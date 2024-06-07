@@ -4,7 +4,9 @@ import itertools
 import json
 import multiprocessing
 import os
+import ipdb
 import sys
+import random
 from typing import Any, Dict, List, NamedTuple, Optional
 
 import jax.numpy as jnp
@@ -209,6 +211,19 @@ def dict_permutations(d: dict) -> List[dict]:
         perms.append(dict(zip(keys, value_combo)))
 
     return perms
+
+def random_dict_permutations(d: dict, N: int) -> List[dict]:
+
+    # random subset of dict permuations.
+
+    perms = []
+
+    for j in range(N):
+        perm = {k: random.choice(v) for k, v in d.items()}
+        perms.append(perm)
+
+    return perms
+
 
 
 if __name__ == '__main__':

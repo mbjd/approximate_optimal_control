@@ -3,8 +3,8 @@ import sys
 
 import numpy as np
 
-from util import (available_gpus, dict_permutations, generate_base_command,
-                  generate_run_commands)
+from util import (available_gpus, dict_permutations, random_dict_permutations,
+                  generate_base_command, generate_run_commands)
 
 PROJECT_NAME = 'flatquad'
 # PROJECT_NAME = 'orbits'
@@ -46,8 +46,8 @@ flatquad_configs = {
 
     # 'seed': [1,2,3,4,5,6,7,8],
     # 'nn_value_sweep': [True, False],
-    'lr_final': np.logspace(-3.5, -2.5, 4),
-    'weight_decay': np.logspace(-3, -2, 4),
+    # 'lr_final': [0.0002, 0.0005, 0.001, 0.002, 0.005],
+    # 'weight_decay': [0.001, 0.002, 0.005, 0.01],
     # 'lr_final': np.logspace(-4, -2, 8),
     # 'vx_loss_d': [0.3],
     # 'inv_vx_loss_fadeout': [0.],
@@ -55,15 +55,19 @@ flatquad_configs = {
 
     # ... and similar ones
     'nn_value_sweep': [True, False],
-    'nn_layer_dim': [256],
+    # 'nn_layer_dim': [64, 128, 256],
+    'nn_layer_dim': [128, 256],
     # 'thin_data': [False],
     # 'lr_final': [0.002, 0.001, 0.0005],
-    # 'weight_decay': [0.002, 0.001, 0.0005],
-    # 'vx_loss_d': [0.2, 0.3, 0.5],
-    # 'inv_vx_loss_fadeout': [0., 0.2, 0.5, 1., 2, 5],
+    'lr_final': [0.002, 0.001],
+    'weight_decay': [0.002, 0.001, 0.0005],
+    'vx_loss_d': [0.2, 0.3, 0.4, 0.5],
     'consider_old_data': [True, False],
-    'inv_vx_loss_fadeout': [3.],
-    'relative_kernel_lengthscale': [1/8, 1/4, 1/2],
+    'inv_vx_loss_fadeout': [1., 3., 10., 30.,],
+    # 'relative_kernel_lengthscale': [1/8, 1/4, 1/2],
+    'relative_kernel_lengthscale': [1/8, 1/6, 1/4, 1/3, 1/2],
+    'active_learning_batchsize': [128, 256, 512, 1024],
+    'sweep_name': ['euler_test_random'],
 
 
     # 'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
@@ -112,16 +116,23 @@ orbits_configs = {
 def main():
     command_list = []
 
+    random = True
+
     if PROJECT_NAME == 'flatquad':
         import flatquad_landing_experiment as exp
-        flags_combinations = dict_permutations(flatquad_configs)
+        config_dict = flatquad_configs
         num_gpus = 1
     elif PROJECT_NAME == 'orbits':
         import orbits_experiment as exp
-        flags_combinations = dict_permutations(orbits_configs)
+        config_dict = orbits_configs
         num_gpus = 0
     else:
         raise ValueError(f'Unknown project name: {PROJECT_NAME}')
+
+    if random:
+        flags_combinations = random_dict_permutations(config_dict, 512)
+    else:
+        flags_combinations = dict_permutations(config_dict)
 
     # shitty argparse :)
     do_print = len(sys.argv) > 1 and sys.argv[1] in ('-p', '--print')
@@ -137,7 +148,7 @@ def main():
                           num_cpus=1,
                           num_gpus=num_gpus,
                           mode='euler',
-                          duration='1:59:00',
+                          duration='3:59:00',
                           prompt=True,
                           mem=16384)
 

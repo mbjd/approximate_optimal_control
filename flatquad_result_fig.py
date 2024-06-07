@@ -33,6 +33,7 @@ from flatquad_landing_experiment import base_algo_params, define_problem_params
 
 run_id = 'mo8ys11a'
 run_id = 'uqf3ybp8'
+run_id = '12lxmqhl'
 
 # controlcosts common
 

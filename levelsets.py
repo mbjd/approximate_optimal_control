@@ -1990,10 +1990,6 @@ def main(problem_params, algo_params):
                 with plot_saver('decision_boundary'):
                     plot_decision_boundary(v_nn, params_sobolev_ens, problem_params)
 
-                '''
-                with plot_saver('value_lines'):
-                    plot_v_along_lines(test_pts, v_nn, params_sobolev_ens, v_next_target)
-                '''
 
 
             # sift out the data that we used during training.
@@ -2439,11 +2435,12 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
         test_cases = test_cases.astype(float)
 
-        # to get a feel for it.
-        for c in test_cases:
-            xs = np.linspace(c[0], c[1], N)
-            xs = jax.vmap(problem_params['project_M'])(xs)
-            meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+        if not 'SCRATCH' in os.environ:
+            # show in meshcat too, to get a feel for it.
+            for c in test_cases:
+                xs = np.linspace(c[0], c[1], N)
+                xs = jax.vmap(problem_params['project_M'])(xs)
+                meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
 
         # ipdb.set_trace()
         # somehow this works with vmap but not with jax.lax.map...

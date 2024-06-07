@@ -12,4 +12,8 @@ else
     exit 1
 fi
 
-# alternative: ALL of them
+# also copy the corresponding plot_data.
+# globs on remmote "just" work when escaping!!! too cool
+scp dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/plot_data/${SYS}_${RUN}_\*.msgpack.gz ./plot_data/
+
+# also make some script to pull ALL of the plot data?

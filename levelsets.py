@@ -1835,8 +1835,8 @@ def main(problem_params, algo_params):
             # prob. should retrain here if going higher with thin_data=True...
 
             all_data = {'vk': v_k, 'ys': all_ys, 'is_suboptimal': is_suboptimal, 'nn_params': params_sobolev_ens}
-            run_id = run_dir.split('/')[-1]
-            evaluate_directly(all_data, run_id, problem_params, algo_params)
+            # run_id = run_dir.split('/')[-1]
+            evaluate_directly(all_data, run_dir, problem_params, algo_params)
 
             break
 
@@ -2062,7 +2062,7 @@ def evaluate(run_dir, problem_params, algo_params):
 
     all_data = flax.serialization.msgpack_restore(bs)
 
-    evaluate_directly(all_data, run_id, problem_params, algo_params)
+    evaluate_directly(all_data, run_dir, problem_params, algo_params)
 
 def eval_controlcost_randomsample(key, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params):
 
@@ -2123,7 +2123,9 @@ def eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params):
 
 
 
-def evaluate_directly(all_data, run_id, problem_params, algo_params):
+def evaluate_directly(all_data, run_dir, problem_params, algo_params):
+
+    run_id = run_dir.split('/')[-1]
 
     # calculate various evaluation metrics.
     # - retrain NN with FULL dataset and slightly modified algoparams to account for that.
@@ -2148,6 +2150,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
     key = jax.random.PRNGKey(0)
 
+
     # long training, quadratic (not huber) losses, low learning rate.
     # shouldn't we rather get the algoparams from the actual experiment?
     # so we have the same 'smoothness prior' mainly.
@@ -2166,43 +2169,64 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
     v_nn = nn_utils.nn_wrapper(problem_params, algo_params)
 
+    nn_params_savepath = os.path.join(run_dir, 'nn_params_final.msgpack.gz')
+    if os.path.isfile(nn_params_savepath):
+        print(f'evaluate_directly: reading final nn params from {nn_params_savepath}')
+        # bs = flax.serialization.msgpack_serialize(nn_params)
+        # with gzip.open(nn_params_savepath, 'wb') as f:
+            # f.write(bs)
 
-    trainkey, key = jax.random.split(key)
-    if 'nn_params' in all_data:
-        print('got nn params, training warm-started')
-        nn_params = jtm(np.array, all_data['nn_params'])
-        if single:
-            nn_params = jtm(lambda z: z[0:1], nn_params)
-        # ipdb.set_trace()
-        nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
-            trainkey,
-            v_nn,
-            nn_params,
-            all_ys,            # all data
-            [0., v_train],          # everything used
-            is_suboptimal,     # but only the good parts
-            problem_params,
-            algo_params,
-            is_final=True,
-            warmstart=True,
-        )
+        with gzip.open(nn_params_savepath, 'rb') as f:
+            bs = f.read()
+
+        nn_params = flax.serialization.msgpack_restore(bs)
+        nn_params = jtm(np.array, nn_params)
+
     else:
-        print('got no nn params, training from scratch')
-        nn_params, training_oups, is_suboptimal, pruning_metrics = prune_and_train(
-            trainkey,
-            v_nn,
-            None,
-            all_ys,            # all data
-            [0., v_train],          # everything used
-            is_suboptimal,     # but only the good parts
-            problem_params,
-            algo_params,
-            is_final=True,
-            warmstart=False,
-        )
 
-    plotting_utils.plot_nn_train_outputs(training_oups)
-    pl.show()
+        # retrain on all data & save.
+        trainkey, key = jax.random.split(key)
+        if 'nn_params' in all_data:
+            print('got nn params, training warm-started')
+            nn_params = jtm(np.array, all_data['nn_params'])
+            if single:
+                nn_params = jtm(lambda z: z[0:1], nn_params)
+            # ipdb.set_trace()
+            nn_params, training_oups, _, _ = prune_and_train(
+                trainkey,
+                v_nn,
+                nn_params,
+                all_ys,            # all data
+                [0., v_train],          # everything used
+                is_suboptimal,     # but only the good parts
+                problem_params,
+                algo_params,
+                is_final=True,
+                warmstart=True,
+            )
+        else:
+            print('got no nn params, training from scratch')
+            nn_params, training_oups, _, _ = prune_and_train(
+                trainkey,
+                v_nn,
+                None,
+                all_ys,            # all data
+                [0., v_train],          # everything used
+                is_suboptimal,     # but only the good parts
+                problem_params,
+                algo_params,
+                is_final=True,
+                warmstart=False,
+            )
+
+        if algo_params['showfigs']:
+            plotting_utils.plot_nn_train_outputs(training_oups)
+            pl.show()
+
+        # save those final params too.
+        bs = flax.serialization.msgpack_serialize(nn_params)
+        with gzip.open(nn_params_savepath, 'wb') as f:
+            f.write(bs)
 
     # here do all the nice evaluation metrics we can imagine.
     # for each metric:
@@ -2212,6 +2236,7 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
     # take this in algoparams?
     eval_meshcat = not 'SCRATCH' in os.environ # == not euler
+    eval_meshcat = False
     eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
     eval_controlcost_lines = True
@@ -2402,13 +2427,11 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
 
         test_cases = test_cases.astype(float)
 
-        '''
         # to get a feel for it.
         for c in test_cases:
             xs = np.linspace(c[0], c[1], N)
             xs = jax.vmap(problem_params['project_M'])(xs)
             meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
-        '''
 
         # ipdb.set_trace()
         # somehow this works with vmap but not with jax.lax.map...
@@ -2420,5 +2443,9 @@ def evaluate_directly(all_data, run_id, problem_params, algo_params):
         with gzip.open(fpath, 'wb') as f:
             f.write(bs)
         print(f'eval_controlcost_lines: wrote to {fpath}')
+
+    # to keep meshcat open
+    if not 'SCRATCH' in os.environ:
+        ipdb.set_trace()
 
 

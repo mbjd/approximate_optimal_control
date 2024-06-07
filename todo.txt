@@ -262,9 +262,23 @@ procrastination tasks:
 
  ~~~ 10. jun  ~~~
 
-last week to do any coding at all
+central tasks:
+ - continue finding good params but stop once diminishing returns.
+ - do parameter sweeps for results section
+ - make controlcost_lines figure (and other interesting ones) for parameter sweep.
+ - WRITE!
+   intro: start writing something.
+   fundamentals&methods: small incremental improvements.
+   results: continuously make nicer
+   discussion/conclusion: make some type of skeleton to avoid writers block
+   generally: unify notation & terminology
 
-collect experiment data, plots
+if motivated:
+ - TO refsol...
+ - other system???????????
+
+
+
 
  ~~~ 17. jun  ~~~
 

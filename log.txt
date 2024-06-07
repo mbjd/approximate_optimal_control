@@ -5663,3 +5663,26 @@ piecewise linear interp of input vector, define cost and grad, use
 optimiser. was probably a dump idea. first order things work like shit
 (wildly ill conditioned hessian), second order wants hessian which diffrax
 apparently can't do
+
+
+2024-06-07
+
+results infrastructure/pipeline/whatever works now. made additional
+launchscript to do random subsample of (huge) dict permutations.
+rudimentary controlcost lines plot in report now.
+
+q: controlcost lines fig looks really quite nice, with V agreeing w/
+controlcost except in small region around discontinuity, as it should be.
+why is the random x0 controlcost eval (controlcost_common) still looking so
+shit? is it actually mostly okay but the plot makes it look worse? is it
+actually as bad as it looks? nevertheless, continuing to run experiments
+and optimising hyperparams for high frac_below evals.
+
+next tasks:
+ - continue finding good params but stop once diminishing returns.
+ - make controlcost_lines figure (and other interesting ones) for parameter
+   sweep.
+ - TO refsol...
+ - other system???????????
+ - WRITE!
+

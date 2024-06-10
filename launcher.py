@@ -186,6 +186,27 @@ def main():
                           prompt=True,
                           mem=16384)
 
+def flatquad_all_sweeps():
+    import flatquad_landing_experiment as exp
+
+    do_print = len(sys.argv) > 1 and sys.argv[1] in ('-p', '--print')
+
+    for config_dict in (flatquad_configs_wd, flatquad_configs_batchsize, flatquad_configs_layerdim):
+        flags_combinations = dict_permutations(config_dict)
+        for flags in flags_combinations:
+            cmd = generate_base_command(exp, flags=flags)
+            if do_print:
+                print(cmd)
+            command_list.append(cmd)
+
+    generate_run_commands(command_list,
+                          num_cpus=1,
+                          num_gpus=num_gpus,
+                          mode='euler',
+                          duration='3:59:00',
+                          prompt=True,
+                          mem=16384)
+
 
 if __name__ == '__main__':
     main()

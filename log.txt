@@ -5686,3 +5686,55 @@ next tasks:
  - other system???????????
  - WRITE!
 
+
+
+2024-06-10
+
+time getting tight aaaah!!!!
+
+plan for today:
+ - make plotting script for controlcost curve type plots but parameter
+   sweeps.
+ - refsol idea: backward shooting (from approx value function but over a bit
+   longer horizon?)
+   - define function xT \mapsto x0 defined by:
+     - evaluate λT(xT) according to Vnn
+     - backward shoot PMP
+   - solve rootfinding problem x0 = (the x0 we want)
+
+
+
+
+struggling again to think of good stuff to plot/measure. this relative cost
+is kind of dumb right? in theory the learned v could be COMPLETELY wrong...
+
+v refsol works for orbits example!!! based on angle unwrapping, closest
+neighbor + 1st order taylor extrapolation, and selecting best among
+plausible solutions. i think if this is very nice we can afford to show the
+other results without concrete comparison.
+
+what do we plot now?
+ - closed loop cost / learned value, closed loop cost / actual value?
+ - learned value / actual value???
+
+did lots of plotting script work. stuff is here now, still not beautiful.
+current state:
+ - orbits:
+   - 1x3 plot with cost, learned/optimal cost, closed loop/optimal cost
+   - learned/closed loop/optimal cost along two lines to illustrate
+   - TODO maybe in between those one of those nice cost ratio cdf things?
+     or something that allows more precise assessment of the suboptimality
+     than what we have now at the very least.
+ - flatquad (same as before):
+   - 2x2 plot of v mean/confidence and closed loop cost along interesting
+     sweeps.
+
+started euler sweeps, put them in launch config nicely. sweeping over
+weight decay, active learning batchsize,
+
+TODO:
+ - label the plots nicely
+ - make plot for entire sweep. (same 2x2 thing? single line only?)
+ - work on a nice concise and "well flowing" description of the results.
+ - everything else (main part polishing, intro, discussion...)
+

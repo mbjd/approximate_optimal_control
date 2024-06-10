@@ -138,7 +138,7 @@ def define_problem_params():
 
         # the value level below which we accept the LQR solution as correct.
         'V_f': 0.001,
-        'V_max': 5000.,
+        'V_max': 2000.,
         # 'V_max': 50.,
 
         # constraint equation defining the state space manifold as its 0-levelset.

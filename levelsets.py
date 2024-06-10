@@ -2039,23 +2039,32 @@ def evaluate(run_dir, problem_params, algo_params):
     #  - fit nn to data to get value fct and controller
     #  - do some closed loop sims, uniformly from the sublevel set or something like that
 
-    filepath = os.path.join(run_dir, 'all_data.msgpack.gz')
-    run_id = run_dir.split('/')[-1]
+    euler = 'SCRATCH' in os.environ
 
-    if not os.path.isfile(filepath):
-        print(f'{filepath} does not exist. trying to pull from euler')
-        cmd = ['./pull_run.sh', problem_params['system_name'], run_id]
-        output = subprocess.run(cmd)
-        if output.returncode != 0:
-            print(f'failed to pull run from euler with exit code {output.returncode}')
-            sys.exit(1)
+    if euler:
+        run_id = run_dir.split('/')[-1]
+        sys = problem_params['system_name']
+        save_dir = os.path.join(os.environ['SCRATCH'], f'{sys}_runs')
+
+        filepath = os.path.join(save_dir, run_id, 'all_data.msgpack.gz')
+    else:
+
+        filepath = os.path.join(run_dir, 'all_data.msgpack.gz')
+        run_id = run_dir.split('/')[-1]
+
         if not os.path.isfile(filepath):
-            print('path still does not exist')
-            sys.exit(1)
+            print(f'{filepath} does not exist. trying to pull from euler')
+            cmd = ['./pull_run.sh', problem_params['system_name'], run_id]
+            output = subprocess.run(cmd)
+            if output.returncode != 0:
+                print(f'failed to pull run from euler with exit code {output.returncode}')
+                sys.exit(1)
+            if not os.path.isfile(filepath):
+                print('path still does not exist')
+                sys.exit(1)
 
     with gzip.open(filepath, 'rb') as f:
         bs = f.read()
-
     all_data = flax.serialization.msgpack_restore(bs)
 
     evaluate_directly(all_data, run_dir, problem_params, algo_params)
@@ -2134,7 +2143,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
     # retrain even if data present, modify nn params in ipdb session.
     # use this if one of the NNs seems to not want to achieve low loss.
-    surgery = True
+    surgery = False
 
     # restoring this gives us a Pytree with numpy array (not jax.numpy!)
     # leaves, so we convert it here.
@@ -2161,7 +2170,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
     # push it
     algo_params['lr_final'] = algo_params['lr_final'] / 10
     algo_params['lr_init'] = algo_params['lr_final'] * 2
-    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] / 10
+    algo_params['nn_N_epochs'] = algo_params['nn_N_epochs'] / 1.
     algo_params['weight_decay'] = algo_params['weight_decay'] / 100  # less wd for whole data set.
 
     if single:

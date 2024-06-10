@@ -11,60 +11,60 @@ import tqdm
 import pontryagin_utils
 import visualiser
 
-# attept at implementing continuous-time DDP, a bit like: 
+# attept at implementing continuous-time DDP, a bit like:
 # - https://dl.acm.org/doi/pdf/10.1145/3592454 (Hutter) but without the parameterised stuff
 # - https://arxiv.org/pdf/2107.04507.pdf (Sun) but without the opponent/disturbance
-# - https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10156422 
-# ofc later we can add any of those components back maybe hopefully. 
+# - https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10156422
+# ofc later we can add any of those components back maybe hopefully.
 
 
 def ddp_main(problem_params, algo_params, x0):
 
     # problem_params, algo_params: the usual things
-    # x0: the initial state. 
-    
-    # what OCP are we trying to solve here? 
+    # x0: the initial state.
+
+    # what OCP are we trying to solve here?
 
     T = 20 # long-ish horizon to approximate infinity. later adaptively increase.
 
     f  = problem_params['f' ]
     l  = problem_params['l' ]
-    h  = problem_params['h' ]
+    # h  = problem_params['h' ]
     T  = problem_params['T' ]
     nx = problem_params['nx']
     nu = problem_params['nu']
 
 
-    # do this again here. should we put this in one of the params dicts? 
+    # do this again here. should we put this in one of the params dicts?
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 
     # compute sqrtm of P, the value function matrix.
     P_eigv, P_eigvec = np.linalg.eigh(P_lqr)
 
     Phalf = P_eigvec @ np.diag(np.sqrt(P_eigv)) @ P_eigvec.T
-    Phalf_inv = np.linalg.inv(Phalf)  # only once! 
+    Phalf_inv = np.linalg.inv(Phalf)  # only once!
 
     maxdiff = np.abs(Phalf @ Phalf - P_lqr).max()
     assert maxdiff < 1e-4, 'sqrtm(P) calculation failed or inaccurate'
 
     # should work the same for any unit vector (xT is disregarded)
-    unitvec_example = np.eye(nx)[0] 
+    unitvec_example = np.eye(nx)[0]
     xf_example = np.linalg.solve(Phalf, unitvec_example) * 0.01
     v_f = xf_example.T @ P_lqr @ xf_example
     # with this we have defined Xf = {x: x.T P_lqr x <= vT}
-    
+
 
 
     # the usual Hamiltonian. t argument irrelevant.
     H = lambda x, u, λ: l(0., x, u) + λ.T @ f(0., x, u)
 
-    # the pre-optimised Hamiltonian. 
-    def H_opt(x, λ): 
+    # the pre-optimised Hamiltonian.
+    def H_opt(x, λ):
         # replace with relevant inner convex optimisation
         u_star = pontryagin_utils.u_star_2d(x, λ, problem_params)
         return H(x, u_star, λ)
-            
-    # do we have problems if this solution was calculated backwards? 
+
+    # do we have problems if this solution was calculated backwards?
     # -> probably not, because evaluation works the same in any case.
     # forward_sol = init_sol
     # x0 = forward_sol.evaluate(0.)[0:nx]  # this stays the same in the entire function
@@ -72,25 +72,25 @@ def ddp_main(problem_params, algo_params, x0):
     # this is to handle case where t0>t1 (if solution was obtained backwards)
     t0, tf = 0., problem_params['T']
 
-    # write the whole iteration in a scan-type loop? 
-    # which pass should we do first in each loop iteration? 
-    # backward then forward? 
+    # write the whole iteration in a scan-type loop?
+    # which pass should we do first in each loop iteration?
+    # backward then forward?
     # + no special case for initial trajectory
 
 
 
     def PMP_wrongness(t, state, args):
 
-        # this is a measure of how far we're off form an exact PMP solution. 
-        # basically we take the direction difference from the backward pass: 
+        # this is a measure of how far we're off form an exact PMP solution.
+        # basically we take the direction difference from the backward pass:
         # if the forward trajectory comes from the same direction the backward
         # characteristics go in, then it is optimal. This returns the norm
         # of that direction difference (for a single time instant)
 
-        # call this function with same arguments as backwardpass RHS, it is 
-        # basically a dumbed down version of that. 
+        # call this function with same arguments as backwardpass RHS, it is
+        # basically a dumbed down version of that.
 
-        v, lam, S = state  
+        v, lam, S = state
         prev_forward_sol = args
 
 
@@ -111,18 +111,18 @@ def ddp_main(problem_params, algo_params, x0):
 
     def backwardpass_rhs_init(t, state, args):
 
-        # same as the other one (backwardpass_rhs), except with different source of the 
+        # same as the other one (backwardpass_rhs), except with different source of the
         # function lambda(x) used in the forward pass.
 
         # all explanations & comments there.
 
-        v, s, S = state  
+        v, s, S = state
 
-        # these would be the arguments are for the non-init version. 
+        # these would be the arguments are for the non-init version.
         # prev_forward_sol, prev_backward_sol, forward_sol = args
         # <do some magic to find lambda and u used during forwardpass>
 
-        # instead here we have simply: 
+        # instead here we have simply:
         forward_sol, lambda_fct = args
 
         x_forward = forward_sol.evaluate(t)[0:nx]
@@ -154,46 +154,46 @@ def ddp_main(problem_params, algo_params, x0):
     def backwardpass_rhs_old(t, state, args):
 
         # ALL these dynamics are being specified as if time was running forward.
-        # flipping the integration boundaries and starting with dt < 0 in the 
+        # flipping the integration boundaries and starting with dt < 0 in the
         # diffrax solve then does the time reversal correctly.
 
         # v = cost to go, lam = costate = value gradient, S = value hessian
-        v, lam, S = state  
+        v, lam, S = state
 
-        # different previous solutions are organised like this: 
+        # different previous solutions are organised like this:
         # iteration     | k-1                | k
         # forward sol   | prev_forward_sol   | forward_sol
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
         prev_forward_sol, prev_backward_sol, forward_sol = args
 
-        # current state and optimal input 
+        # current state and optimal input
         # *according to backward-pass costate currently being solved for*
         x_forward = forward_sol.evaluate(t)[0:nx]
 
-        # calculate everything from the previous forward trajectory. 
+        # calculate everything from the previous forward trajectory.
         # these two define our *previous* value expansion, which was used to create the forward pass
-        x_prev = prev_forward_sol.evaluate(t)[0:nx] 
+        x_prev = prev_forward_sol.evaluate(t)[0:nx]
         v_prev, lam_prev, S_prev = prev_backward_sol.evaluate(t)
 
-        # so we use that expansion again to find the costate lambda used in the forward sim. 
+        # so we use that expansion again to find the costate lambda used in the forward sim.
         dx = x_forward - x_prev
         lam_forward = lam_prev + S_prev @ dx
 
-        # purely for calculating V - could probably be ditched. 
+        # purely for calculating V - could probably be ditched.
         u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
 
         # not used anymore except in v_dot. -> also removed there
-        # u_star = pontryagin_utils.u_star_2d(x_forward, lam, problem_params) 
+        # u_star = pontryagin_utils.u_star_2d(x_forward, lam, problem_params)
 
         regularise = False
         if regularise:
             # redefine the stage cost and hamiltonian to include an additional
-            # term penalising deviations from the previous trajectory. 
+            # term penalising deviations from the previous trajectory.
 
             # this is copied from get_termial_lqr so no check again here if it is an equilibrium.
             x_eq = problem_params['x_eq']
             u_eq = problem_params['u_eq']
-            Q = jax.hessian(l, argnums=1)(0., x_eq, u_eq)  # we just take this as state cost weights. 
+            Q = jax.hessian(l, argnums=1)(0., x_eq, u_eq)  # we just take this as state cost weights.
             R = jax.hessian(l, argnums=2)(0., x_eq, u_eq)
 
             def H(x, u, λ):
@@ -215,7 +215,7 @@ def ddp_main(problem_params, algo_params, x0):
         # H_x = jax.jacobian(H, argnums=0)(x_forward, u_star, lam)
         du_dlam = jax.jacobian(pontryagin_utils.u_star_2d, argnums=1)(x_forward, lam_forward, problem_params)
         # this has confused me for some time. this H_x being defined here was H_x but with (according to linearisation)
-        # optimal input depending on current lambda, not lambda forward. this is probably why the equation 
+        # optimal input depending on current lambda, not lambda forward. this is probably why the equation
         # afterwards worked only when we removed the g_lambda term...
         # lam we insert directly -- H being linear in lambda it is the same as linearisation about forward trajectory
         H_x_wrong = jax.jacobian(H, argnums=0)(x_forward, u_forward + du_dlam @ (lam - lam_forward), lam)
@@ -224,7 +224,7 @@ def ddp_main(problem_params, algo_params, x0):
         H_x = jax.jacobian(H, argnums=0)(x_forward, u_forward, lam_forward)
 
         # here we have two choices. a) is obviously the "more correct" one
-        # lots of extra comments here removed -- see fbe716cc for before 
+        # lots of extra comments here removed -- see fbe716cc for before
         # a) evaluate RHS that was used to generate the forward trajectory
         # b) approximate with d/dt of interpolated solution
         use_RHS = True
@@ -247,25 +247,25 @@ def ddp_main(problem_params, algo_params, x0):
         # forward trajectory, not this weird other functin depending on u*(lam backward)
         v_dot = -l(t, x_forward, u_forward)
 
-        # at least for this now everything should be in terms of taylor expansions around current trajectory right? 
+        # at least for this now everything should be in terms of taylor expansions around current trajectory right?
         lam_dot = -H_x + S @ (dot_xbar - H_lambda)
 
-        # morph this continuously to the DOC version :) 
-        # -H_x = d/dt costate from the *last* backward pass. 
+        # morph this continuously to the DOC version :)
+        # -H_x = d/dt costate from the *last* backward pass.
         # lam_dot = -H_x + S @ (xdot_forward - xdot_optimal)
         lam_dot = -H_x + S @ (-df_dlam @ (lam - lam_forward))
 
         # DOC on the other hand says:
         # still not sure why this makes any sort of sense....
-        # lam_dot = -S @ flam @ s + glam @ (s - lam_forward) 
-        # this is the only part which is still clearly different from the 
+        # lam_dot = -S @ flam @ s + glam @ (s - lam_forward)
+        # this is the only part which is still clearly different from the
         # 'from the ground' DOC solution...
 
 
         # yet another way, maybe the nicest???
-        # this is basically f_forward from pontryagin_utils but without the separate v variable. 
+        # this is basically f_forward from pontryagin_utils but without the separate v variable.
         # also the arguments are kept separate so we nicely get the four derivative combinations
-        # instead of one big matrix. 
+        # instead of one big matrix.
         def pmp_rhs(state, costate):
 
             u_star = pontryagin_utils.u_star_2d(state, costate, problem_params)
@@ -281,10 +281,10 @@ def ddp_main(problem_params, algo_params, x0):
 
         # but is it correct to use the new backward pass costate lam here? just replace it with lam_forward?
 
-        # should we also evaluate the whole pmp_rhs at (x_forward, lam_forward) instead and 
+        # should we also evaluate the whole pmp_rhs at (x_forward, lam_forward) instead and
         # "jump" to lam via taylor expansion, like function_lam(x_forward, lam_forward) @ (lam - lam_forward)...
-        # probably yes. BUT will we have to do an extra order of differentiation? 
-        # maybe maybe not... 
+        # probably yes. BUT will we have to do an extra order of differentiation?
+        # maybe maybe not...
 
         # is this the spot where "proper" DDP would have this extra derivative which is mostly dropped?
 
@@ -305,7 +305,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # DOC solution (after fixing mistake....) (after fixing other mistake......)
         # why should this not be correct???
-        # if delta derivation, then we have: 
+        # if delta derivation, then we have:
         # d/d deltalambda = (glam - S flam) deltalambda
         # lam_dot = -H_x + (glam - S @ flam) @ (lam - lam_forward)
 
@@ -323,15 +323,15 @@ def ddp_main(problem_params, algo_params, x0):
 
     def backwardpass_rhs(t, state, args):
 
-        # same as the original one BUT everything linearised around forward trajectory. 
+        # same as the original one BUT everything linearised around forward trajectory.
         # derivation with all mistakes fixed in idea dump, 4.6 "different derivation" bzw
         # 4.6.1. "Backward pass with actual λ instead of δλ".
 
         # v = cost to go, s = value gradient/costate, S = value hessian (all on forward trajectory)
         # so we have the taylor expansion: V(x_forward+dx) = v(x_forward) + s dx + .5 dx.T S dx.
-        v, s, S = state  
+        v, s, S = state
 
-        # different previous solutions are organised like this: 
+        # different previous solutions are organised like this:
         # iteration     | k-1                | k
         # forward sol   | prev_forward_sol   | forward_sol
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
@@ -342,7 +342,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # ...and also the value expansion used to create that
         # (which we need to recreate the input)
-        x_prev = prev_forward_sol.evaluate(t)[0:nx] 
+        x_prev = prev_forward_sol.evaluate(t)[0:nx]
         v_prev, lam_prev, S_prev = prev_backward_sol.evaluate(t)
         dx = x_forward - x_prev
         lam_forward = lam_prev + S_prev @ dx
@@ -350,7 +350,7 @@ def ddp_main(problem_params, algo_params, x0):
         u_forward = pontryagin_utils.u_star_2d(x_forward, lam_forward, problem_params)
 
 
-        # then we linearise the WHOLE PMP RHS around that state. "Hidden" in here is the u* map. 
+        # then we linearise the WHOLE PMP RHS around that state. "Hidden" in here is the u* map.
         # very important to linearise that also around the forward trajectory, NOT using the costate
         # currently being solved for, lam
         def pmp_rhs(state, costate):
@@ -366,7 +366,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # confirmed that [fx flam; gx glam] == Alin from above
         #            ( = [A11 A12; A21 A22])
-        # all evaluated at (x_forward, lam_forward) from the forward pass. 
+        # all evaluated at (x_forward, lam_forward) from the forward pass.
 
         # f and g are defined as the pmp rhs: x_dot = f(x, lam), lam_dot = g(x, lam)
         # this removes any confusion with already present partial derivatives of H
@@ -374,7 +374,7 @@ def ddp_main(problem_params, algo_params, x0):
         flam, glam = jax.jacobian(pmp_rhs, argnums=1)(x_forward, lam_forward)
 
 
-        # the magic formulas. first is obvious, others derived in idea dump. 
+        # the magic formulas. first is obvious, others derived in idea dump.
         # remember that s = lambda is the costate we find by integrating this RHS
         v_dot = -l(t, x_forward, u_forward)
         s_dot = costate_dot_forward + (glam - S @ flam) @ (s - lam_forward)
@@ -385,18 +385,18 @@ def ddp_main(problem_params, algo_params, x0):
     def forwardpass_rhs(t, state, args):
 
         # here we only have the actual system state for a change
-        x = state  
-        # need both backward and forward pass solutions. 
-        prev_forward_sol, prev_backward_sol = args 
+        x = state
+        # need both backward and forward pass solutions.
+        prev_forward_sol, prev_backward_sol = args
 
         # this stacked vector forward sol is not too elegant, should probably
         # introduce a tuple or even dict state to access solution more clearly
-        xbar = prev_forward_sol.evaluate(t)[0:nx] 
+        xbar = prev_forward_sol.evaluate(t)[0:nx]
         dx = x - xbar
         v_xbar, lam_xbar, S_xbar = prev_backward_sol.evaluate(t)
-        # this defines a local quadratic value function: 
+        # this defines a local quadratic value function:
         # v(xbar + dx) = v + lam.T dx + 1/2 dx.T S dx
-        # we need the first gradient of this quadratic value function. 
+        # we need the first gradient of this quadratic value function.
         # lambda(xbar + dx) = 0 + lam.T + dx.T S  (or its transpose whatever)
         lam_x = lam_xbar + S_xbar @ dx
 
@@ -409,23 +409,23 @@ def ddp_main(problem_params, algo_params, x0):
     def forwardpass_u(t, state, args):
 
         # here we only have the actual system state for a change
-        x = state  
-        # need both backward and forward pass solutions. 
-        prev_forward_sol, prev_backward_sol = args 
+        x = state
+        # need both backward and forward pass solutions.
+        prev_forward_sol, prev_backward_sol = args
 
         # this stacked vector forward sol is not too elegant, should probably
         # introduce a tuple or even dict state to access solution more clearly
-        xbar = prev_forward_sol.evaluate(t)[0:nx] 
+        xbar = prev_forward_sol.evaluate(t)[0:nx]
         dx = x - xbar
         v_xbar, lam_xbar, S_xbar = prev_backward_sol.evaluate(t)
-        # this defines a local quadratic value function: 
+        # this defines a local quadratic value function:
         # v(xbar + dx) = v + lam.T dx + 1/2 dx.T S dx
-        # we need the first gradient of this quadratic value function. 
+        # we need the first gradient of this quadratic value function.
         # lambda(xbar + dx) = 0 + lam.T + dx.T S  (or its transpose whatever)
         lam_x = lam_xbar + S_xbar @ dx
 
         u = pontryagin_utils.u_star_2d(x, lam_x, problem_params)
-        return u, lam_x  # breaking change, this also returns lambda now. 
+        return u, lam_x  # breaking change, this also returns lambda now.
 
 
 
@@ -433,7 +433,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         # backward pass. (more comments in python for loop below.)
 
-        # different previous solutions are organised like this: 
+        # different previous solutions are organised like this:
         # iteration     | k-1                | k
         # forward sol   | prev_forward_sol   | forward_sol
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
@@ -444,27 +444,27 @@ def ddp_main(problem_params, algo_params, x0):
         term = diffrax.ODETerm(backwardpass_rhs)
 
         # this 0:nx is strictly only needed if we have extended state y = [x, lambda, v].
-        # we are overloading this function to handle both extended and pure state. 
+        # we are overloading this function to handle both extended and pure state.
         # (this means we have to re-jit when changing between them)
-        xf = forward_sol.evaluate(tf)[0:nx]  
+        xf = forward_sol.evaluate(tf)[0:nx]
 
         # terminal conditions given by taylor expansion of terminal value
-        # these are static w.r.t. jit compilation. 
+        # these are static w.r.t. jit compilation.
         v_T = xf.T @ P_lqr @ xf
         lam_T = 2 * P_lqr @ xf
-        S_T = P_lqr 
+        S_T = P_lqr
 
-        # instead of doing something about it, just pass it to the output 
+        # instead of doing something about it, just pass it to the output
         # so at least we know about it.
         # instead of this we might also output the SDF of Xf, v_T(xf) - v_f
         # xf_outside_Xf = v_T >= v_f * 1.001
         # or not, because this is just a function of the forward solution
-        # which can be calculated outside whenever we want. 
+        # which can be calculated outside whenever we want.
 
         init_state = (v_T, lam_T, S_T)
 
         # relaxed tolerance - otherwise the backward pass needs many more steps
-        # maybe it also "needs" the extra accuracy though...? 
+        # maybe it also "needs" the extra accuracy though...?
         relax_factor = 10.
         step_ctrl = diffrax.PIDController(
             rtol=relax_factor*algo_params['pontryagin_solver_rtol'],
@@ -493,7 +493,7 @@ def ddp_main(problem_params, algo_params, x0):
 
     def ddp_forwardpass(prev_forward_sol, prev_backward_sol, x0):
 
-        # forward pass. 
+        # forward pass.
         term = diffrax.ODETerm(forwardpass_rhs)
 
         # same tolerance parameters used in pure unguided backward integration of whole PMP
@@ -504,7 +504,7 @@ def ddp_main(problem_params, algo_params, x0):
             dtmin = 0.05  # relatively large - see what happens
         )
 
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True) 
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         forward_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=t0, t1=tf, dt0=0.1, y0=x0,
@@ -519,36 +519,36 @@ def ddp_main(problem_params, algo_params, x0):
     def scan_fct(carry, inp):
 
         # by first doing forward and then backward sol (not other way) we make
-        # this iteration "markovian" -- each iteration only depends on the last. 
+        # this iteration "markovian" -- each iteration only depends on the last.
         # (the local feedback controller responsible for the forward pass is given
-        # by the previous backward AND forward solution, from which we form our 
-        # V(x) taylor exapnsion.) 
+        # by the previous backward AND forward solution, from which we form our
+        # V(x) taylor exapnsion.)
 
         # also any step length/line search/convergence checks can be put here.
-        # here is a pseudocode sketch of that: 
+        # here is a pseudocode sketch of that:
         '''
         forward_sol = forwardpass(prev_forward_sol, prev_backward_sol)
         cost = cost(forward_sol)
         # prev_cost from carry
-        accept = check_descent_condition(prev_forward_sol, prev_cost, 
+        accept = check_descent_condition(prev_forward_sol, prev_cost,
                                          forward_sol, cost)
-        if not accept: 
+        if not accept:
             forward_sol = prev_forward_sol
             alpha = (next higher alpha in some fixed sequence)
-        
+
         # but to redo the last backward pass we again need one backwardpass
         # more than we have here..
 
-        # other option: already produce a wide range of stepsizes in the 
-        # backward pass. effectively do N backward passes, with different 
+        # other option: already produce a wide range of stepsizes in the
+        # backward pass. effectively do N backward passes, with different
         # regularisation/steplength parameters.
-        # maybe this is even more efficient than doing them separately? 
-        # because we can reuse the evaluations of the backwardpass RHS if 
-        # we manage to modify it appropriately after the fact 
+        # maybe this is even more efficient than doing them separately?
+        # because we can reuse the evaluations of the backwardpass RHS if
+        # we manage to modify it appropriately after the fact
 
 
-        
-            
+
+
         '''
 
 
@@ -558,8 +558,8 @@ def ddp_main(problem_params, algo_params, x0):
         prev_forward_sol, prev_backward_sol = carry
         x0, j = inp
 
-        # what happens if we set the "fast states" of x0 to the already 
-        # "stabilised" fast states of the previous iteration? 
+        # what happens if we set the "fast states" of x0 to the already
+        # "stabilised" fast states of the previous iteration?
         # to maybe stay on the "turnpike manifold"
         # but only when the x0 changes <=> when it is "sub-iteration" j=0
         fast_idx = np.array([2, 5])
@@ -572,7 +572,7 @@ def ddp_main(problem_params, algo_params, x0):
 
 
 
-        # the whole DDP loop is it not beautiful <3 
+        # the whole DDP loop is it not beautiful <3
         forward_sol = ddp_forwardpass(prev_forward_sol, prev_backward_sol, x0)
         backward_sol = ddp_backwardpass(prev_forward_sol, prev_backward_sol, forward_sol)
 
@@ -585,19 +585,19 @@ def ddp_main(problem_params, algo_params, x0):
         return new_carry, out
 
     def initial_step(lambda_fct, x0):
-        # the scan loop is rearranged mainly for the reason that it makes it 
-        # markovian -- the current iteration only depends on the last iteration. 
+        # the scan loop is rearranged mainly for the reason that it makes it
+        # markovian -- the current iteration only depends on the last iteration.
         # thus, in the initial step, we simply make an initial forward solution
-        # and an initial backward solution. 
+        # and an initial backward solution.
 
-        # for the forward solution, we supply a function lambda(x), which via the 
+        # for the forward solution, we supply a function lambda(x), which via the
         # hamiltonian minimisation gives an input u*(x, lambda(x)). simple enough.
 
         # Then we perform the first backward pass, which is the main
         # "exception" in this step --  subsequent backward passes (k) need the
         # forward sol at k, and also the forward AND backward sol at (k-1),
-        # the latter two giving the input which leads to forward solution k. 
-        # the first backward pass is actually simpler because we have the function 
+        # the latter two giving the input which leads to forward solution k.
+        # the first backward pass is actually simpler because we have the function
         # lambda(x) right here, instead of being represented as a taylor expansion
         # (backward pass) around a previous solution (forward pass)
 
@@ -610,7 +610,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         term = diffrax.ODETerm(forwardsim_rhs)
         step_ctrl = diffrax.PIDController(rtol=algo_params['pontryagin_solver_rtol'], atol=algo_params['pontryagin_solver_atol'])
-        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True) 
+        saveat = diffrax.SaveAt(steps=True, dense=True, t0=True, t1=True)
 
         init_forward_sol = diffrax.diffeqsolve(
             term, diffrax.Tsit5(), t0=0., t1=problem_params['T'], dt0=0.1, y0=x0,
@@ -618,21 +618,21 @@ def ddp_main(problem_params, algo_params, x0):
             max_steps = algo_params['pontryagin_solver_maxsteps'],
         )
 
-        
-        # then perform the backward pass. this is copied & adapted from the ddp_backwardpass fct. 
 
-        # different previous solutions are organised like this: 
+        # then perform the backward pass. this is copied & adapted from the ddp_backwardpass fct.
+
+        # different previous solutions are organised like this:
         # iteration     | k-1                | k
         # forward sol   | prev_forward_sol   | forward_sol
         # backward sol  | prev_backward_sol  | backward_sol  (created here)
 
         term = diffrax.ODETerm(backwardpass_rhs_init)
 
-        xf = init_forward_sol.evaluate(tf)[0:nx]  
+        xf = init_forward_sol.evaluate(tf)[0:nx]
 
         v_T = xf.T @ P_lqr @ xf
         lam_T = 2 * P_lqr @ xf
-        S_T = P_lqr 
+        S_T = P_lqr
 
         init_state = (v_T, lam_T, S_T)
 
@@ -651,7 +651,7 @@ def ddp_main(problem_params, algo_params, x0):
             args = (init_forward_sol, lambda_fct),
         )
 
-        return init_forward_sol, init_backward_sol 
+        return init_forward_sol, init_backward_sol
 
 
     N_x0s = 12
@@ -665,10 +665,10 @@ def ddp_main(problem_params, algo_params, x0):
 
     forward_sol = ddp_forwardpass(init_carry[0], init_carry[1], x0)
 
-    xf = forward_sol.evaluate(tf)[0:nx]  
+    xf = forward_sol.evaluate(tf)[0:nx]
     v_T = xf.T @ P_lqr @ xf
     lam_T = 2 * P_lqr @ xf
-    S_T = P_lqr 
+    S_T = P_lqr
     init_state = (v_T, lam_T, S_T)
 
     rhs_args = (init_carry[0], init_carry[1], forward_sol)
@@ -690,12 +690,12 @@ def ddp_main(problem_params, algo_params, x0):
     # x0_final = x0 + 2*np.array([0, 10., 0, 10., 0, 0])
     # x0_final = x0 + np.array([0, 0, np.pi, 0, 0, 0])
     # don't sweep at all
-    # x0_final = x0  
+    # x0_final = x0
     alphas = np.linspace(0, 1,  N_x0s)
 
     # this is kind of ugly ikr
-    # we stay at each x0 and run the ddp loop for $iters_per_x0 times. 
-    # after that we modify the N_iters variable 
+    # we stay at each x0 and run the ddp loop for $iters_per_x0 times.
+    # after that we modify the N_iters variable
     iters_per_x0 = 8
     alphas = np.repeat(alphas, iters_per_x0)[:, None]  # to "simulate" several iterations per x0.
     N_iters = alphas.shape[0]
@@ -729,7 +729,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         def plot_backwardpass(sol, ts, alpha=1., labels=True):
 
-            # TODO also plot the continuous time interpolation here? 
+            # TODO also plot the continuous time interpolation here?
 
             ax0 = pl.subplot(221)
             pl.semilogy(sol.ts, sol.ys[0], label='v' if labels else None)
@@ -758,7 +758,7 @@ def ddp_main(problem_params, algo_params, x0):
             pl.ylabel('S(t) - raw entries')
             pl.plot(sol.ts, sol.ys[2].reshape(-1, nx*nx), color='black', alpha=0.2)
             pl.legend()
-            
+
         def plot_forward_backward(i):
 
             pl.figure(f'forward and backward pass {i}')
@@ -769,7 +769,7 @@ def ddp_main(problem_params, algo_params, x0):
             fw = jax.tree_util.tree_map(itemgetter(i), outputs['forward_sol'])
             bw = jax.tree_util.tree_map(itemgetter(i), outputs['backward_sol'])
 
-            # plot the state trajectory of the forward pass, interpolation & nodes. 
+            # plot the state trajectory of the forward pass, interpolation & nodes.
             ax1 = pl.subplot(221)
 
             pl.plot(fw.ts, fw.ys, marker='.', linestyle='', alpha=1, label=problem_params['state_names'])
@@ -778,7 +778,7 @@ def ddp_main(problem_params, algo_params, x0):
             pl.plot(ts, interp_ys, alpha=0.5)
             pl.legend()
 
-            # plot the input used for the forward pass. 
+            # plot the input used for the forward pass.
             pl.subplot(222, sharex=ax1)
 
             fw_prev = jax.tree_util.tree_map(itemgetter(i-1), outputs['forward_sol'])
@@ -801,16 +801,16 @@ def ddp_main(problem_params, algo_params, x0):
             # plot the eigenvalues of S from the backward pass.
             pl.subplot(223, sharex=ax1)
 
-            # eigenvalues at nodes. 
+            # eigenvalues at nodes.
             sorted_eigs = lambda S: np.sort(np.linalg.eig(S)[0].real)
             S_eigenvalues = jax.vmap(sorted_eigs)(bw.ys[2])
             eigv_label = ['S(t) eigenvalues'] + [None] * (nx-1)
             pl.semilogy(bw.ts, S_eigenvalues, color='C0', marker='.', linestyle='', label=eigv_label)
             # also as line bc this line is more accurate than the "interpolated" one below if timesteps become very small
-            pl.semilogy(bw.ts, S_eigenvalues, color='C0')  
+            pl.semilogy(bw.ts, S_eigenvalues, color='C0')
 
             # eigenvalues interpolated. though this is kind of dumb seeing how the backward
-            # solver very closely steps to the non-differentiable points. 
+            # solver very closely steps to the non-differentiable points.
             S_interp = jax.vmap(bw.evaluate)(ts)[2]
             S_eigenvalues_interp = jax.vmap(sorted_eigs)(S_interp)
             pl.semilogy(ts, S_eigenvalues_interp, color='C0', linestyle='--', alpha=.5)
@@ -829,7 +829,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         def plot_taylor_sanitycheck(i):
 
-            # see if the lambda = vx and S = vxx are remotely plausible. 
+            # see if the lambda = vx and S = vxx are remotely plausible.
 
             pl.figure(f'taylor sanity check {i}')
 
@@ -839,7 +839,7 @@ def ddp_main(problem_params, algo_params, x0):
             fw = jax.tree_util.tree_map(itemgetter(i), outputs['forward_sol'])
             bw = jax.tree_util.tree_map(itemgetter(i), outputs['backward_sol'])
 
-            
+
 
             interp_fw = jax.vmap(fw.evaluate)(ts)
             interp_bw = jax.vmap(bw.evaluate)(ts)
@@ -866,14 +866,14 @@ def ddp_main(problem_params, algo_params, x0):
             # the total time derivative of v we're after
             v_ts = jax.vmap(np.dot)(lambdas, fs)
 
-            # for each of the derivatives, plot a small line. 
+            # for each of the derivatives, plot a small line.
 
             def line_params(t, v, v_t):
                 line_len = 0.1
                 diffvec_unscaled = np.array([1, v_t])
                 diffvec = line_len * diffvec_unscaled / np.linalg.norm(diffvec_unscaled)
 
-                # nan in between to break up lines. 
+                # nan in between to break up lines.
                 xs = np.array([t-diffvec[0], t+diffvec[0], np.nan])
                 ys = np.array([v-diffvec[1], v+diffvec[1], np.nan])
                 return xs, ys
@@ -887,8 +887,8 @@ def ddp_main(problem_params, algo_params, x0):
             pl.plot(fw.ts, bw_ys_at_fw_t[0], linestyle='', marker='.', alpha=1, color='C0')
             pl.plot(ts, interp_bw[0], linestyle='--', alpha=.1, label='v(x(t))', color='C0')
 
-            # should we just directly plug in a couple of t's in the taylor approximation? 
-            # via x(t)? or via taylor approx of that? 
+            # should we just directly plug in a couple of t's in the taylor approximation?
+            # via x(t)? or via taylor approx of that?
 
             def line_params_hessian(t, bw_y):
                 t_len = 1.
@@ -913,8 +913,8 @@ def ddp_main(problem_params, algo_params, x0):
 
 
         plot_forward_backward(400)
-        
-        # try to isolate that one failure. 
+
+        # try to isolate that one failure.
         i = 630
         ta = 4.7
         tb = 4.8
@@ -929,15 +929,15 @@ def ddp_main(problem_params, algo_params, x0):
         interp_ts = np.linspace(t0, tf, 512)
         # for j in range(100, 110): plot_forward_backward(j)
 
-        # find the spot where it failed. 
+        # find the spot where it failed.
         # except if it fails due to instabilit
         # take just state 0 (pos x) because the others are inf/NaN in same case.
         # take second state of each trajectory because first one is initial state
-        # and always defined. 
+        # and always defined.
         second_states = outputs['forward_sol'].ys[:, 1, 0]
         isnan = np.isnan(second_states)
         isfinite = np.isfinite(second_states)
-        is_valid = np.logical_and(isfinite, np.logical_not(isnan)) 
+        is_valid = np.logical_and(isfinite, np.logical_not(isnan))
         last_valid_idx = np.max(is_valid * np.arange(is_valid.shape[0]))
 
         # for j in np.arange(last_valid_idx - 3, last_valid_idx + 3):
@@ -985,7 +985,7 @@ def ddp_main(problem_params, algo_params, x0):
 
         ax = pl.subplot(311)
         # update norm
-        # difference of state vectors between iterations, norm across both time and state axis. 
+        # difference of state vectors between iterations, norm across both time and state axis.
         update_norm = np.linalg.norm(np.diff(all_statevecs, axis=1), axis=(0, 2)) / N_t
         pl.semilogy(update_norm, label='update norm, averaged over t')
         pl.semilogy(update_norm / all_trajnorms[:-1], label='relative update norm, averaged over t')
@@ -993,10 +993,10 @@ def ddp_main(problem_params, algo_params, x0):
         pl.xlabel('iterations')
 
         pl.subplot(312, sharex=ax)
-        # just for one iteration. 
+        # just for one iteration.
         def PMP_residuals_iter(k, Nt):
-            backsol = jax.tree_util.tree_map(lambda x: x[k], outputs['backward_sol']) 
-            fwdsol = jax.tree_util.tree_map(lambda x: x[k], outputs['forward_sol']) 
+            backsol = jax.tree_util.tree_map(lambda x: x[k], outputs['backward_sol'])
+            fwdsol = jax.tree_util.tree_map(lambda x: x[k], outputs['forward_sol'])
             fct = lambda t: PMP_wrongness(t, backsol.evaluate(t), fwdsol)
 
             ts_fine = np.linspace(t0, tf, Nt)
@@ -1004,13 +1004,13 @@ def ddp_main(problem_params, algo_params, x0):
             PMP_residuals = jax.vmap(fct)(ts_fine)
             return PMP_residuals
 
-        # we expect this residual to be less smooth as a function of t than 
+        # we expect this residual to be less smooth as a function of t than
         # the update norm, thus finer discretisation is used here.
         Nt_fine = 100
         # and vmap for all iterations. this is of shape (N_iters, Nt_fine)
         all_PMP_residuals = jax.vmap(PMP_residuals_iter, in_axes=(0, None))(np.arange(N_iters), Nt_fine)
 
-        # averaged over time axis. 
+        # averaged over time axis.
         mean_PMP_residuals = np.linalg.norm(all_PMP_residuals, axis=1) / Nt_fine
         pl.semilogy(mean_PMP_residuals, label='PMP residual, averaged over t')
         pl.semilogy(mean_PMP_residuals / all_trajnorms, label='relative PMP residual, averaged over t')
@@ -1022,9 +1022,9 @@ def ddp_main(problem_params, algo_params, x0):
         pl.plot(v0s, label='v(0)')
         pl.xlabel('iterations')
         pl.legend()
-        
-        # same data, but in a parametric form. 
-        # same plot twice: markers plus translucent line. 
+
+        # same data, but in a parametric form.
+        # same plot twice: markers plus translucent line.
         pl.figure('PMP error vs update norm')
         pl.loglog(mean_PMP_residuals[1:], update_norm, linestyle='', marker='.', c='C0')
         pl.loglog(mean_PMP_residuals[1:], update_norm, alpha=0.2, c='C0')
@@ -1032,7 +1032,7 @@ def ddp_main(problem_params, algo_params, x0):
         pl.ylabel('update norm')
 
 
-        # plot something like || d/dt (x(t), lambda(t)) - PMP_RHS(x(t), lambda(t)) || as function of time? 
+        # plot something like || d/dt (x(t), lambda(t)) - PMP_RHS(x(t), lambda(t)) || as function of time?
         # if PMP fulfilled to low tolerance we are (probably) not having any problems
 
         # pl.figure('backward pass')
@@ -1047,7 +1047,7 @@ def ddp_main(problem_params, algo_params, x0):
         pl.legend()
 
         # astonishingly this works without any weird stuff :o very cool
-        # but only the solutions corresponding to the last iteration at each initial state. 
+        # but only the solutions corresponding to the last iteration at each initial state.
         idxs = iters_from_same_x0 == (iters_per_x0 - 1)
 
         sols_pruned = jax.tree_util.tree_map(lambda z: z[idxs], outputs['forward_sol'])
@@ -1056,16 +1056,16 @@ def ddp_main(problem_params, algo_params, x0):
 
         def visualise_negative_hessian_direction(idx):
             '''
-            For the given iteration, this finds the negative eigenvalues of the 
+            For the given iteration, this finds the negative eigenvalues of the
             hessian S(0), perturbs initial states in that direction and plots the
-            resulting batch of forward simulations with meshcat. 
+            resulting batch of forward simulations with meshcat.
             '''
 
             # get solutions
             fw = jax.tree_util.tree_map(itemgetter(idx), outputs['forward_sol'])
             bw = jax.tree_util.tree_map(itemgetter(idx), outputs['backward_sol'])
 
-            # find value S(0) and its eigendecomposition. 
+            # find value S(0) and its eigendecomposition.
             S0 = bw.evaluate(0)[2]
 
             vals, vecs = np.linalg.eigh(S0)
@@ -1093,9 +1093,9 @@ def ddp_main(problem_params, algo_params, x0):
                 # emulates the *next* forward pass from "adversarially" perturbed x0
                 sols = jax.vmap(ddp_forwardpass, in_axes=(None, None, 0))(fw, bw, x0s)
                 visualiser.plot_trajectories_meshcat(sols)
- 
 
-        # show negative S eigenvalues. 
+
+        # show negative S eigenvalues.
         # this as an image would be much cooler, with interpolation...
         eigs = lambda S: np.linalg.eig(S)[0].real
 
@@ -1112,11 +1112,11 @@ def ddp_main(problem_params, algo_params, x0):
         pl.colorbar(); pl.tight_layout()
         pl.xlabel('iteration')
         pl.ylabel('t')
- 
+
 
 
 
 
         pl.show()
-        ipdb.set_trace()        
+        ipdb.set_trace()
 

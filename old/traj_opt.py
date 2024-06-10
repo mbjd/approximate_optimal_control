@@ -29,6 +29,127 @@ import visualiser
 import wandb
 from misc import *
 
+def trajopt_pmp(problem_params, algo_params):
+
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+
+    x_eq = problem_params['x_eq']
+    V_f = lambda x: 0.5 * (x - x_eq).T @ P_lqr @ (x - x_eq)
+    u_lqr_fct = lambda x: -K_lqr @ (x - problem_params['x_eq']) + problem_params['u_eq']
+
+    # PMP backward shooting trajectory optimisaiton. only shitty version
+    # that hopefully works locally.
+
+
+    T = 3.
+    algo_params['pontryagin_solver_T'] = T
+
+    x0 = np.array([-1., -0, 0, 1, 0, 0, 0.])
+
+    # beef up precision settings.
+    algo_params['pontryagin_solver_atol'] = 1e-5
+    algo_params['pontryagin_solver_rtol'] = 1e-5
+    algo_params['pontryagin_solver_maxsteps'] = 512
+    solve_backward, f_extended = pontryagin_utils.define_backward_solver(problem_params, algo_params)
+
+    def solve_backward_lqr(x_f, algo_params):
+
+        v_f = V_f(x_f)
+        vx_f = jax.jacobian(V_f)(x_f)
+
+        state_f = {
+            'x': x_f,
+            't': 0,
+            'v': v_f,
+            'vx': vx_f,
+        }
+
+        if algo_params['pontryagin_solver_vxx']:
+            vxx_f = P_lqr
+            state_f['vxx'] = vxx_f
+
+        return solve_backward(state_f, v_upper=5000)
+
+    def residual(x):
+
+        sol = solve_backward_lqr(x, algo_params)
+
+        y0 = sol.evaluate(sol.t1)
+
+        return np.linalg.norm(x0 - y0['x'])
+
+    cost_fn = jax.jit(residual)
+    grad_fn = jax.jit(jax.jacobian(residual))
+
+    # now, find x = argmin_x residual(x).
+
+
+
+    import jaxopt
+
+    params0 = np.array([0.0001, -0, 0, 1, 0, 0, 0.])
+
+    # fun = jax.jit(jax.value_and_grad(sim))
+    fun = jax.jit(jax.value_and_grad(residual))
+    N_steps = 1000
+
+    s0, s1 = 1e-6, 1e-8
+
+    opti = jaxopt.LBFGS(
+            fun=fun, value_and_grad=True,
+            history_size=20,
+            stepsize = lambda i: s0 * (s1/s0)**(i/N_steps),
+            # linesearch_init='current',
+            # max_stepsize=1e-3,
+            # min_stepsize=1e-6,
+            # maxiter=N_steps,
+            # tol=0.0001,
+            )
+
+    state = opti.init_state(params0)
+    params = params0
+
+    update = jax.jit(opti.update)
+    costs = []
+    for j in tqdm.tqdm(range(N_steps)):
+        (params, state) = update(params, state)
+        costs.append(cost_fn(params))
+    pl.semilogy(costs)
+    # lr_init = .01
+    # lr_final = 0.00001
+    # N_steps = 10000
+
+    # lr_schedule = optax.exponential_decay(
+    #         init_value = lr_init,
+    #         transition_steps = N_steps,
+    #         decay_rate = lr_final / lr_init,
+    #         end_value=lr_final,
+    #         staircase=False
+    # )
+
+    # opti = optax.adam(learning_rate=lr_schedule, nesterov=True,
+    #         b1=.98, b2=.98)
+
+    # params = np.array([0.0001, -0, 0, 1, 0, 0, 0.])
+
+    # opt_state = opti.init(params)
+
+    # costs = []
+    # for j in tqdm.tqdm(range(N_steps)):
+    #     grad = grad_fn(params)
+    #     updates, opt_state = opti.update(grad, opt_state, params)
+    #     params = optax.apply_updates(params, updates)
+    #     cost = cost_fn(params)
+    #     # print(cost)
+    #     costs.append(cost)
+    # pl.semilogy(costs)
+    pl.show()
+    ipdb.set_trace()
+
+
+
+
+
 
 def trajopt(problem_params):
 
@@ -278,8 +399,10 @@ def trajopt(problem_params):
 
 if __name__ == '__main__':
 
-    from flatquad_landing_experiment import define_problem_params
+    from flatquad_landing_experiment import define_problem_params, base_algo_params
     problem_params = define_problem_params()
+    algo_params = base_algo_params()
 
 
-    trajopt(problem_params)
+    trajopt_pmp(problem_params, algo_params)
+    # trajopt(problem_params)

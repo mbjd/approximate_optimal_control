@@ -9,69 +9,103 @@ from util import (available_gpus, dict_permutations, random_dict_permutations,
 PROJECT_NAME = 'flatquad'
 # PROJECT_NAME = 'orbits'
 
-flatquad_configs = {
-    # 'T_value_target': [1/2, 1, 2.],
-    # 'weight_decay': [.0001, .0005, .001, .005, .01, .05, .1],
-    # 'weight_decay': [.0002, .0003, .0004, .0005, .0007, .0009, .001, .0012, .0015],
-    # 'nn_type': ['minout_softplus', 'softplus', 'experimental'],
-    # 'lr_init': [0.05, 0.02, 0.01, 0.005],
-    # 'lr_final': [0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001],
-    # 'nn_N_epochs': [1024, 2048],
-    # 'nn_warmstart_fraction': [1/4, 1/3, 1/2, 1.],
-    # 'L_v': [200, 500],
-    # 'L_vx': [300, 400, 500, 700, 1000, 1500, 2000, 3000, 5000, 7000, 10000],
-    # 'vx_loss_d': [.001, .005, 0.01, .05, .1, .5, 1],
-    # 'v_loss_d': [.001, .005, .01, .05, .1, .5, 1],
-    # 'vx_loss_d': [.1, .2, .5],
-    # 'v_loss_d': [.01, .05, .1, .5],
+N_seeds = 4
 
-    # 'nn_type': ['leaky', 'softplus'],
-    # 'thin_data_denominator': [1, 5, 10, 20, 50, 100, 100000],
-    # 'lr_final': [.00005, .0001, .0002, .0005, .001, .002, .005, .01, .02, .05],
-    # 'seed': [1,2,3,4,5,6,7,8],
-    # 'weight_decay': [.0005, .0007, .001, .002, .005, .007, .01, .02],
-    # 'weight_decay': .005, # .001 next?
-    # 'vx_loss_d': [ 0.1, 0.2, 0.3, 0.4, 0.5 ],
+# nicely working base config.
+flatquad_configs_base = {
 
-    # 'inv_vx_loss_fadeout': [0.],
-    # 'proposal_strategy': ['max_kernel_adaptive', 'uniform_uncertain', 'uniform_all'],
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.001],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [512],
+    'sweep_name': ['base'],
+    'seed': list(range(N_seeds)),
 
-    # 'T_value_target': [0.1, 0.3, 1.],
-    # 'proposal_kernel_scaling': [0.1, 1.],
-    # 'include_future_data': ['True', 'False'],
-    # 'thin_data_denominator': [10, 5, 3, 2],
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
 
 
-    # recreating 'comic-deluge'
+# sweep over weight decay
+flatquad_configs_wd = {
 
-    # 'seed': [1,2,3,4,5,6,7,8],
-    # 'nn_value_sweep': [True, False],
-    # 'lr_final': [0.0002, 0.0005, 0.001, 0.002, 0.005],
-    # 'weight_decay': [0.001, 0.002, 0.005, 0.01],
-    # 'lr_final': np.logspace(-4, -2, 8),
-    # 'vx_loss_d': [0.3],
-    # 'inv_vx_loss_fadeout': [0.],
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.001],
+    'weight_decay': [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [512],
+    'sweep_name': ['weight_decay'],
+    'seed': list(range(N_seeds)),
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
 
 
-    # ... and similar ones
-    'nn_value_sweep': [True, False],
-    # 'nn_layer_dim': [64, 128, 256],
-    'nn_layer_dim': [128, 256],
-    # 'thin_data': [False],
-    # 'lr_final': [0.002, 0.001, 0.0005],
-    'lr_final': [0.002, 0.001],
-    'weight_decay': [0.002, 0.001, 0.0005],
-    'vx_loss_d': [0.2, 0.3, 0.4, 0.5],
-    'consider_old_data': [True, False],
-    'inv_vx_loss_fadeout': [1., 3., 10., 30.,],
-    # 'relative_kernel_lengthscale': [1/8, 1/4, 1/2],
-    'relative_kernel_lengthscale': [1/8, 1/6, 1/4, 1/3, 1/2],
-    'active_learning_batchsize': [128, 256, 512, 1024],
-    'sweep_name': ['euler_test_random'],
+# sweep over batchsize
+flatquad_configs_batchsize = {
+
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.001],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [64, 128, 256, 512, 1024],
+    'sweep_name': ['batchsize'],
+    'seed': list(range(N_seeds)),
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
 
 
-    # 'nn_sobolev_weight_vx': [0.01, 0.03, 0.1, 0.3, 1., 3., 10., 30., 100.],
-    # 'inv_vx_loss_fadeout': [0.1, 0.3, 1., 3., 10., 30., 100.],
+# sweep over nn layer dim
+flatquad_configs_layerdim = {
+
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [32, 64, 128, 256, 1024],
+    'lr_final': [0.001],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [128],
+    'sweep_name': ['layerdim'],
+    'seed': list(range(N_seeds)),
 
     # OUTPUT & VISUALISATION
     # (euler config here so we can keep local debugging type config in main file)
@@ -116,11 +150,11 @@ orbits_configs = {
 def main():
     command_list = []
 
-    random = True
+    random = False
 
     if PROJECT_NAME == 'flatquad':
         import flatquad_landing_experiment as exp
-        config_dict = flatquad_configs
+        config_dict = flatquad_configs_layerdim
         num_gpus = 1
     elif PROJECT_NAME == 'orbits':
         import orbits_experiment as exp

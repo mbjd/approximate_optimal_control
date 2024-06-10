@@ -461,7 +461,7 @@ if plot_levelsets:
                     # intersecs.append(xb)
 
     # do it again for the intersections at finer resolution
-    pl.figure('shit')
+    pl.figure('shit')  # needed so other one is not cluttered
 
     sqrtspace = lambda a, b, n: np.linspace(np.sqrt(a), np.sqrt(b), n)**2
 
@@ -474,7 +474,7 @@ if plot_levelsets:
             intersecs.append(xa)
             intersecs.append(xb)
     intersecs = np.array(intersecs)
-    pl.plot(*intersecs.T, '. ', c='red')
+    # pl.plot(*intersecs.T, '. ', c='red')
     pl.clf()
 
     # now, sort this 'intersecs' array appropriately.
@@ -534,7 +534,8 @@ if plot_results:
 
 
 
-    learned_v_masked = np.where(learned_v > levels[-1], np.nan, learned_v)
+    learned_v_too_high = learned_v > levels[-1]
+    learned_v_masked = np.where(learned_v_too_high, np.nan, learned_v)
     # pl.subplot(121)
     # ax.set_aspect('equal')
     # imshow_like_contourf(xx, yy, np.log10(learned_v_masked), levels=levels)
@@ -543,89 +544,169 @@ if plot_results:
 
     fig = pl.figure('orbits_results', figsize=(pagewidth, 0.4*pagewidth))
 
-    ax = pl.subplot(121)
+    ax = pl.subplot(131)
     # imshow_like_contourf(xx, yy, learned_v_masked)
     ax.set_aspect('equal')
     pl.contourf(xx, yy, learned_v, levels=levels)
     pl.colorbar()
     pl.xlabel('learned cost')
 
-    ax = pl.subplot(122, sharex=ax, sharey=ax)
+
+    # and the most interesting thing finally: control cost vs 'reference'
+    # solution. was again too much work to do that. would have been cool, maybe
+    # later \o/ but i guess visually comparing with the level sets of the ref
+    # sol should be adequate too.
+
+    # unwrap the angle.
+
+    sqrtspace = lambda a, b, n: np.linspace(np.sqrt(a), np.sqrt(b), n)**2
+
+    vs_remesh = np.logspace(np.log10(vf), np.log10(vmax), 200)
+    vs_remesh_lin = np.linspace(vf, vmax, 200)
+    vs_remesh = sqrtspace(vf, vmax, 200)
+    ys_remeshed = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_remesh))(sols)
+
+    xs = ys_remeshed['x']
+    # xs = np.where(xs == np.inf, np.nan, xs)
+    phis = np.arctan2(xs[:, :, 0], xs[:, :, 1])
+    phis = np.unwrap(phis, axis=1)
+
+    xs = ys_remeshed['x'].reshape(-1, 2)
+    phis = phis.reshape(-1)
+    vs = ys_remeshed['v'].reshape(-1)
+    vxs = ys_remeshed['vx'].reshape(-1, 2)
+
+    # transform to repr where solution is unique: polar.
+    zs = np.column_stack([
+        np.linalg.norm(xs, axis=1),
+        phis,
+    ])
+
+
+    @jax.jit
+    def v_ref(x):
+
+        # this uses <gasp> GLOBAL VARIABLES xs, phis, vs, vxs, defined just
+        # above. if you redefine those in any way, this will probably break.
+
+        phis = np.arctan2(x[0], x[1]) + np.arange(-1, 2) * 2 * np.pi
+
+        def v_local(phi):
+
+            # find min distance in polar coordinates.
+            z = np.array([np.linalg.norm(x), phi])
+            dists = np.linalg.norm(zs - z[None, :], axis=1)
+            closest_idx = np.argmin(dists)
+            closest_dist = dists[closest_idx]
+
+            # do 1st order taylor approx in cartesian coords.
+            closest_v = vs[closest_idx]
+            closest_x = xs[closest_idx]
+            closest_vx = vxs[closest_idx]
+            v = closest_v + closest_vx @ (x - closest_x)
+
+            return v, closest_dist
+
+        # select the best solution, but only if "within" data.
+        v_candidates, dists = jax.lax.map(v_local, phis)
+        is_invalid = dists > 0.2
+        v_candidates = v_candidates + np.inf * is_invalid
+        return np.min(v_candidates)
+
+
+    # so this works now :)
+    # what do we do?
+
+    vref_fpath = os.path.join(data_dir, 'v_refs.msgpack.gz')
+
+    # store v_ref results bc that takes ages
+    if os.path.isfile(vref_fpath):
+        print('reading existing vref data')
+        with gzip.open(fpath, 'rb') as f:
+            bs = f.read()
+        vref_data = flax.serialization.msgpack_restore(bs)
+
+        if not ( (xx == vref_data['xx']).all() and (yy == vref_data['yy']).all()):
+            print('different grid. you may want to regenerate vref data')
+
+        xx = vref_data['xx']
+        yy = vref_data['yy']
+        v_refs = vref_data['v']
+    else:
+        print('calculating & saving vref data')
+        states = np.column_stack([xx.flatten(), yy.flatten()])
+        print('starting v_refs calculation')
+        v_refs = jax.lax.map(v_ref, states).reshape(xx.shape)
+
+        v_ref_data = {
+                'xx': xx,
+                'yy': yy,
+                'v': v_refs,
+        }
+        bs = flax.serialization.msgpack_serialize(sols_flat)
+        with gzip.open(fpath, 'wb') as f:
+            f.write(bs)
+
+
+    # learned cost / optimal cost
+    ax = pl.subplot(132, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
     ratio = controlcost / learned_v_masked
     imshow_like_contourf(xx, yy, np.log10(ratio))
-    pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
+
+    # pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
+    pl.colorbar()  # TODO horizontal one?
+    pl.xlabel('log10(learned cost / optimal cost)')
+
+    # plot: closed loop cost / reference cost.
+    ax = pl.subplot(133, sharex=ax, sharey=ax)
+    ax.set_aspect('equal')
+
+    ratio = controlcost / v_refs + np.inf * learned_v_too_high
+
+    imshow_like_contourf(xx, yy, np.log10(ratio))
+    # pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
     pl.colorbar()
-    pl.xlabel('log10(achieved cost / learned cost)')
+    pl.xlabel('log10(closed-loop cost / optimal cost)')
 
     fig.tight_layout()
     pl.savefig(f'./{fig_dir}/orbits_results.{fig_format}', bbox_inches='tight', dpi=dpi)
     if show:
         pl.show()
 
-# and the most interesting thing finally: control cost vs 'reference'
-# solution. was again too much work to do that. would have been cool, maybe
-# later \o/ but i guess visually comparing with the level sets of the ref
-# sol should be adequate too.
+    fig = pl.figure('orbits_results_lines', figsize=(pagewidth, 0.4*pagewidth))
 
-# unwrap the angle.
+    def plot_y_line(y_value):
+        y_idx = np.argmin((yy[:, 0] - y_value)**2)
+        x_plot = (xx + np.nan * learned_v_too_high)[y_idx, :]
 
-sqrtspace = lambda a, b, n: np.linspace(np.sqrt(a), np.sqrt(b), n)**2
+        lower = eval_outputs['v_mean'][y_idx, :] - sigs * eval_outputs['v_stds'][y_idx, :]
+        upper = eval_outputs['v_mean'][y_idx, :] + sigs * eval_outputs['v_stds'][y_idx, :]
 
-vs_remesh = np.logspace(np.log10(vf), np.log10(vmax), 200)
-vs_remesh_lin = np.linspace(vf, vmax, 200)
-vs_remesh = sqrtspace(vf, vmax, 200)
-ys_remeshed = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_remesh))(sols)
+        pl.plot(x_plot, eval_outputs['v_mean'][y_idx, :], label='learned v mean', c='C0')
+        pl.fill_between(x_plot, lower, upper,
+                label=f'learned v {sigs}σ confidence',
+                color='C0', alpha=confidence_band_alpha)
 
-xs = ys_remeshed['x']
-# xs = np.where(xs == np.inf, np.nan, xs)
-phis = np.arctan2(xs[:, :, 0], xs[:, :, 1])
-phis = np.unwrap(phis, axis=1)
+        pl.plot(x_plot, controlcost[y_idx, :], c='C1', label='closed loop cost')
+        pl.plot(x_plot, v_refs[y_idx, :], c='C2', label='optimal cost')
+        pl.ylim([0, 420])
+        pl.xlabel(f'x_1 (x_2 = {y_value:.1f})')
+        pl.ylabel('value')
+        pl.legend()
 
-xs = ys_remeshed['x'].reshape(-1, 2)
-phis = phis.reshape(-1)
-vs = ys_remeshed['v'].reshape(-1)
-vxs = ys_remeshed['vx'].reshape(-1, 2)
+    pl.subplot(121)
+    plot_y_line(0.7)
+    pl.subplot(122)
+    plot_y_line(-0.7)
 
-# transform to repr where solution is unique: polar.
-zs = np.column_stack([
-    np.linalg.norm(xs, axis=1),
-    phis,
-])
+    fig.tight_layout()
+    pl.savefig(f'./{fig_dir}/orbits_results_lines.{fig_format}', bbox_inches='tight', dpi=dpi)
+    if show:
+        pl.show()
 
+    ipdb.set_trace()
 
-def v_ref(x):
-
-    # this uses <gasp> GLOBAL VARIABLES xs, phis, vs, vxs, defined just
-    # above. if you redefine those in any way, this will probably break.
-
-    phis = np.arctan2(x[0], x[1]) + np.arange(-1, 2) * 2 * np.pi
-
-    def v_local(phi):
-
-        # find min distance in polar coordinates.
-        z = np.array([np.linalg.norm(x), phi])
-        dists = np.linalg.norm(zs - z[None, :], axis=1)
-        closest_idx = np.argmin(dists)
-        closest_dist = dists[closest_idx]
-
-        # do 1st order taylor approx in cartesian coords.
-        closest_v = vs[closest_idx]
-        closest_x = xs[closest_idx]
-        closest_vx = vxs[closest_idx]
-        v = closest_v + closest_vx @ (x - closest_x)
-
-        return v, closest_dist
-
-    # select the best solution, but only if "within" data.
-    v_candidates, dists = jax.lax.map(v_local, phis)
-    is_invalid = dists > 0.2
-    v_candidates = v_candidates + np.inf * is_invalid
-    return np.min(v_candidates)
-
-
-# so this works now :)
-# what do we do?
-
+    # other figure with cost cdf like other examples?
 
 # }}}

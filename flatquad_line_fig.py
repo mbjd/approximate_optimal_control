@@ -55,10 +55,9 @@ def plot_lines_singlerun(run_id):
 
         pl.plot(xs, data['v_means'], c='C0', label='v mean')
 
-        sigs = 3
         lower = data['v_means']-sigs*data['v_stds']
         upper = data['v_means']+sigs*data['v_stds']
-        pl.fill_between(xs, lower, upper, color='C0', alpha=.1, label=f'v {sigs}σ confidence')
+        pl.fill_between(xs, lower, upper, color='C0', alpha=confidence_band_alpha, label=f'v {sigs}σ confidence')
 
         pl.plot(xs, data['costs'], color='C1', label='Incurred cost')
 

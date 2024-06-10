@@ -14,8 +14,12 @@ import matplotlib.pyplot as pl
 
 
 data_dir = 'plot_data'
-show = True
+show = False
 pagewidth = 2 * textwidth   # to make it look nicer...
 fig_dir = './report_figs/'
 fig_format = 'pdf'
 dpi = 100
+
+# confidence band width
+sigs = 3
+confidence_band_alpha = 0.1

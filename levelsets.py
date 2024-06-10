@@ -2046,6 +2046,8 @@ def evaluate(run_dir, problem_params, algo_params):
         sys = problem_params['system_name']
         save_dir = os.path.join(os.environ['SCRATCH'], f'{sys}_runs')
 
+        # change this for euler!
+        run_dir = os.path.join(save_dir, run_id)
         filepath = os.path.join(save_dir, run_id, 'all_data.msgpack.gz')
     else:
 
@@ -2311,45 +2313,14 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
         xx, yy = np.meshgrid(x, y)
         xs = np.column_stack([xx.flatten(), yy.flatten()])
 
-        # just above what it needs empirically
-        algo_params['pontryagin_solver_maxsteps'] = 180
-        sim = lambda x0: forward_sim_nn(x0, v_nn, nn_params, problem_params, algo_params, T=30.)
-        sols = jax.vmap(sim)(xs)
+        costs, _, v_means, v_stds = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
 
-        if not (sols.stats['num_steps'] < algo_params['pontryagin_solver_maxsteps']).all():
-            print('eval_controlcost_2d: warning, solver step limit reached, plz increase')
-
-        solver_steps = sols.stats['num_steps'].reshape(N_grid, N_grid)
-
-        last_ys = jax.vmap(lambda sol: sol.evaluate(sol.t1))(sols)
-        last_costs = last_ys['cost']
-
-        # correct for inf horizon with lqr. to make this better, stop ODE
-        # solver once low? though for 2D problem seems to be good like this
-        K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
-        eq = problem_params['x_eq']
-        lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_ys['x'])
-        costs = (last_costs + lqr_terminalcosts).reshape(N_grid, N_grid)
-
-        # 1 size ensemble
-        params = jtm(itemgetter(0), nn_params)
-        vs = jax.vmap(v_nn, in_axes=(None, 0))(params, xs).reshape(N_grid, N_grid)
-
-        # then, in the plotting script do this but nicer:
-        # levels=np.linspace(0, 1000, 50)
-        # ax = pl.subplot(211)
-        # pl.contour(xx, yy, vs, levels=levels)
-        # pl.xlabel('learned v')
-        # ax = pl.subplot(212, sharex=ax, sharey=ax)
-        # pl.contour(xx, yy, costs, levels=levels)
-        # pl.xlabel('incurred cost')
-        # pl.show()
-
+        eval_outputs = dict()
         eval_outputs['xx'] = xx
         eval_outputs['yy'] = yy
-        eval_outputs['learned_v'] = vs
-        eval_outputs['controlcost'] = costs
-        eval_outputs['v_train'] = v_train
+        eval_outputs['v_mean'] = v_means.reshape(xx.shape)
+        eval_outputs['v_stds'] = v_stds.reshape(xx.shape)
+        eval_outputs['controlcost'] = costs.reshape(xx.shape)
 
         bs = flax.serialization.msgpack_serialize(eval_outputs)
         sysname = problem_params['system_name']
@@ -2427,15 +2398,14 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             test_cases = np.array([
                 [ [-10, 0, 0,  1, 0, 0, 0], [+10, 0, 0,  1, 0, 0, 0] ],  # easy case: sweep x
                 [ [-10, 0, 0, -1, 0, 5, 0], [+10, 0, 0, -1, 0, 5, 0] ],  # usual one: upside down, moving upwards, sweep over x
-                [ [-10, 0, 0, -1, 0, 15, 0], [+10, 0, 0, -1, 0, 15, 0] ],  # same but faster
+                [ [-10, 0, 0, -1, 0, 10, 0], [+10, 0, 0, -1, 0, 10, 0] ],  # same but faster
                 [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right to varying degrees
             ])
 
         elif problem_params['system_name'] == 'orbits':
             test_cases = np.array([
-                [ [-2, 1], [2, 1] ],  # easy case: sweep x
-                [ [-2, -1], [ 2, -1] ],  # usual one: upside down, moving upwards, sweep over x
-                [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right
+                [ [-2, 1], [2, 1] ],  # top
+                [ [-2, -1], [ 2, -1] ],  # bottom
             ])
 
         else:
@@ -2444,7 +2414,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
         test_cases = test_cases.astype(float)
 
-        if not 'SCRATCH' in os.environ:
+        if not 'SCRATCH' in os.environ and problem_params['system_name'] == 'flatquad':
             # show in meshcat too, to get a feel for it.
             for c in test_cases:
                 xs = np.linspace(c[0], c[1], N)

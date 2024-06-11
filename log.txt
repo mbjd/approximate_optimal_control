@@ -5758,11 +5758,21 @@ next up:
  - still writing, same stuff
 
 what to ask in meeting tomorrow?
+
  - recent progress generally, writing, result collection.
+
  - ask about sensible plots in results directly. tell current plan & ask
    for advice.
+
+ - some sort of video result??? would be *very* cool, a bit like:
+   https://hongkai-dai.github.io/figures/quadrotor3d.html
+
  - extensive proofreading of whole section 3.
    - most importantly: does it flow? is it understandable?
    - secondly though, everything else too. language appropriate? notation
      clear? comments which I'm unsure too
+
  - already ask to set aside time or make schedule for final proofreading?
+
+(- notation: will the world collapse if I decide to not follow the vector
+   bold convention? )

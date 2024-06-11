@@ -14,7 +14,7 @@ import matplotlib.pyplot as pl
 
 
 data_dir = 'plot_data'
-show = False
+show = True
 pagewidth = 2 * textwidth   # to make it look nicer...
 fig_dir = './report_figs/'
 fig_format = 'pdf'

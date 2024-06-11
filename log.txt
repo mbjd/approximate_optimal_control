@@ -5738,3 +5738,31 @@ TODO:
  - work on a nice concise and "well flowing" description of the results.
  - everything else (main part polishing, intro, discussion...)
 
+
+2024-06-11
+
+did some writing, polishing&shuffling in methods section.
+
+made plot nicer for orbits example, with correct labels and everything.
+
+next up:
+ - still, sweep plots flatquad
+
+ - more interesting sweeps that actually "use" the manifold part?  can show
+   neat failure cases too. actually, should probably do that bc otherwise
+   the reader will wonder why the "average" case is so bad but the plots
+   look so good.  but have to revamp the parameterisation which is
+   currently calculated with linspace. directly specify curves through
+   state space as lambda fcts?
+
+ - still writing, same stuff
+
+what to ask in meeting tomorrow?
+ - recent progress generally, writing, result collection.
+ - ask about sensible plots in results directly. tell current plan & ask
+   for advice.
+ - extensive proofreading of whole section 3.
+   - most importantly: does it flow? is it understandable?
+   - secondly though, everything else too. language appropriate? notation
+     clear? comments which I'm unsure too
+ - already ask to set aside time or make schedule for final proofreading?

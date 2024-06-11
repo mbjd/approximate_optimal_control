@@ -2420,6 +2420,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
                 xs = np.linspace(c[0], c[1], N)
                 xs = jax.vmap(problem_params['project_M'])(xs)
                 meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+        ipdb.set_trace()
 
         # ipdb.set_trace()
         # somehow this works with vmap but not with jax.lax.map...

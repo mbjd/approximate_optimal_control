@@ -39,7 +39,8 @@ from misc import *
 from orbits_experiment import base_algo_params, define_problem_params
 
 
-plot_results = plot_trajectories = plot_levelsets = True
+plot_results = True
+plot_trajectories = plot_levelsets = False
 
 run_id = 'i2tcnb3h'
 
@@ -622,7 +623,7 @@ if plot_results:
     # store v_ref results bc that takes ages
     if os.path.isfile(vref_fpath):
         print('reading existing vref data')
-        with gzip.open(fpath, 'rb') as f:
+        with gzip.open(vref_fpath, 'rb') as f:
             bs = f.read()
         vref_data = flax.serialization.msgpack_restore(bs)
 
@@ -644,14 +645,14 @@ if plot_results:
                 'v': v_refs,
         }
         bs = flax.serialization.msgpack_serialize(sols_flat)
-        with gzip.open(fpath, 'wb') as f:
+        with gzip.open(vref_fpath, 'wb') as f:
             f.write(bs)
 
 
     # learned cost / optimal cost
     ax = pl.subplot(132, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
-    ratio = controlcost / learned_v_masked
+    ratio = learned_v_masked / v_refs
     imshow_like_contourf(xx, yy, np.log10(ratio))
 
     # pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')

@@ -545,12 +545,16 @@ if plot_results:
 
     fig = pl.figure('orbits_results', figsize=(pagewidth, 0.4*pagewidth))
 
-    ax = pl.subplot(131)
+    ax = pl.subplot(121)
     # imshow_like_contourf(xx, yy, learned_v_masked)
     ax.set_aspect('equal')
-    pl.contourf(xx, yy, learned_v, levels=levels)
+    pl.xlim([-1.7, 1.9]); pl.ylim([-1.8, 1.8])
+    pl.contourf(xx, yy, learned_v, levels=np.arange(0, vmax+1, 20))
     pl.colorbar()
-    pl.xlabel('learned cost')
+
+    pl.xlabel('$x_1$')
+    pl.ylabel('$x_2$')
+    # pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
 
 
     # and the most interesting thing finally: control cost vs 'reference'
@@ -644,36 +648,85 @@ if plot_results:
                 'yy': yy,
                 'v': v_refs,
         }
-        bs = flax.serialization.msgpack_serialize(sols_flat)
+        bs = flax.serialization.msgpack_serialize(v_ref_data)
         with gzip.open(vref_fpath, 'wb') as f:
             f.write(bs)
 
 
     # learned cost / optimal cost
-    ax = pl.subplot(132, sharex=ax, sharey=ax)
-    ax.set_aspect('equal')
-    ratio = learned_v_masked / v_refs
-    imshow_like_contourf(xx, yy, np.log10(ratio))
+    # ax = pl.subplot(132, sharex=ax, sharey=ax)
+    # ax.set_aspect('equal')
+    # ratio = v_refs / learned_v_masked
+    # imshow_like_contourf(xx, yy, np.log10(ratio), cmap='plasma')
 
     # pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
-    pl.colorbar()  # TODO horizontal one?
-    pl.xlabel('log10(learned cost / optimal cost)')
+    # pl.colorbar()  # TODO horizontal one?
+    # pl.xlabel('log10(Optimal cost / learned cost)')
 
     # plot: closed loop cost / reference cost.
-    ax = pl.subplot(133, sharex=ax, sharey=ax)
+    ax = pl.subplot(122, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
 
+    # anti aliasing here? would involve
+    # - transforming to RGB using cmap manually
+    # - adding alpha channel and doing corresponding fadeout
     ratio = controlcost / v_refs + np.inf * learned_v_too_high
 
-    imshow_like_contourf(xx, yy, np.log10(ratio))
+    imshow_like_contourf(xx, yy, np.log10(ratio), cmap='plasma')
     # pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
     pl.colorbar()
-    pl.xlabel('log10(closed-loop cost / optimal cost)')
+    # pl.xlabel('log10(Closed-loop cost / optimal cost)')
+    pl.xlabel('$x_1$')
+    pl.ylabel('$x_2$')
+
 
     fig.tight_layout()
     pl.savefig(f'./{fig_dir}/orbits_results.{fig_format}', bbox_inches='tight', dpi=dpi)
     if show:
         pl.show()
+
+
+    fig = pl.figure('orbits_results_stats', figsize=(pagewidth, 0.4*pagewidth))
+
+    pl.subplot(121)
+    rel_suboptimality = (controlcost / v_refs - 1)[~learned_v_too_high]
+    pl.semilogy(learned_v[~learned_v_too_high], rel_suboptimality, '. ', alpha=.2)
+    pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
+    pl.ylabel('Relative suboptimality')
+    pl.grid('on')
+    pl.ylim([1e-4, 1e2])
+
+    pl.subplot(122)
+    pl.semilogx(rel_suboptimality.sort(), np.linspace(0, 1, rel_suboptimality.shape[0]))
+    pl.grid('on')
+    pl.xlim([1e-4, 1e1])
+    pl.xlabel('r')
+    pl.ylabel('P(Relative suboptimality $\leq$ r)')
+
+
+    fig.tight_layout()
+    pl.savefig(f'./{fig_dir}/orbits_results_stats.{fig_format}', bbox_inches='tight', dpi=dpi)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     fig = pl.figure('orbits_results_lines', figsize=(pagewidth, 0.4*pagewidth))
 
@@ -684,16 +737,16 @@ if plot_results:
         lower = eval_outputs['v_mean'][y_idx, :] - sigs * eval_outputs['v_stds'][y_idx, :]
         upper = eval_outputs['v_mean'][y_idx, :] + sigs * eval_outputs['v_stds'][y_idx, :]
 
-        pl.plot(x_plot, eval_outputs['v_mean'][y_idx, :], label='learned v mean', c='C0')
+        pl.plot(x_plot, eval_outputs['v_mean'][y_idx, :], label='Mean value $\mu_{\\boldsymbol{\Theta}}$', c='C0')
         pl.fill_between(x_plot, lower, upper,
-                label=f'learned v {sigs}σ confidence',
+                label='Confidence $\mu_{\\boldsymbol{\Theta}} \pm ' + str(sigs) + '\sigma_{\\boldsymbol{\Theta}}$',
                 color='C0', alpha=confidence_band_alpha)
 
-        pl.plot(x_plot, controlcost[y_idx, :], c='C1', label='closed loop cost')
-        pl.plot(x_plot, v_refs[y_idx, :], c='C2', label='optimal cost')
+        pl.plot(x_plot, controlcost[y_idx, :], c='C1', label='Closed loop cost')
+        pl.plot(x_plot, v_refs[y_idx, :], c='C2', label='Optimal cost V')
         pl.ylim([0, 420])
-        pl.xlabel(f'x_1 (x_2 = {y_value:.1f})')
-        pl.ylabel('value')
+        pl.xlabel(f'$x_1 \ (x_2 = {y_value:.1f})$')
+        pl.ylabel('Value')
         pl.legend()
 
     pl.subplot(121)

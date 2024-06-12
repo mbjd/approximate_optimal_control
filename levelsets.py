@@ -2125,7 +2125,7 @@ def eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params):
     lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_xs)
     costs = (traj_costs + lqr_terminalcosts)
 
-    return costs, x0s, v_means, v_stds
+    return costs, x0s, v_means, v_stds, sols
 
 
 
@@ -2255,7 +2255,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
     # take this in algoparams?
     eval_meshcat = not 'SCRATCH' in os.environ # == not euler
-    eval_meshcat = False
+    # eval_meshcat = False
     eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
     eval_controlcost_lines = True
@@ -2274,27 +2274,27 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
     # make another context manager thing to DRY the file output?
 
-    if eval_meshcat:
-        # usual upside down thing
-        xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
-        meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+    # if eval_meshcat:
+    #     # usual upside down thing
+    #     xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 5, 0]))(np.linspace(-10, 10, 201))
+    #     meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
 
-        # same but faster
-        xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 15, 0]))(np.linspace(-10, 10, 201))
-        meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
+    #     # same but faster
+    #     xs = jax.vmap(lambda x: np.array([x, 0, 0, -1, 0, 15, 0]))(np.linspace(-10, 10, 201))
+    #     meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
 
-        # grid, upright, only where v < vk
-        # xs = jax.vmap(lambda x: np.array([2 * (x%10 - 4.5), 2 * ((x//10)%10 - 4.5), 0, 1, 0, 0, 0]))(np.arange(100))
+    #     # grid, upright, only where v < vk
+    #     # xs = jax.vmap(lambda x: np.array([2 * (x%10 - 4.5), 2 * ((x//10)%10 - 4.5), 0, 1, 0, 0, 0]))(np.arange(100))
 
-        x = np.linspace(-20, 20, 80)
-        y = np.linspace(-20, 20, 80)
-        xx, yy = np.meshgrid(x, y)
-        xs = jax.vmap(lambda x, y: np.array([x, y, 0, 1, 0, 0, 0]), in_axes=(0, 0))(xx.flatten(), yy.flatten())
+    #     x = np.linspace(-20, 20, 80)
+    #     y = np.linspace(-20, 20, 80)
+    #     xx, yy = np.meshgrid(x, y)
+    #     xs = jax.vmap(lambda x, y: np.array([x, y, 0, 1, 0, 0, 0]), in_axes=(0, 0))(xx.flatten(), yy.flatten())
 
-        vs = jax.vmap(v_nn, in_axes=(None, 0))(jtm(itemgetter(0), nn_params), xs)
-        xs_inside = xs[vs < v_train]
+    #     vs = jax.vmap(v_nn, in_axes=(None, 0))(jtm(itemgetter(0), nn_params), xs)
+    #     xs_inside = xs[vs < v_train]
 
-        meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
+    #     meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
 
     if eval_controlcost_2d:
 
@@ -2313,7 +2313,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
         xx, yy = np.meshgrid(x, y)
         xs = np.column_stack([xx.flatten(), yy.flatten()])
 
-        costs, _, v_means, v_stds = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
+        costs, _, v_means, v_stds, _ = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
 
         eval_outputs = dict()
         eval_outputs['xx'] = xx
@@ -2333,7 +2333,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
         # def eval_controlcost(key, v_sim, v_nn, nn_params, all_ys, problem_params, algo_params, x0s=None):
         evalkey, key = jax.random.split(key)
-        costs, x0s, v_means, v_stds = eval_controlcost_randomsample(evalkey, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params)
+        costs, x0s, v_means, v_stds, _ = eval_controlcost_randomsample(evalkey, v_sim, v_nn, nn_params, all_ys, is_suboptimal, problem_params, algo_params)
 
         # what data do we want?
         eval_outputs = {
@@ -2373,58 +2373,69 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
         N=256
 
-        def eval_controlcost_line(x_pts):
-            # x_pts: (2, nx) array with start and end of sweep
-
-            # linspace -> project to manifold.
-            xl, xr = x_pts
-            xs = np.linspace(xl, xr, N)
-            xs = jax.vmap(problem_params['project_M'])(xs)
-
-            costs, _, v_means, v_stds = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
-
-            # return a nice dict so we can vmap and have all relevant results
-            return {
-                    'xl': xl,
-                    'xr': xr,
-                    'costs': costs,
-                    'v_means': v_means,
-                    'v_stds': v_stds,
-            }
+        # new curve parameterisation. for each test case we specify a curve
+        # which is a python function from [0, 1] to state space.
 
         # some states which make cool plots
-        # (N, 2, nx) array
         if problem_params['system_name'] == 'flatquad':
-            test_cases = np.array([
-                [ [-10, 0, 0,  1, 0, 0, 0], [+10, 0, 0,  1, 0, 0, 0] ],  # easy case: sweep x
-                [ [-10, 0, 0, -1, 0, 5, 0], [+10, 0, 0, -1, 0, 5, 0] ],  # usual one: upside down, moving upwards, sweep over x
-                [ [-10, 0, 0, -1, 0, 10, 0], [+10, 0, 0, -1, 0, 10, 0] ],  # same but faster
-                [ [-5 , 0, 0, -1, 0, 5, 0], [-5 , 5, 0, -1, 5, 5, 0] ],  # upside down, moving up & right to varying degrees
-            ])
+
+            test_curves = [
+
+                # easy case: sweep x
+                lambda t: (1-t) * np.array([-10, 0, 0,  1, 0, 0, 0]) + t * np.array( [+10, 0, 0,  1, 0, 0, 0]),
+
+                # usual one: upside down, moving upwards, sweep over x
+                lambda t: (1-t) * np.array([-10, 0, 0, -1, 0, 5, 0]) + t * np.array( [+10, 0, 0, -1, 0, 5, 0]),
+
+                # same but faster
+                lambda t: (1-t) * np.array([-10, 0, 0, -1, 0, 10, 0]) + t * np.array( [+10, 0, 0, -1, 0, 10, 0]),
+
+                # upside down, moving up & right to varying degrees
+                lambda t: (1-t) * np.array([-5 , 0, 0, -1, 0, 5, 0]) + t * np.array( [-5 , 5, 0, -1, 5, 5, 0]),
+
+                # circle with a bit of upwards v
+                lambda t: np.array([0, 0, np.sin(t*2*np.pi), np.cos(t*2*np.pi), 0, 5, 0]),
+
+                # circle, thrown from left in up-right direction
+                lambda t: np.array([-5, 0, np.sin(t*2*np.pi), np.cos(t*2*np.pi), 5, 5, 0]),
+
+            ]
+
 
         elif problem_params['system_name'] == 'orbits':
-            test_cases = np.array([
-                [ [-2, 1], [2, 1] ],  # top
-                [ [-2, -1], [ 2, -1] ],  # bottom
-            ])
+            raise NotImplementedError('because this can be calculated from controlcosts_2d data.')
 
         else:
             sysname = problem_params['system_name']
             raise NotImplementedError(f'eval_controlcost_lines: unknwon system name {sysname}')
 
-        test_cases = test_cases.astype(float)
 
-        if not 'SCRATCH' in os.environ and problem_params['system_name'] == 'flatquad':
-            # show in meshcat too, to get a feel for it.
-            for c in test_cases:
-                xs = np.linspace(c[0], c[1], N)
-                xs = jax.vmap(problem_params['project_M'])(xs)
-                meshcat_forward_sims(xs, v_nn, nn_params, problem_params, algo_params)
-        ipdb.set_trace()
+        eval_outputs = []
+        for curve in test_curves:
 
-        # ipdb.set_trace()
-        # somehow this works with vmap but not with jax.lax.map...
-        eval_outputs = jax.vmap(eval_controlcost_line)(test_cases)
+            # evaluate curve, project to manifold.
+            xs = jax.vmap(curve)(np.linspace(0, 1, N))
+            xs = jax.vmap(problem_params['project_M'])(xs)
+
+            # calculate costs. (jit this?)
+            costs, _, v_means, v_stds, sols = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
+
+            eval_outputs.append({
+                    'xs': xs,
+                    'costs': costs,
+                    'v_means': v_means,
+                    'v_stds': v_stds,
+            })
+
+
+            if eval_meshcat:
+                # copied from meshcat_forward_sims :)
+                ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(sols.ys['x'])
+                solsdict = {'t': sols.ts, 'x': ys}
+                visualiser.plot_trajectories_meshcat(solsdict)
+
+        # this eval_outputs is now "transposed" wrt the last one!
+        # i.e. a list of dicts rather than a dict of arrays with added leading axis from vmap.
 
         bs = flax.serialization.msgpack_serialize(eval_outputs)
         sysname = problem_params['system_name']

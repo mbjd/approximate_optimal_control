@@ -2412,6 +2412,8 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
 
         eval_outputs = []
+        refsol_outputs = []
+
         for curve in test_curves:
 
             # evaluate curve, project to manifold.
@@ -2420,6 +2422,13 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
             # calculate costs. (jit this?)
             costs, _, v_means, v_stds, sols = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
+
+            eval_outputs.append({
+                    'xs': xs,
+                    'costs': costs,
+                    'v_means': v_means,
+                    'v_stds': v_stds,
+            })
 
             # reference sol {{{
             # todo:
@@ -2437,22 +2446,22 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
                 obj, U = trajax_refsol.refsol(sol0, v_nn, nn_params, problem_params, algo_params, plot=False)
 
                 print('starting trajax homotopy...')
-                Xs, objs = trajax_refsol.refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params)
+                _, objs_left = trajax_refsol.refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params)
+                _, objs_right = trajax_refsol.refsol_homotopy(xs[::-1], sol0, v_nn, nn_params, problem_params, algo_params)
+                objs_right = objs_right[::-1]
 
                 pl.plot(costs, label='our cost')
-                pl.plot(objs, label='trajax cost (left homotopy)')
+                pl.plot(objs_left, label='trajax cost (left homotopy)')
+                pl.plot(objs_right, label='trajax cost (right homotopy)')
                 pl.legend()
                 pl.show()
-                ipdb.set_trace()
+
+                refsol_outputs.append({
+                    'left': objs_left,
+                    'right': objs_right,
+                })
             # }}}
 
-
-            eval_outputs.append({
-                    'xs': xs,
-                    'costs': costs,
-                    'v_means': v_means,
-                    'v_stds': v_stds,
-            })
 
 
             if eval_meshcat:
@@ -2468,6 +2477,13 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
         bs = flax.serialization.msgpack_serialize(eval_outputs)
         sysname = problem_params['system_name']
         fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_lines.msgpack.gz')
+        with gzip.open(fpath, 'wb') as f:
+            f.write(bs)
+        print(f'eval_controlcost_lines: wrote to {fpath}')
+
+        bs = flax.serialization.msgpack_serialize(refsol_outputs)
+        sysname = problem_params['system_name']
+        fpath = os.path.join(data_dir, f'{sysname}_refsol_costs.msgpack.gz')
         with gzip.open(fpath, 'wb') as f:
             f.write(bs)
         print(f'eval_controlcost_lines: wrote to {fpath}')

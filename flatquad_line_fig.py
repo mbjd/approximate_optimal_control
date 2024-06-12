@@ -43,6 +43,15 @@ def plot_lines_singlerun(run_id):
     eval_outputs = flax.serialization.msgpack_restore(bs)
     eval_outputs = jtm(np.array, eval_outputs)  # np array -> jax array
 
+    fpath = os.path.join(data_dir, f'{sys_name}_refsol_costs.msgpack.gz')
+    with gzip.open(fpath, 'rb') as f:
+        bs = f.read()
+    refsol_outputs = flax.serialization.msgpack_restore(bs)
+    refsol_outputs = jtm(np.array, refsol_outputs)  # np array -> jax array
+
+
+
+
     # N_cases = eval_outputs['costs'].shape[0]
     N_cases = len(eval_outputs)  # now it is a list of dicts
 
@@ -90,6 +99,16 @@ def plot_lines_singlerun(run_id):
         ymax = ymax + rel_margin * extent
         pl.ylim([ymin, ymax])
         # pl.grid('on')
+
+
+        left_refcosts = refsol_outputs[j]['left']
+        right_refcosts = refsol_outputs[j]['right']
+
+        optimal_refsol = np.minimum(left_refcosts, right_refcosts)
+        suboptimal_refsol = np.maximum(left_refcosts, right_refcosts)
+
+        pl.plot(xs, optimal_refsol, color='C2', label='Optimal reference cost')
+        pl.plot(xs, suboptimal_refsol, '--', color='C2', alpha=0.3, label='Suboptimal reference cost')
 
         # looks much nicer with only 1 legend but is that smart?
         minimal = True

@@ -31,7 +31,7 @@ from misc import *
 import trajax
 
 
-def refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params, dt=0.05, N=100):
+def refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params, dt=0.01, N=500):
 
     # both of the other in one so we can loop efficiently with jax.lax.scan
 
@@ -117,8 +117,7 @@ def refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params, dt=0
 
     # do it :)
     last_U, (Xs, objs) = jax.lax.scan(body, U0, xs)
-    ipdb.set_trace()
-    return objs, Xs
+    return Xs, objs
 
 
 def refsol(sol0, v_nn, nn_params, problem_params, algo_params, dt=0.05, N=100, plot=False):

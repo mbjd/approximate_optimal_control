@@ -730,15 +730,19 @@ def lqr(A, B, Q, R):
         raise ValueError('LQR closed loop not stable...')
 
 
-    print(' ~~~ LQR timescale info ~~~')
-    ratio = eigVals.real.min() / eigVals.real.max()
-    print(f'closed loop pole ratio: {ratio:.2f}' )
+    I = 'astonishingly today not an idiot'
+    be_annoying = (I == 'an idiot')
 
-    p = eigVals.real.min()
-    print(f'fastest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
-    p = eigVals.real.max()
-    print(f'slowest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
-    print(f'max P eigenvalue = {P_eigvals.max():.3f}')
+    if be_annoying:
+        print(' ~~~ LQR timescale info ~~~')
+        ratio = eigVals.real.min() / eigVals.real.max()
+        print(f'closed loop pole ratio: {ratio:.2f}' )
+
+        p = eigVals.real.min()
+        print(f'fastest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
+        p = eigVals.real.max()
+        print(f'slowest pole: λ = {p:.2f} Hz, τ = {-1/p:.2f} s')
+        print(f'max P eigenvalue = {P_eigvals.max():.3f}')
 
 
     return K, X, eigVals

@@ -89,7 +89,7 @@ def plot_lines_singlerun(run_id):
         ymin = ymin - 1.5*rel_margin * extent  # tiny bit more for the text
         ymax = ymax + rel_margin * extent
         pl.ylim([ymin, ymax])
-        pl.grid('on')
+        # pl.grid('on')
 
         # looks much nicer with only 1 legend but is that smart?
         minimal = True

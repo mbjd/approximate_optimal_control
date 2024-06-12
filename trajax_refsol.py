@@ -35,31 +35,6 @@ def refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params, dt=0
 
     # both of the other in one so we can loop efficiently with jax.lax.scan
 
-    assert dt*N <= sol0.t1 - sol0.t0, 'solution too short to initialise'
-
-    # 1. get initial guess U0 {{{
-
-    def v_mean(x, vmap_params):
-
-        # find (empirical) mean and std. dev of value function.
-        vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
-        return vs_ensemble.mean()
-
-    vx_mean = jax.jacobian(v_mean, argnums=0)
-
-    ts = np.arange(N) * dt
-    sol_ys = jax.vmap(sol0.evaluate)(ts)
-    sol_xs = sol_ys['x']
-    sol_vxs = jax.vmap(vx_mean, in_axes=(0, None))(sol_xs, nn_params)
-    # def u_star_general(x, costate, problem_params):
-
-    U0 = jax.vmap(pontryagin_utils.u_star_general, in_axes=(0, 0, None))(
-        sol_xs, sol_vxs, problem_params
-    )
-
-    x0 = sol_xs[0]
-    # }}}
-
     # convert problem description {{{
 
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
@@ -93,6 +68,38 @@ def refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params, dt=0
         return np.where(k == N, 0 * control_limits, control_limits)
 
     # }}}
+
+    # get initial guess {{{
+    # simulate w continuous time approximate optimal control from V approx,
+    # but already with time discretisation & integration exactly matching
+    # trajax ilqr.
+
+    def v_mean(x, vmap_params):
+
+        # find (empirical) mean and std. dev of value function.
+        vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
+        return vs_ensemble.mean()
+
+    vx_mean = jax.jacobian(v_mean, argnums=0)
+
+    def controller(x):
+        vx = vx_mean(x, nn_params)
+        return pontryagin_utils.u_star_general(x, vx, problem_params)
+
+    def body_rollout(carry, inp):
+        x = carry
+
+        u = controller(x)
+        next_x = dynamics_disc(x, u, 0)
+
+        carry = next_x
+        oup = (x, u)
+        return carry, oup
+
+    _, (X0, U0) = jax.lax.scan(body_rollout, xs[0], None, length=N)
+
+    # }}}
+
 
     # define computation w scan {{{
 

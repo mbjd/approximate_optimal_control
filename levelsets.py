@@ -2420,6 +2420,11 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             # calculate costs. (jit this?)
             costs, _, v_means, v_stds, sols = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
 
+            refsol=True
+            if refsol:
+                import trajax_refsol
+                trajax_refsol.refsol(None, problem_params, algo_params)
+
             eval_outputs.append({
                     'xs': xs,
                     'costs': costs,

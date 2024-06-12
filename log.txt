@@ -5791,3 +5791,24 @@ conclusions:
  - diffusion policies: https://arxiv.org/pdf/2303.04137
    another approach to multimodality/discontinuity, with a nice review of
    other previous option for our discussion.
+
+
+
+
+
+coded up trajax sol, works nicely initially. about 3s per trajectory
+though. also somehow the cost is HIGHER than ours in many cases - how?  ZOH
+input discretisation? numerical errors in our sim? numerical errors in
+trajax sol? hard to say. but still we can present it knowing that the
+alternative is not the PERFECTLY optimal solution, but a practical
+alternative.
+
+is piecewise linear input interp possible? would go a long way towards
+approximating the ct solution more closely.
+ a) change integrator/dynamics/etc somehow hackily to account
+ b) add input integrator, with input u' = u+ - u. then the input constraint
+    becomes a state constraint, and possibly the whole thing becomes harder to
+    solve
+atm i am thinking: stick with the non-perfect solution. compare mainly to
+"see" nonsmooth structure, rather than establish precise measure of
+suboptimality.

@@ -2437,15 +2437,13 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
                 obj, U = trajax_refsol.refsol(sol0, v_nn, nn_params, problem_params, algo_params, plot=False)
 
                 print('starting trajax homotopy...')
-                for j in tqdm.tqdm(range(N)):
-                    obj, U = trajax_refsol.refsol_from_us(xs[j], U, problem_params, algo_params, plot=False)
+                Xs, objs = trajax_refsol.refsol_homotopy(xs, sol0, v_nn, nn_params, problem_params, algo_params)
 
-                ref_costs.append(obj)
-
-            pl.plot(costs, label='our cost')
-            pl.plot(ref_costs, label='trajax cost (left homotopy)')
-            pl.legend()
-            pl.show()
+                pl.plot(costs, label='our cost')
+                pl.plot(objs, label='trajax cost (left homotopy)')
+                pl.legend()
+                pl.show()
+                ipdb.set_trace()
             # }}}
 
 

@@ -1,3 +1,4 @@
+import functools
 import gzip
 import os
 import pprint
@@ -29,16 +30,49 @@ from misc import *
 
 import trajax
 
-def refsol(sol0, problem_params, algo_params):
+def refsol(sol0, v_nn, nn_params, problem_params, algo_params, dt=0.05, N=100, plot=False):
 
     # wrapper for trajax ilqr optimiser.
     # - get initial guess from continuous-time solution (as given by diffrax) (not yet)
+    # - call other, lower level wrapper.
+
+    assert dt*N <= sol0.t1 - sol0.t0, 'solution too short to initialise'
+
+    # 1. get initial guess U {{{
+
+    def v_mean(x, vmap_params):
+
+        # find (empirical) mean and std. dev of value function.
+        vs_ensemble = jax.vmap(v_nn, in_axes=(0, None))(vmap_params, x)
+        return vs_ensemble.mean()
+
+    vx_mean = jax.jacobian(v_mean, argnums=0)
+
+    ts = np.arange(N) * dt
+    sol_ys = jax.vmap(sol0.evaluate)(ts)
+    sol_xs = sol_ys['x']
+    sol_vxs = jax.vmap(vx_mean, in_axes=(0, None))(sol_xs, nn_params)
+    # def u_star_general(x, costate, problem_params):
+
+    sol_us = jax.vmap(pontryagin_utils.u_star_general, in_axes=(0, 0, None))(
+        sol_xs, sol_vxs, problem_params
+    )
+
+    x0 = sol_xs[0]
+
+    return refsol_from_us(x0, sol_us, problem_params, algo_params, dt=dt, N=N, plot=plot)
+
+
+def refsol_from_us(x0, U0, problem_params, algo_params, dt=0.05, N=100, plot=False):
+
     # - discretise cost&dynamics
+    # - solve problem with constrained_ilqr
     # - return only the objective.
 
-    dt = 0.02
-    N = 200
+    # U0 an array of initial inputs, (N_t, nu)
 
+
+    # define & solve (discrete time) problem {{{
     K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
 
     x_eq = problem_params['x_eq']
@@ -59,8 +93,8 @@ def refsol(sol0, problem_params, algo_params):
         terminal_cost = V_f(x)  # add input cost too???
         return np.where(t == N, terminal_cost, stage_cost)
 
-    x0 = np.array([-1., 0., 1., 0., 0., 0., 0.])
-    U0 = np.ones((N, problem_params['nu'])) * problem_params['u_eq'][0]
+    # x0 = np.array([-1., 0., 0, 1., 5., 0, 0.])
+    # U0 = np.ones((N, problem_params['nu'])) * problem_params['u_eq'][0]
     u_lower, u_upper = problem_params['U_interval']
 
     # inspired by https://github.com/google/trajax/blob/main/tests/optimizers_test.py#L713
@@ -74,6 +108,7 @@ def refsol(sol0, problem_params, algo_params):
         x0, U0,
         inequality_constraint=control_constraint
     )
+    # }}}
 
     # basic unconstrained ilqr
     # X, U, obj, gradient, adjoints, lqr, iteration = trajax.optimizers.ilqr(
@@ -81,7 +116,6 @@ def refsol(sol0, problem_params, algo_params):
     #     x0, U0,
     # )
 
-    plot = True
     if plot:
         pl.subplot(211)
         ts = np.arange(N+1) * dt
@@ -89,7 +123,12 @@ def refsol(sol0, problem_params, algo_params):
         pl.subplot(212)
         ts = np.arange(N) * dt
         pl.plot(ts, U, '.-', label=('u1', 'u2'))
-        pl.show()
-        ipdb.set_trace()
 
-    return obj
+        ys = jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]]))(X)
+        visualiser.plot_trajectories_meshcat({'t': ts, 'x': ys})
+
+        pl.show()
+
+        # ipdb.set_trace()
+
+    return obj, U

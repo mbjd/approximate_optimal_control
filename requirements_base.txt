@@ -1,10 +1,12 @@
 absl-py==2.1.0
 appdirs==1.4.4
 asttokens==2.4.1
+build==1.2.1
 certifi==2024.2.2
 charset-normalizer==3.3.2
 chex==0.1.85
 click==8.1.7
+contextlib2==21.6.0
 contourpy==1.2.0
 cycler==0.12.1
 decorator==5.1.1
@@ -24,6 +26,7 @@ importlib_resources==6.4.0
 ipdb==0.13.13
 ipython==8.19.0
 jax-tqdm==0.1.2
+jaxopt==0.8.3
 jaxtyping==0.2.25
 jedi==0.19.1
 kiwisolver==1.4.5
@@ -33,6 +36,7 @@ matplotlib-inline==0.1.6
 mdurl==0.1.2
 meshcat==0.3.2
 ml-dtypes==0.3.2
+ml_collections==0.1.1
 msgpack==1.0.8
 nest-asyncio==1.6.0
 numpy==1.26.3
@@ -44,6 +48,7 @@ parso==0.8.3
 pexpect==4.9.0
 pillow==10.2.0
 pip-autoremove==0.10.0
+pip-tools==7.4.1
 plotly==5.21.0
 prompt-toolkit==3.0.43
 protobuf==4.25.3
@@ -53,6 +58,7 @@ pure-eval==0.2.2
 Pygments==2.17.2
 pyngrok==7.0.5
 pyparsing==3.1.1
+pyproject_hooks==1.1.0
 PyQt5==5.15.10
 PyQt5-Qt5==5.15.2
 PyQt5-sip==12.13.0
@@ -75,6 +81,7 @@ toolz==0.12.1
 tornado==6.4
 tqdm==4.66.1
 traitlets==5.14.1
+trajax @ git+https://github.com/google/trajax@c94a637c5a397b3d4100153f25b4b165507b5b20
 typeguard==2.13.3
 typing_extensions==4.9.0
 u-msgpack-python==2.8.0

@@ -23,6 +23,7 @@ import tqdm
 import nn_utils
 import plotting_utils
 import pontryagin_utils
+import trajax_refsol
 import visualiser
 import wandb
 from misc import *
@@ -2256,7 +2257,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
     # take this in algoparams?
     eval_meshcat = not 'SCRATCH' in os.environ # == not euler
     # eval_meshcat = False
-    eval_controlcost_common = True
+    eval_controlcost_common = False
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
     eval_controlcost_lines = True
 
@@ -2420,10 +2421,33 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             # calculate costs. (jit this?)
             costs, _, v_means, v_stds, sols = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
 
+            # reference sol {{{
+            # todo:
+            # - make homotopy from other direction too
+            # - save it somewhere. preferrably separate from the other results because the refsol takes ages
+            #   to compute and is also independent of our solution (except minor numerical stuff)
+            # in plotting script:
+            # - read
+            # - plot nicely while distinguishing optimal from suboptimal sol.
             refsol=True
+            ref_costs = []
             if refsol:
-                import trajax_refsol
-                trajax_refsol.refsol(None, problem_params, algo_params)
+
+                sol0 = jtm(itemgetter(0), sols)
+                obj, U = trajax_refsol.refsol(sol0, v_nn, nn_params, problem_params, algo_params, plot=False)
+
+                print('starting trajax homotopy...')
+                for j in tqdm.tqdm(range(N)):
+                    obj, U = trajax_refsol.refsol_from_us(xs[j], U, problem_params, algo_params, plot=False)
+
+                ref_costs.append(obj)
+
+            pl.plot(costs, label='our cost')
+            pl.plot(ref_costs, label='trajax cost (left homotopy)')
+            pl.legend()
+            pl.show()
+            # }}}
+
 
             eval_outputs.append({
                     'xs': xs,
@@ -2438,6 +2462,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
                 ys = jax.vmap(jax.vmap(lambda x: np.concatenate([x[0:2], np.array([np.arctan2(x[2], x[3])]), x[4:]])))(sols.ys['x'])
                 solsdict = {'t': sols.ts, 'x': ys}
                 visualiser.plot_trajectories_meshcat(solsdict)
+
 
         # this eval_outputs is now "transposed" wrt the last one!
         # i.e. a list of dicts rather than a dict of arrays with added leading axis from vmap.

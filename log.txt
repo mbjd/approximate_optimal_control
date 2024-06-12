@@ -5776,3 +5776,18 @@ what to ask in meeting tomorrow?
 
 (- notation: will the world collapse if I decide to not follow the vector
    bold convention? )
+
+
+conclusions:
+ - generally time is enough and we should not stress
+ - SAC and/or Trajax (iLQR) reference solution is strongly recommended.
+   (it should definitely within a day though. cry for help if not)
+ - polish section 3 today & maybe tomorrow, then send for proofreading
+ - video results:
+   - screenshots in report are nice
+   - can show whole video in presentation.
+ - okay to ditch vectors bold convention.
+ - ALL plots need axis labels :)
+ - diffusion policies: https://arxiv.org/pdf/2303.04137
+   another approach to multimodality/discontinuity, with a nice review of
+   other previous option for our discussion.

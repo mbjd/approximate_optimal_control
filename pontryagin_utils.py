@@ -12,6 +12,8 @@ def u_star_general(x, costate, problem_params):
         return u_star_2d(x, costate, problem_params)
     elif problem_params['nu'] == 1:
         return u_star_1d(x, costate, problem_params)
+    else:
+        raise NotImplementedError('only 1d and 2d control spaces supported')
 
 
 def u_star_1d(x, costate, problem_params):
@@ -482,7 +484,7 @@ def bwsim_projection(y, problem_params):
     # not depend on the costate in normal direction at all.
 
     B = jax.jacobian(problem_params['m'])(y['x'])
-    assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported rn'
+    assert B.shape == (problem_params['nx'],), 'only manifolds of codimension 1 supported'
     B = B / np.linalg.norm(B)
     P_normal = np.outer(B, B)
     P_tangent = np.eye(problem_params['nx']) - P_normal

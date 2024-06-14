@@ -9,6 +9,7 @@ import meshcat.geometry as geom
 import meshcat.transformations as tf
 import numpy as onp
 import tqdm
+import webbrowser
 
 import pontryagin_utils
 
@@ -32,7 +33,7 @@ class TextTexture(geom.Texture):
         }
 
 
-def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, color=None, line=False):
+def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colormap=None, color=None, line=False, open_url=True):
 
     '''
     visualise flatquad trajectories nicely.
@@ -248,4 +249,9 @@ def plot_trajectories_meshcat(sols, vis=None, arrows=False, reparam=True, colorm
     # schrödinger fancy/ugly color scheme...
     # vis['/Background'].set_property('top_color', [0xb5/256, 0x17/256, 0x9e/256])
     # vis['/Background'].set_property('bottom_color', [0x48/256, 0x0c/256, 0xa8/256])
+
+    if open_url:
+        webbrowser.open_new_tab(vis.url())
+
+
     return vis

@@ -81,6 +81,13 @@ def plot_sweep(sysname, sweep_name):
     # 2. pull the data from euler
     pull_runs(runs)
 
+    # 3. make plots!! rough idea:
+    #     from flatquad_line_fig import plot_lines_singlerun
+    #     for run in runs:
+    #         run_id = run.id
+    #         plot_lines_singlerun(run_id)
+    # except with a bit less clutter like reference sols in the plot
+
 
 
 

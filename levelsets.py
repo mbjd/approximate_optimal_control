@@ -2443,7 +2443,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             # in plotting script:
             # - read
             # - plot nicely while distinguishing optimal from suboptimal sol.
-            refsol = True
+            refsol = False
             ref_costs = []
             if refsol:
 
@@ -2486,12 +2486,13 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             f.write(bs)
         print(f'eval_controlcost_lines: wrote to {fpath}')
 
-        bs = flax.serialization.msgpack_serialize(refsol_outputs)
-        sysname = problem_params['system_name']
-        fpath = os.path.join(data_dir, f'{sysname}_refsol_costs.msgpack.gz')
-        with gzip.open(fpath, 'wb') as f:
-            f.write(bs)
-        print(f'eval_controlcost_lines: wrote to {fpath}')
+        if refsol:
+            bs = flax.serialization.msgpack_serialize(refsol_outputs)
+            sysname = problem_params['system_name']
+            fpath = os.path.join(data_dir, f'{sysname}_refsol_costs.msgpack.gz')
+            with gzip.open(fpath, 'wb') as f:
+                f.write(bs)
+            print(f'eval_controlcost_lines: wrote to {fpath}')
 
     # to keep meshcat open
     if not 'SCRATCH' in os.environ:

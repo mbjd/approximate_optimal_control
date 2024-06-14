@@ -2097,11 +2097,13 @@ def eval_controlcost_randomsample(key, v_sim, v_nn, nn_params, all_ys, is_subopt
     v_means = v_means[idx]
     v_stds = v_stds[idx]
 
-    return eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params)
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+
+    return eval_controlcost_x0s(x0s, v_nn, nn_params, P_lqr, problem_params, algo_params)
 
 
 
-def eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params):
+def eval_controlcost_x0s(x0s, v_nn, nn_params, P_lqr, problem_params, algo_params):
 
     # do this again if coming from eval_controlcost_randomsample \o/
     v_meanstds, vx_meanstds = def_v_meanstds(v_nn)
@@ -2121,7 +2123,6 @@ def eval_controlcost_x0s(x0s, v_nn, nn_params, problem_params, algo_params):
 
     traj_costs = (sols.ys['cost'] * (sols.ys['cost'] != np.inf)).max(axis=1)
 
-    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
     eq = problem_params['x_eq']
     lqr_terminalcosts = jax.vmap(lambda x: 0.5 * (x-eq).T @ P_lqr @ (x-eq))(last_xs)
     costs = (traj_costs + lqr_terminalcosts)
@@ -2297,6 +2298,8 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
     #     meshcat_forward_sims(xs_inside, v_nn, nn_params, problem_params, algo_params)
 
+    K_lqr, P_lqr = pontryagin_utils.get_terminal_lqr(problem_params)
+
     if eval_controlcost_2d:
 
         # - make 2d grid covering the state space
@@ -2314,7 +2317,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
         xx, yy = np.meshgrid(x, y)
         xs = np.column_stack([xx.flatten(), yy.flatten()])
 
-        costs, _, v_means, v_stds, _ = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
+        costs, _, v_means, v_stds, _ = eval_controlcost_x0s(xs, v_nn, nn_params, P_lqr, problem_params, algo_params)
 
         eval_outputs = dict()
         eval_outputs['xx'] = xx
@@ -2414,6 +2417,8 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
         eval_outputs = []
         refsol_outputs = []
 
+        eval_jit = jax.jit(lambda xs: eval_controlcost_x0s(xs, v_nn, nn_params, P_lqr, problem_params, algo_params))
+
         for curve in test_curves:
 
             # evaluate curve, project to manifold.
@@ -2421,7 +2426,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             xs = jax.vmap(problem_params['project_M'])(xs)
 
             # calculate costs. (jit this?)
-            costs, _, v_means, v_stds, sols = eval_controlcost_x0s(xs, v_nn, nn_params, problem_params, algo_params)
+            costs, _, v_means, v_stds, sols = eval_jit(xs)
 
             eval_outputs.append({
                     'xs': xs,
@@ -2438,7 +2443,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             # in plotting script:
             # - read
             # - plot nicely while distinguishing optimal from suboptimal sol.
-            refsol=True
+            refsol = True
             ref_costs = []
             if refsol:
 

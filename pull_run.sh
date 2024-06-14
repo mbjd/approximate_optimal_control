@@ -6,7 +6,7 @@ SYS=$1
 RUN=$2
 
 if [ -n "$RUN" ]; then
-    rsync -av dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/${SYS}_runs/$RUN ./euler_runs
+    rsync --exclude='*figures*' -av dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/${SYS}_runs/$RUN ./euler_runs
 else
     echo got no run. pls give second argument
     exit 1

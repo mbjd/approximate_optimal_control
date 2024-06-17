@@ -11,6 +11,7 @@ import gzip
 import os
 import pickle
 import warnings
+import datetime
 from functools import partial
 
 import ipdb
@@ -31,13 +32,26 @@ from flatquad_landing_experiment import base_algo_params, define_problem_params
 # line fig plots, but for an entire sweep.
 
 
-def pull_runs(sysname, sweep_name):
+def pull_runs(sysname, sweep_name, T=np.inf):
+
+    # sysname: the system name used in problem_params
+    # sweep_name: the sweep name as given by algo_params['sweep_name']
+    # T: max age of data we include, in hours.
 
     # runs = whatever is returned by wandb api :)
     # 1. use wandb api to get all runs matching that sweep name
     print(f'fetching runs for sweep {sweep_name} from wandb...')
     api = wandb.Api()
     runs = api.runs(path=f'mbjd-projects/levelsets_{sysname}', filters={'config.sweep_name': sweep_name})
+
+    # remove too old runs. either I am too dumb or wandb documentation is
+    # too crappy for me to find out how to do this with filters above.
+    cutoff_datetime = datetime.datetime.now() - datetime.timedelta(hours=T)
+    def is_recent(r):
+        run_datetime = datetime.datetime.strptime(r.createdAt, '%Y-%m-%dT%H:%M:%S')
+        return run_datetime > cutoff_datetime
+
+    runs = [r for r in runs if is_recent(r)]
 
     # 2. get the runs from euler if not present already.
 
@@ -83,7 +97,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
     # variable is modified in the sweep), then we can name them idependently.
 
     # 2. pull the data from euler
-    runs = pull_runs(sysname, sweep_name)
+    runs = pull_runs(sysname, sweep_name, T=12)
 
     # can we infer this from the runs object?
     # sweep_config = 'active_learning_batchsize'
@@ -125,7 +139,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
                 last['frac_ratio_500'],
             ))
         except KeyError:
-            # just ignore the cases where it didn't finish...
+            # data not present in wandb :(((( can we get it otherwise?
             print('key not found.')
 
     # convert to mean with min/max range for plotting.

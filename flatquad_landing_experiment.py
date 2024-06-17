@@ -14,6 +14,7 @@ import meshcat.geometry as geom
 import meshcat.transformations as tf
 import numpy as onp
 import tqdm
+import wandb
 
 import levelsets
 import pontryagin_utils
@@ -479,8 +480,31 @@ if __name__ == '__main__':
 
         levelsets.main(problem_params, algo_params)
     else:
-        algo_params['wandb'] = False
-        levelsets.evaluate(algo_params['eval'], problem_params, algo_params)
+        # algo_params['wandb'] = False
+        # levelsets.evaluate(algo_params['eval'], problem_params, algo_params)
+        # levelsets.evaluate_from_wandb(algo_params['eval'], problem_params)
+
+        run_dir = algo_params['eval']
+
+        run_id = run_dir.split('/')[-1]
+
+        print('getting algo_params from wandb...')
+        api = wandb.Api()
+        sysname = problem_params['system_name']
+        # thanks to https://github.com/wandb/wandb/issues/5122 :)
+        runs = api.runs(path=f'mbjd-projects/levelsets_{sysname}', filters={'name': {'$in': [run_id]}})
+        assert len(runs) == 1, 'expected to get just 1 run per id...'
+        run = runs[0]
+
+        algo_params = run.config
+
+        base = base_algo_params()
+        algo_params['sample_state'] = base['sample_state']
+        algo_params['sample_states_batched'] = base['sample_states_batched']
+        algo_params['wandb'] = False  # otw it wants to log the results...
+
+        levelsets.evaluate(run_dir, problem_params, algo_params)
+
 
 
 

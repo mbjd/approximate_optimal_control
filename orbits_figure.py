@@ -690,7 +690,7 @@ if plot_results:
 
     pl.subplot(121)
     rel_suboptimality = (controlcost / v_refs - 1)[~learned_v_too_high]
-    pl.semilogy(learned_v[~learned_v_too_high], rel_suboptimality, '. ', alpha=.2)
+    pl.semilogy(learned_v[~learned_v_too_high], rel_suboptimality, '. ', alpha=scatter_alpha)
     pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
     pl.ylabel('Relative suboptimality')
     pl.grid('on')

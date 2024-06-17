@@ -37,6 +37,32 @@ flatquad_configs_base = {
     'ipdb_interval': [0],
 }
 
+flatquad_configs_vxd = {
+
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.001],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.12, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [512],
+    'sweep_name': ['vxd'],
+    'seed': list(range(N_seeds)),
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
+
+
 
 flatquad_configs_rtol = {
     'nn_value_sweep': [True],
@@ -71,7 +97,7 @@ flatquad_configs_wd = {
     'nn_value_sweep': [True],
     'nn_layer_dim': [128],
     'lr_final': [0.001],
-    'weight_decay': [.00001, .00002, .00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
+    'weight_decay': [.00001, .00002, .00005, 0.0001, 0.0002, 0.0005], # , 0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
     'vx_loss_d': [0.3],
     'consider_old_data': [True],
     'inv_vx_loss_fadeout': [1.],
@@ -181,7 +207,7 @@ def main():
 
     if PROJECT_NAME == 'flatquad':
         import flatquad_landing_experiment as exp
-        config_dict = flatquad_configs_layerdim
+        config_dict = flatquad_configs_vxd
         num_gpus = 1
     elif PROJECT_NAME == 'orbits':
         import orbits_experiment as exp
@@ -211,14 +237,17 @@ def main():
                           mode='euler',
                           duration='3:59:00',
                           prompt=True,
-                          mem=16384)
+                          mem=32768)
 
 def flatquad_all_sweeps():
+
     import flatquad_landing_experiment as exp
 
     do_print = len(sys.argv) > 1 and sys.argv[1] in ('-p', '--print')
 
-    for config_dict in (flatquad_configs_wd, flatquad_configs_batchsize, flatquad_configs_layerdim):
+    command_list = []
+
+    for config_dict in (flatquad_configs_wd, flatquad_configs_batchsize, flatquad_configs_rtol):
         flags_combinations = dict_permutations(config_dict)
         for flags in flags_combinations:
             cmd = generate_base_command(exp, flags=flags)
@@ -228,7 +257,7 @@ def flatquad_all_sweeps():
 
     generate_run_commands(command_list,
                           num_cpus=1,
-                          num_gpus=num_gpus,
+                          num_gpus=1,
                           mode='euler',
                           duration='3:59:00',
                           prompt=True,
@@ -236,4 +265,5 @@ def flatquad_all_sweeps():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    flatquad_all_sweeps()

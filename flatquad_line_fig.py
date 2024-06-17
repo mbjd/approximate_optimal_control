@@ -55,7 +55,7 @@ def plot_lines_singlerun(run_id):
     # N_cases = eval_outputs['costs'].shape[0]
     N_cases = len(eval_outputs)  # now it is a list of dicts
 
-    fig = pl.figure('controlcosts_lines', figsize=(pagewidth, .8*pagewidth))
+    fig = pl.figure('controlcosts_lines', figsize=(pagewidth, 1.1*pagewidth))
     # manually transcribed curves from levelsets.py / evaluate_directly / eval_controlcost_lines
     labels=[
         '$\gamma_1(s) = [-10 + 20 s, 0, 0, 1, 0, 0, 0]$',

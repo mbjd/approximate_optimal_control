@@ -1046,7 +1046,8 @@ def main(problem_params, algo_params):
 
         # we want that many points inside the value band, from which we
         # can then select the proposals.
-        N_pts_desired = 128 * algo_params['active_learning_batchsize']
+        N_pts_desired = 128 * max(256, algo_params['active_learning_batchsize'])
+
 
         # here just use testpts? or another similar but constant set?
         # with log_min_scale getting enough samples should be easy enough.
@@ -2257,8 +2258,8 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
     # take this in algoparams?
     eval_meshcat = not 'SCRATCH' in os.environ # == not euler
-    # eval_meshcat = False
-    eval_controlcost_common = False
+    eval_meshcat = False
+    eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
     eval_controlcost_lines = True
 
@@ -2495,7 +2496,8 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             print(f'eval_controlcost_lines: wrote to {fpath}')
 
     # to keep meshcat open
-    if not 'SCRATCH' in os.environ:
+    if not 'SCRATCH' in os.environ and eval_meshcat:
         ipdb.set_trace()
+
 
 

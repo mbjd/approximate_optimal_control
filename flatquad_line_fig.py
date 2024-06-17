@@ -58,13 +58,13 @@ def plot_lines_singlerun(run_id):
     fig = pl.figure('controlcosts_lines', figsize=(pagewidth, .8*pagewidth))
     # manually transcribed curves from levelsets.py / evaluate_directly / eval_controlcost_lines
     labels=[
-            '$\gamma_1(s) = [-10 + 20 s, 0, 0, 1, 0, 0, 0]$',
-            '$\gamma_2(s) = [-10 + 20 s, 0, 0, -1, 0, 5, 0]$',
-            '$\gamma_3(s) = [-10 + 20 s, 0, 0, -1, 0, 10, 0]$',
-            '$\gamma_4(s) = [-5, 5 s, 0, -1, 5 s, 5, 0]$',
-            '$\gamma_5(s) = [0, 0, \sin(2 \pi s), \cos(2 \pi s), 0, 5, 0]$',
-            '$\gamma_6(s) = [-5, 0, \sin(2 \pi s), \cos(2 \pi s), 5, 5, 0]$',
-            ]
+        '$\gamma_1(s) = [-10 + 20 s, 0, 0, 1, 0, 0, 0]$',
+        '$\gamma_2(s) = [-10 + 20 s, 0, 0, -1, 0, 5, 0]$',
+        '$\gamma_3(s) = [-10 + 20 s, 0, 0, -1, 0, 10, 0]$',
+        '$\gamma_4(s) = [-5, 5 s, 0, -1, 5 s, 5, 0]$',
+        '$\gamma_5(s) = [0, 0, \sin(2 \pi s), \cos(2 \pi s), 0, 5, 0]$',
+        '$\gamma_6(s) = [-5, 0, \sin(2 \pi s), \cos(2 \pi s), 5, 5, 0]$',
+    ]
 
     for j in range(N_cases):
 

@@ -242,7 +242,7 @@ def base_algo_params():
         # OUTPUT & VISUALISATION
         'wandb': False,
 
-        'savefigs': True,
+        'savefigs': False,
         'wandbfigs': False,
         'showfigs': True,
 

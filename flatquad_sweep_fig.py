@@ -107,6 +107,8 @@ def plot_sweep(sysname, sweep_name, sweep_config):
         'active_learning_batchsize': 'Active learning batch size $N_\\text{batch}$',
         'weight_decay': 'Weight Decay',
         'nn_layer_dim': 'NN Layer size',
+        'pontryagin_solver_rtol': 'ODE Solver rtol',
+        'vx_loss_d': '$\lambda$ Huber width $\delta$',
     }[sweep_config]
 
 
@@ -164,6 +166,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 
     pl.semilogx(xs, ys_mean, label=('Fraction below 5% suboptimality', 'Fraction below 50% suboptimality', 'Fraction below 500% suboptimality'))
 
+    ipdb.set_trace()
     pl.gca().set_prop_cycle(None)
     # fill_between wants to be done individually...
     for j in range(3):
@@ -192,6 +195,8 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 if __name__ == '__main__':
 
     sys_name = 'flatquad'
+    plot_sweep(sys_name, 'vxd', 'vx_loss_d')
     plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
     plot_sweep(sys_name, 'weight_decay', 'weight_decay')
+    plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
     # plot_sweep(sys_name, 'layerdim', 'nn_layer_dim')

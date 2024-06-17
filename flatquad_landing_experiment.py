@@ -252,7 +252,7 @@ def base_algo_params():
         # to fit the correct vx function.
         # update: vxx not used anymore, leave it at 0 or update lots of code
         'nn_sobolev_weight_v': 1.,
-        'nn_sobolev_weight_vx': 10.,
+        'nn_sobolev_weight_vx': 9.,
         'nn_sobolev_weight_vxx': 0.,
 
         # width of the quadratic regions in smoothed huber loss.
@@ -323,7 +323,7 @@ def base_algo_params():
         # OUTPUT & VISUALISATION
         'wandb': False,
 
-        'savefigs': True,
+        'savefigs': False,
         'wandbfigs': False,
         'showfigs': True,
 

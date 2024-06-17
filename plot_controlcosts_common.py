@@ -39,6 +39,7 @@ show=True
 
 configs = [
         ('flatquad', 'h6ysrbmi'),
+        ('flatquad', 'bmrmmxzq'),
         ('orbits', 'i2tcnb3h'),
 ]
 
@@ -53,7 +54,7 @@ def plot_controlcosts_common(sysname, run_id):
 
     fig = pl.figure('controlcost vs v_mean', figsize=(pagewidth, 0.4*pagewidth))
     costs = eval_outputs['costs']
-    pl.loglog(eval_outputs['v_mean'], costs/eval_outputs['v_mean'], '. ')
+    pl.loglog(eval_outputs['v_mean'], costs/eval_outputs['v_mean'], '. ', alpha=scatter_alpha)
     # TODO unify w report notation...
     # also 'cost' and 'value' kind of clash. use only one term?
     pl.grid('on')

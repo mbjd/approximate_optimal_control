@@ -23,3 +23,4 @@ dpi = 100
 # confidence band width
 sigs = 3
 confidence_band_alpha = 0.1
+scatter_alpha = .2

@@ -38,13 +38,40 @@ flatquad_configs_base = {
 }
 
 
+flatquad_configs_rtol = {
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.001],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [512],
+    'sweep_name': ['rtol'],
+    'seed': list(range(N_seeds)),
+    'pontryagin_solver_rtol': [1e-6, 2e-6, 5e-6, 1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4],
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
+
+
+
 # sweep over weight decay
 flatquad_configs_wd = {
 
     'nn_value_sweep': [True],
     'nn_layer_dim': [128],
     'lr_final': [0.001],
-    'weight_decay': [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
+    'weight_decay': [.00001, .00002, .00005, 0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
     'vx_loss_d': [0.3],
     'consider_old_data': [True],
     'inv_vx_loss_fadeout': [1.],

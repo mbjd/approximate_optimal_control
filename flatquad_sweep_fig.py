@@ -46,12 +46,14 @@ def pull_runs(sysname, sweep_name, T=np.inf):
 
     # remove too old runs. either I am too dumb or wandb documentation is
     # too crappy for me to find out how to do this with filters above.
+    print(f'got {len(runs)} runs')
     cutoff_datetime = datetime.datetime.now() - datetime.timedelta(hours=T)
     def is_recent(r):
         run_datetime = datetime.datetime.strptime(r.createdAt, '%Y-%m-%dT%H:%M:%S')
         return run_datetime > cutoff_datetime
 
     runs = [r for r in runs if is_recent(r)]
+    print(f'...{len(runs)} of which are recent enough')
 
     # 2. get the runs from euler if not present already.
 
@@ -109,6 +111,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
         'nn_layer_dim': 'NN Layer size',
         'pontryagin_solver_rtol': 'ODE Solver rtol',
         'vx_loss_d': '$\lambda$ Huber width $\delta$',
+        'dtmax': 'ODE solver $\Delta t_\\text{max}$',
     }[sweep_config]
 
 
@@ -129,7 +132,12 @@ def plot_sweep(sysname, sweep_name, sweep_config):
     # being the swept config.
     fracs = dict()
     for r in runs:
-        last = r.history(pandas=False)[-1]
+        try:
+            last = r.history(pandas=False)[-1]
+        except IndexError:
+            print('run has empty history')
+            continue
+
         relevant_config = r.config[sweep_config]
         if relevant_config not in fracs:
             fracs[relevant_config] = []
@@ -166,7 +174,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 
     pl.semilogx(xs, ys_mean, label=('Fraction below 5% suboptimality', 'Fraction below 50% suboptimality', 'Fraction below 500% suboptimality'))
 
-    ipdb.set_trace()
+    # ipdb.set_trace()
     pl.gca().set_prop_cycle(None)
     # fill_between wants to be done individually...
     for j in range(3):
@@ -195,8 +203,10 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 if __name__ == '__main__':
 
     sys_name = 'flatquad'
+    plot_sweep(sys_name, 'dtmax', 'dtmax')
     plot_sweep(sys_name, 'vxd', 'vx_loss_d')
     plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
     plot_sweep(sys_name, 'weight_decay', 'weight_decay')
-    plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
+    # completely uninteresting sadly
+    # plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
     # plot_sweep(sys_name, 'layerdim', 'nn_layer_dim')

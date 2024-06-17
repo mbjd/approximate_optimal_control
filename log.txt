@@ -5832,3 +5832,29 @@ TODO today:
 
  - run all sweeps again & chill out while they run
 
+
+
+2024-06-17
+
+made rudimentary plot for sweeps. plotting the fractions below x%
+suboptimality agains the swept param.
+
+reran sweeps, noticed that eval_controlcost_common was False. Redoing
+instead of trying to get data in some smart way from almost finished runs.
+
+qs for next time (wed?):
+ - obvs: feedback on section 3
+ - results:
+   - thoughts about reporting "relative suboptimality" generally and
+     comparison with refsol only for specific x0 sweeps?
+   - sweeps: more interesting stuff to plot than this fraction below x%
+     suboptimality stuff?
+
+
+todo next:
+ - think about better things to plot in sweep plots, or sweeps to do
+ - write:
+   - start intro
+   - start discussion etc.
+   - continue nitpicking in main section, but with that 80/20 thing in mind
+   - results a bit more concise?

@@ -1508,7 +1508,8 @@ def main(problem_params, algo_params):
 
         # generous upper bound for value we're interested in rn.
         # integration of trajectories stops once we pass this threshold.
-        v_upper = v_next + 50 * (v_next - v_k)
+        # v_upper = v_next + 50 * (v_next - v_k)
+        v_upper = np.inf  # only stop when hitting maxsteps \o/
 
         backward_sols = jax.vmap(solve_backward_nn_ens, in_axes=(0, None, None, None, None))(
             usable_xfs, vmap_nn_params, v_upper, problem_params, algo_params

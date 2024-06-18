@@ -112,6 +112,8 @@ def plot_sweep(sysname, sweep_name, sweep_config):
         'pontryagin_solver_rtol': 'ODE Solver rtol',
         'vx_loss_d': '$\lambda$ Huber width $\delta$',
         'dtmax': 'ODE solver $\Delta t_\\text{max}$',
+        'inv_vx_loss_fadeout': 'Loss fadeout $\mu$',
+        'lr_final': '$\\text{lr}_\\text{final}$',
     }[sweep_config]
 
 
@@ -203,10 +205,12 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 if __name__ == '__main__':
 
     sys_name = 'flatquad'
-    plot_sweep(sys_name, 'dtmax', 'dtmax')
-    plot_sweep(sys_name, 'vxd', 'vx_loss_d')
-    plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
-    plot_sweep(sys_name, 'weight_decay', 'weight_decay')
+    plot_sweep(sys_name, 'vx_fadeout', 'inv_vx_loss_fadeout')
+    plot_sweep(sys_name, 'lr_final', 'lr_final')
+    #plot_sweep(sys_name, 'dtmax', 'dtmax')
+    #plot_sweep(sys_name, 'vxd', 'vx_loss_d')
+    #plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
+    #plot_sweep(sys_name, 'weight_decay', 'weight_decay')
     # completely uninteresting sadly
     # plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
     # plot_sweep(sys_name, 'layerdim', 'nn_layer_dim')

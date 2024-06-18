@@ -37,6 +37,59 @@ flatquad_configs_base = {
     'ipdb_interval': [0],
 }
 
+flatquad_configs_vx_fadeout = {
+
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.001],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1., 2., 5., 10., 20., 50.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [512],
+    'sweep_name': ['vx_fadeout'],
+    'seed': list(range(N_seeds)),
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
+
+
+
+flatquad_configs_lrfinal = {
+
+    'nn_value_sweep': [True],
+    'nn_layer_dim': [128],
+    'lr_final': [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01],
+    'weight_decay': [0.002],
+    'vx_loss_d': [0.3],
+    'consider_old_data': [True],
+    'inv_vx_loss_fadeout': [1.],
+    'relative_kernel_lengthscale': [0.125],
+    'active_learning_batchsize': [512],
+    'sweep_name': ['lr_final'],
+    'seed': list(range(N_seeds)),
+
+    # OUTPUT & VISUALISATION
+    # (euler config here so we can keep local debugging type config in main file)
+    'wandb': [True],
+
+    'savefigs': [True],
+    'wandbfigs':[False],
+    'showfigs': [False],
+
+    'ipdb_interval': [0],
+}
+
+
 flatquad_configs_vxd = {
 
     'nn_value_sweep': [True],
@@ -234,7 +287,7 @@ def main():
 
     if PROJECT_NAME == 'flatquad':
         import flatquad_landing_experiment as exp
-        config_dict = flatquad_configs_dtmax
+        config_dict = flatquad_configs_vx_fadeout
         num_gpus = 1
     elif PROJECT_NAME == 'orbits':
         import orbits_experiment as exp
@@ -274,7 +327,7 @@ def flatquad_all_sweeps():
 
     command_list = []
 
-    for config_dict in (flatquad_configs_wd, flatquad_configs_batchsize, flatquad_configs_dtmax, flatquad_configs_vxd):
+    for config_dict in (flatquad_configs_wd, flatquad_configs_batchsize, flatquad_configs_dtmax, flatquad_configs_vxd, flatquad_configs_lrfinal):
         flags_combinations = dict_permutations(config_dict)
         for flags in flags_combinations:
             cmd = generate_base_command(exp, flags=flags)

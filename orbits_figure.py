@@ -40,7 +40,8 @@ from orbits_experiment import base_algo_params, define_problem_params
 
 
 plot_results = True
-plot_trajectories = plot_levelsets = False
+plot_trajectories=True
+plot_levelsets = False
 
 run_id = 'i2tcnb3h'
 
@@ -300,7 +301,91 @@ if plot_trajectories:
     if show:
         pl.show()
 
+
+
+
+    # second trajectories plot, to illustrate the "long integration" thing.
+    fig = pl.figure('trajectories', figsize=(pagewidth*.9, 0.3*pagewidth*.9), dpi=dpi)
+
+    v0, v1 = 2., 50.
+    eps = 0.001  # to certainly land in interior of domain of interpolation
+    # evaluate at nan too to break up line
+    # vs_plot = np.concatenate([np.logspace(np.log10(v0+eps), np.log10(v1-eps), 8), np.array([np.nan])])
+    vs_levelsets = np.logspace(np.log10(v0+eps), np.log10(v1-eps), 4)
+    # subsample = 32 * (N_trajs // 512)
+    ax = pl.subplot(121)
+
+    for v in vs_levelsets:
+        plot_levelset(v, grey=True)
+
+    # 'bad' option with trajectories appropriately remeshed, but restarted at each level set
+    for v_lower, v_upper in zip(vs_levelsets[:-1], vs_levelsets[1:]):
+
+        # yfs at lower value level v0
+        yfs = jax.vmap(lambda sol: sol.evaluate(v0))(sols)
+        # trajectories from v0 to v1 (with distribution of last traj batch!)
+        sols_partial = solve_fast(yfs, v_upper)
+
+        # remesh to obtain even spacing at level set v_upper
+        vs_plot_levelset = np.concatenate([np.linspace(v_lower, v_upper, 10), np.array([np.nan])])
+        yfs_uniform_upper = remesh(sols_partial, 1., False)
+        sols_uniform_upper = solve_fast(yfs_uniform_upper, v_upper)
+
+        # & plot
+        plot_ys_levelset = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot_levelset))(sols_uniform_upper)
+        # do this offset move to remove the visual regularity
+        offset = onp.random.randint(subsample)
+        rolled_xs = np.roll(plot_ys_levelset['x'], offset, axis=0)
+        pl.plot(*rolled_xs[::subsample].reshape(-1,2).T, alpha=traj_alpha, c='C0')
+        pl.plot(*rolled_xs[::subsample, 0, :].T, '. ', c='red')
+
+    # good option, with longer trajectories. might be not as simple though here...
+    ax = pl.subplot(122, sharex=ax, sharey=ax)
+
+    for v in vs_levelsets:
+        plot_levelset(v, grey=True)
+
+    for v_lower, v_upper in zip(vs_levelsets[:-1], vs_levelsets[1:]):
+        # yfs at lower value level v0
+        yfs = jax.vmap(lambda sol: sol.evaluate(v0))(sols)
+        # trajectories from v0 to v1 (with distribution of last traj batch!)
+        sols_partial = solve_fast(yfs, v_upper)
+
+        # again, remesh to get uniform distr on upper level set.
+        yfs_uniform_upper = remesh(sols_partial, 1., False)
+        sols_uniform_upper = solve_fast(yfs_uniform_upper, v1)
+
+        # in initial round, draw everything, up to v_upper.
+        vs_plot_levelset = np.concatenate([np.linspace(v_lower, v1, 32), np.array([np.nan])])
+        if v_lower == vs_levelsets[0]:
+            plot_ys_levelset = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot_levelset))(sols_uniform_upper)
+            pl.plot(*plot_ys_levelset['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha, c='C0')
+            pl.plot(*plot_ys_levelset['x'][::subsample, 0, :].T, '. ', c='red')
+        else:
+            # TODO:
+            # - find out where to "sample" (draw) new trajectories in the regions that are empty
+            # - find out how we can sensibly keep track of them for later iterations.
+            #   (keep an array of indices, wrt the sols array, and only use that?)
+            #   ((but then we kind of have to rewrite the remeshing logic))
+            pass
+
+
+
+
+    ipdb.set_trace()
+
+
+
+
+
+
+    pl.savefig(f'./{fig_dir}/trajectories_remeshing.{fig_format}', dpi=dpi)
+
+    if show:
+        pl.show()
+
 # }}}
+
 
 # levelset intersection calculation definition {{{
 

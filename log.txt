@@ -5858,3 +5858,18 @@ todo next:
    - start discussion etc.
    - continue nitpicking in main section, but with that 80/20 thing in mind
    - results a bit more concise?
+   - think about where to sensibly include "implicit" assumption about V
+     continuous, and maybe search for some theory to back it up concretely
+   - be consistent about defining abbreviations the first time they occur
+   - concrete notation for single datapts and trajectories? currently we
+     are handwaving it away.
+
+
+2024-06-18
+
+wrote large part of intro (literature review). is in a surprisingly nice
+state already imo. also cleaned up some of the assumptions.
+
+tried to make a plot showing the main idea of being able to use longer
+trajectories to minimise approximation error. not yet completely there,
+only shows the "bad" version atm.

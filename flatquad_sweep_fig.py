@@ -99,7 +99,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
     # variable is modified in the sweep), then we can name them idependently.
 
     # 2. pull the data from euler
-    runs = pull_runs(sysname, sweep_name, T=12)
+    runs = pull_runs(sysname, sweep_name, T=72)
 
     # can we infer this from the runs object?
     # sweep_config = 'active_learning_batchsize'
@@ -154,6 +154,27 @@ def plot_sweep(sysname, sweep_name, sweep_config):
             # data not present in wandb :(((( can we get it otherwise?
             print('key not found.')
 
+
+        # also plot a bit of the other stats?
+        run_id = r.id
+        fpath = os.path.join(data_dir, f'{sys_name}_{run_id}_controlcosts_lines.msgpack.gz')
+        with gzip.open(fpath, 'rb') as f:
+            bs = f.read()
+        eval_outputs_lines = flax.serialization.msgpack_restore(bs)
+        eval_outputs_lines = jtm(np.array, eval_outputs_lines)  # np array -> jax array
+
+        fpath = os.path.join(data_dir, f'{sys_name}_{run_id}_controlcosts_common.msgpack.gz')
+        with gzip.open(fpath, 'rb') as f:
+            bs = f.read()
+        eval_outputs_common = flax.serialization.msgpack_restore(bs)
+        eval_outputs_common = jtm(np.array, eval_outputs_common)  # np array -> jax array
+
+        ipdb.set_trace()
+
+
+    # can we pull this out into a function to do it for other metrics as
+    # well???
+
     # convert to mean with min/max range for plotting.
     # certainly there should be some MUCH nicer way of doing this.....
     arraydict = {k: np.array(v) for k, v in fracs.items() if len(v) > 0}
@@ -172,7 +193,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 
 
 
-    fig = pl.figure('sweepfig', figsize=(.6*pagewidth, .5*pagewidth))
+    fig = pl.figure('sweepfig', figsize=(pagewidth, .6*pagewidth))
 
     pl.semilogx(xs, ys_mean, label=('Fraction below 5% suboptimality', 'Fraction below 50% suboptimality', 'Fraction below 500% suboptimality'))
 
@@ -190,6 +211,12 @@ def plot_sweep(sysname, sweep_name, sweep_config):
     pl.grid('on')
 
     # second subplot with other stats like N iterations etc?
+    # most sensibly we would probably plot the following:
+    #  - control cost on the six sweeps (compared to TO cost and/or by #  itself)
+    #    (as cdf of the suboptimality ratio?)
+    #  - mean control cost on eval_xs (which are not the same for each run,
+    #  not even from the same same distribution bc level sets differ a bit)
+    #  - stats like number of steps, runtime, floating point ops even?
 
     fig.tight_layout()
     pl.savefig(f'./{fig_dir}/{sys_name}_sweep_{sweep_name}.{fig_format}', bbox_inches='tight', dpi=dpi)
@@ -202,15 +229,17 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 
 
 
+
+
 if __name__ == '__main__':
 
     sys_name = 'flatquad'
     plot_sweep(sys_name, 'vx_fadeout', 'inv_vx_loss_fadeout')
     plot_sweep(sys_name, 'lr_final', 'lr_final')
     #plot_sweep(sys_name, 'dtmax', 'dtmax')
-    #plot_sweep(sys_name, 'vxd', 'vx_loss_d')
-    #plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
-    #plot_sweep(sys_name, 'weight_decay', 'weight_decay')
+    plot_sweep(sys_name, 'vxd', 'vx_loss_d')
+    plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
+    plot_sweep(sys_name, 'weight_decay', 'weight_decay')
     # completely uninteresting sadly
     # plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
     # plot_sweep(sys_name, 'layerdim', 'nn_layer_dim')

@@ -5873,3 +5873,12 @@ state already imo. also cleaned up some of the assumptions.
 tried to make a plot showing the main idea of being able to use longer
 trajectories to minimise approximation error. not yet completely there,
 only shows the "bad" version atm.
+
+
+2024-06-19
+
+made that really nice plot to illustrate remeshing/integration of longer
+trajectories. still todo: adequately explain it. the concept, and how it is
+practically addressed in the active learning proposal generation.
+
+after lunch: address todos from previous days

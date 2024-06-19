@@ -1049,9 +1049,8 @@ def main(problem_params, algo_params):
         N_pts_desired = 128 * max(256, algo_params['active_learning_batchsize'])
 
 
-        # here just use testpts? or another similar but constant set?
-        # with log_min_scale getting enough samples should be easy enough.
-
+        # find N_pts_desired points in the current value band by uniform
+        # sampling + rejection sampling.
         i=0
         while all_valueband_pts.shape[0] < N_pts_desired and i < 1000:
 
@@ -1062,29 +1061,9 @@ def main(problem_params, algo_params):
             # sampling function, especially extent now fixed outside.
             x_pts = sample_fct(newkey, 100000)
 
-            # what kind of points do we propose? we want points x such that:
-            # - x is withing the value band V_{k+1} \ V_k
-            # - from those, we want the ones with largest uncertainty.
-
             v_means, v_stds = v_meanstds(x_pts, vmap_nn_params)
 
-            # optimistic_vs = v_means - 2 * v_stds
-            # optimistic_vs = v_means - 1 * v_stds
-
-            # not optimistic hehe
-            optimistic_vs = v_means
-
-            # is_in_range = np.logical_and(value_interval[0] <= optimistic_vs, optimistic_vs <= value_interval[1])
-
-            # only be optimistic for the outer boundary instead.
-            # inner boundary is a) relatively low-σ and b) nothing happens
-            # if we are a bit wrong about it.
-            # or, actually, should we be optimistic there too? then we get
-            # an outer approximation of the lower sublevel set, meaning we
-            # don't propose points *right* at the boundary which could be
-            # good right?  -> this doesn't happen most of the time anyway
-            is_in_range = np.logical_and(value_interval[0] <= v_means, optimistic_vs <= value_interval[1])
-
+            is_in_range = np.logical_and(value_interval[0] <= v_means, v_means <= value_interval[1])
             interesting_x0s = x_pts[is_in_range]
 
             all_valueband_pts = np.concatenate([all_valueband_pts, interesting_x0s], axis=0)
@@ -1113,30 +1092,24 @@ def main(problem_params, algo_params):
 
         # ~~~ find a sensible subset of those points to use as proposals ~~~
 
-        # now we have 1000 points that satisfy the first requirement (be
-        # inside of the value band). as a first attempt we just sample
-        # without replacement according to acquisition function style
-        # weights.
-
-        # things to consider afterwards:
-        # - ensure the samples are not very close (some literature about this "batched active learning", max kernel distance etc.)
-
-        # though: the highest-uncertainty ones also tend to be high value (= far from the current data set)
-        # is this a problem? if V_k+1 is higher than it should be it might take a long time to learn
-        # forget this for now maybe its even a good thing.
-
         v_means, v_stds = v_meanstds(all_valueband_pts, vmap_nn_params)
 
         sigma_maxs = algo_params['sigma_max_abs'] + v_means * algo_params['sigma_max_rel']
 
-
         N_proposals = algo_params['active_learning_batchsize']
-
 
         proposal_strategy = algo_params['proposal_strategy']
 
         # every one of these just needs to set proposal_idxs - the indices of
         # proposed points in the array all_valueband_pts.
+
+        # probably here a max_distance strategy would be most robust
+        # (meaning: easy to tune, good enough for wide variety of cases
+        # rather than very optimal or anything). but it is too late to
+        # properly implement and test though. If we ever get to it:
+        #  - start with max_kernel(_adaptive)
+        #  - change k(x, y) to ||x - y|| and multiplicative update to
+        #    pointwise min (disregard uncertainty entirely???)
 
         do_replace = False
 
@@ -2259,7 +2232,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
 
     # take this in algoparams?
     eval_meshcat = not 'SCRATCH' in os.environ # == not euler
-    eval_meshcat = False
+    # eval_meshcat = False
     eval_controlcost_common = True
     eval_controlcost_2d = problem_params['system_name'] == 'orbits'
     eval_controlcost_lines = True

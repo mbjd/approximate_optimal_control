@@ -41,7 +41,7 @@ from orbits_experiment import base_algo_params, define_problem_params
 
 plot_results = True
 plot_trajectories=True
-plot_levelsets = False
+plot_levelsets = True
 
 run_id = 'i2tcnb3h'
 
@@ -245,7 +245,7 @@ else:
 # }}}
 
 
-def plot_levelset(v, grey=False):
+def plot_levelset(v, grey=False, alpha=None, label=None):
     ys = jax.vmap(lambda sol: sol.evaluate(v))(sols)
 
     if grey:
@@ -253,13 +253,14 @@ def plot_levelset(v, grey=False):
     else:
         color = cmap(v / levels[-1])
 
-    pl.plot(*ys['x'].T, alpha=levelset_alpha, color = color)
+    a = alpha if alpha is not None else levelset_alpha
+    pl.plot(*ys['x'].T, alpha=a, color = color, label=label)
 
 
 
 # trajectories plot {{{
 if plot_trajectories:
-    fig = pl.figure('trajectories', figsize=(pagewidth*.9, 0.3*pagewidth*.9), dpi=dpi)
+    fig = pl.figure('trajectories', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
 
     v0, v1 = 2., 50.
     eps = 0.001  # to certainly land in interior of domain of interpolation
@@ -270,7 +271,9 @@ if plot_trajectories:
     # v0, v1 = (150., 300.)
 
     ax = pl.subplot(121)
-    ax.set_aspect('equal')
+    # no labels here.
+    pl.axis('off')
+    # ax.set_aspect('equal')
     plot_levelset(v0, grey=True)
     plot_levelset(v1, grey=True)
 
@@ -289,23 +292,22 @@ if plot_trajectories:
     pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
 
     ax = pl.subplot(122, sharex=ax, sharey=ax)
-    ax.set_aspect('equal')
+    # ax.set_aspect('equal')
+    pl.axis('off')
     plot_ys = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot))(sols_uniform_upper)
-    plot_levelset(v0, grey=True)
+    plot_levelset(v0, grey=True, label='Value level sets')
     plot_levelset(v1, grey=True)
-    pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha)
+    pl.plot(*plot_ys['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha, label='Optimal trajectories')
+    pl.legend()
+
     fig.tight_layout()
-
     pl.savefig(f'./{fig_dir}/trajectories.{fig_format}', dpi=dpi)
-
-    if show:
-        pl.show()
-
 
 
 
     # second trajectories plot, to illustrate the "long integration" thing.
-    fig = pl.figure('trajectories', figsize=(pagewidth*.9, 0.3*pagewidth*.9), dpi=dpi)
+    fig = pl.figure('trajectories_remeshing', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
+
 
     v0, v1 = 2., 50.
     eps = 0.001  # to certainly land in interior of domain of interpolation
@@ -314,9 +316,10 @@ if plot_trajectories:
     vs_levelsets = np.logspace(np.log10(v0+eps), np.log10(v1-eps), 4)
     # subsample = 32 * (N_trajs // 512)
     ax = pl.subplot(121)
+    pl.axis('off')
 
     for v in vs_levelsets:
-        plot_levelset(v, grey=True)
+        plot_levelset(v, grey=True, alpha=0.5)
 
     # 'bad' option with trajectories appropriately remeshed, but restarted at each level set
     for v_lower, v_upper in zip(vs_levelsets[:-1], vs_levelsets[1:]):
@@ -341,44 +344,124 @@ if plot_trajectories:
 
     # good option, with longer trajectories. might be not as simple though here...
     ax = pl.subplot(122, sharex=ax, sharey=ax)
+    pl.axis('off')
 
     for v in vs_levelsets:
-        plot_levelset(v, grey=True)
+        if v == vs_levelsets[0]:
+            plot_levelset(v, grey=True, alpha=0.5, label='Value level sets')
+        else:
+            plot_levelset(v, grey=True, alpha=0.5)
+
+    sqrtspace = lambda a, b, n: np.linspace(np.sqrt(a), np.sqrt(b), n)**2
+
+
+
+
+    def remesh_idx(sols, v):
+
+        # find (integer) indices of sols which are equidistant at level v.
+        yfs = jax.vmap(lambda sol: sol.evaluate(v))(sols)
+
+        # arclengths purely in x.
+        xs = yfs['x']
+        rolled_xs = np.roll(xs, -1, axis=0)
+        neighbor_dists = np.linalg.norm(xs - rolled_xs, axis=1)
+        arclengths = np.cumsum(neighbor_dists)
+
+        # now, find a new set of points that are equidistant in arclength.
+        # considering arclengths as a function of the index, we see it is monotonously increasing and thus invertible.
+        # thus we can also view index as a function of arclength! and use standard numpy interp thing.
+        N = yfs['x'].shape[0]
+        arclengths_even = np.linspace(0, arclengths[-1], N)
+        frac_idx = np.interp(arclengths_even, arclengths, np.arange(N))
+        return np.floor(frac_idx).astype(int)
+
+
+
+    def plot_trajs(idxs, v_lower, v_upper):
+        vs_plot_levelset = np.concatenate([sqrtspace(v_lower, v_upper, 32), np.array([np.nan])])
+        plot_ys_levelset = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot_levelset))(sols)
+
+        # plot blue line for each trajectory (separated by nan in vs_plot_levelset)
+        label = 'Optimal trajectories' if v_lower == vs_levelsets[0] else None
+        pl.plot(*plot_ys_levelset['x'][idxs].reshape(-1,2).T, alpha=traj_alpha, c='C0', label=label)
+        # red dot to mark start of each trajectory
+        pl.plot(*plot_ys_levelset['x'][idxs, 0, :].T, '. ', c='red')
+
+
+
+    # indices of trajectories drawn so far.
+    drawn_idx = np.array([])
+
 
     for v_lower, v_upper in zip(vs_levelsets[:-1], vs_levelsets[1:]):
         # yfs at lower value level v0
-        yfs = jax.vmap(lambda sol: sol.evaluate(v0))(sols)
+        # yfs = jax.vmap(lambda sol: sol.evaluate(v_lower))(sols)
         # trajectories from v0 to v1 (with distribution of last traj batch!)
-        sols_partial = solve_fast(yfs, v_upper)
+        # sols_partial = solve_fast(yfs, v_upper)
 
         # again, remesh to get uniform distr on upper level set.
-        yfs_uniform_upper = remesh(sols_partial, 1., False)
-        sols_uniform_upper = solve_fast(yfs_uniform_upper, v1)
 
-        # in initial round, draw everything, up to v_upper.
-        vs_plot_levelset = np.concatenate([np.linspace(v_lower, v1, 32), np.array([np.nan])])
         if v_lower == vs_levelsets[0]:
-            plot_ys_levelset = jax.vmap(lambda sol: jax.vmap(sol.evaluate)(vs_plot_levelset))(sols_uniform_upper)
-            pl.plot(*plot_ys_levelset['x'][::subsample].reshape(-1,2).T, alpha=traj_alpha, c='C0')
-            pl.plot(*plot_ys_levelset['x'][::subsample, 0, :].T, '. ', c='red')
+
+            # in initial round, draw everything, up to v_upper.
+
+            idx_uniform_upper = remesh_idx(sols, v_upper)
+            idx_uniform_upper_subsampled = idx_uniform_upper[::subsample]
+
+            plot_trajs(idx_uniform_upper_subsampled, v_lower, v1)
+            drawn_idx = idx_uniform_upper_subsampled
+
         else:
-            # TODO:
-            # - find out where to "sample" (draw) new trajectories in the regions that are empty
-            # - find out how we can sensibly keep track of them for later iterations.
-            #   (keep an array of indices, wrt the sols array, and only use that?)
-            #   ((but then we kind of have to rewrite the remeshing logic))
-            pass
+
+            drawn_xs_lower = jax.vmap(lambda sol: sol.evaluate(v_lower))(sols)['x'][drawn_idx]
+            drawn_xs_upper = jax.vmap(lambda sol: sol.evaluate(v_upper))(sols)['x'][drawn_idx]
+
+            all_xs_upper = jax.vmap(lambda sol: sol.evaluate(v_upper))(sols)['x']
+            # pl.plot(*drawn_xs_upper.T, '. ', c='red')
+            # pl.plot(*all_xs_upper.T, '. ', c='green', alpha=0.1)
+
+            # find nice looking trajectories to draw here...
+            rolled_xs_upper = np.roll(all_xs_upper, -1, axis=0)
+            neighbor_dists = np.linalg.norm(all_xs_upper - rolled_xs_upper, axis=1)
+            arclengths_upper = np.cumsum(neighbor_dists)
+
+            arclengths_upper_drawn = arclengths_upper[drawn_idx]
+
+            dists = np.diff(arclengths_upper_drawn)
+
+            # let's say twice the median is acceptable
+            half = dists.shape[0] // 2
+            min_dist = dists.sort()[half] * 1.5
+
+            new_idx = np.array([], dtype=int)
+            for idx_a, idx_b in zip(drawn_idx[:-1], drawn_idx[1:]):
+
+                a = arclengths_upper[idx_a]
+                b = arclengths_upper[idx_b]
+                dist = b - a
+
+                if dist > min_dist:
+                    # if it fits between 1 and 2 times, we want 3 pts, then we remove edges so 1 left.
+                    # checks out
+                    N_new_pts = int(dist / min_dist + 1) + 1
+                    print(f'adding {N_new_pts-2} new pts')
+                    new_arclens = np.linspace(a, b, N_new_pts)[1:-1]
+
+                    # find uniformly spaced pts between arclengths a and b.
+                    # we have a monotonous function from idx to arclength (arclengths_upper).
+                    # we want to invert that function and evaluate the inverse at some points.
+                    # this is what interp can do easily, just swap y and x.
+                    new_idx_float = np.interp(new_arclens, arclengths_upper, np.arange(arclengths_upper.shape[0]))
+                    new_idx = np.concatenate([new_idx, (new_idx_float + 0.5).astype(int)])
 
 
+            plot_trajs(new_idx, v_lower, v1)
 
+            drawn_idx = np.concatenate([drawn_idx, new_idx]).sort()
 
-    ipdb.set_trace()
-
-
-
-
-
-
+    pl.legend()
+    fig.tight_layout()
     pl.savefig(f'./{fig_dir}/trajectories_remeshing.{fig_format}', dpi=dpi)
 
     if show:
@@ -519,6 +602,7 @@ if plot_levelsets:
     ax = None
     for k in range(2):
         ax = pl.subplot(131 + k, sharex=ax, sharey=ax)
+        pl.axis('off')
         ax.set_aspect('equal')
         for v in vs_plot:
             if v < v_uppers[k]:
@@ -535,6 +619,7 @@ if plot_levelsets:
     intersecs = []
     ax = pl.subplot(133, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
+    pl.axis('off')
     for v in vs_plot:
         if v < v_uppers[k]:
             print(v)

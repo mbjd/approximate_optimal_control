@@ -5882,3 +5882,136 @@ trajectories. still todo: adequately explain it. the concept, and how it is
 practically addressed in the active learning proposal generation.
 
 after lunch: address todos from previous days
+
+
+2024-06-20
+
+feedback:
+ - yes, section 3 is messy and hard to follow
+   (lots of specific comments in overleaf)
+ - general recommendations about section 3:
+   - MUCH shorter and clearer initial overview of idea (like half page?)
+   - figures to illustrate everything which might be hard to imagine
+     (probably first&foremost how learning in level sets pervents
+     evaluating too many suboptimal solutions)
+   - anything more specific -> implementation sections
+   - lots of implementatin details can go into appendix (comment from bhavya)
+ - specifically: level set estimation & motivation of selecting relative
+   uncertainty bound.
+
+ - upside: parameter sweeps not so important what to plot. maybe put in
+   appendix even. recommend to plot (closed loop cost - TO ref cost)^2 / TO
+   ref cost^2 rather than closed loop / learned value. does not matter if
+   only evaluating at those six sweeps. BUT could also reasonably just
+   compare uniformly sampled pts with TO, initialised with the closed loop
+   sol started right there. (but might fail where our closed loop fails
+   too)
+
+that second point: we are setting
+    σ_max(x) = σ_abs + σ_rel μ(x)
+and asking for points where σ(x) <= σ_max(x) (and then finding the largest
+level set only containing such points). Now, they suggest the
+reformulation:
+    σ(x) <= σ_abs + σ_rel μ(x)
+    -σ_abs + σ(x) <=  σ_rel μ(x)
+    -σ_abs <= σ_rel μ(x) - σ(x)
+    -σ_abs/σ_rel <=  μ(x) - σ(x)/σ_rel
+so, this is the same as a lower confidence bounds of 1/σ_rel standard
+deviations being higher than a small negative constant. so far so good.
+does this mean anything in practice? the confidence bound is HUGE in
+practice (bc σ_rel << 1) so not really meaningful. also values <= 0 make no
+sense in general and should be considered a function approximation
+artefact. not so sure if this reformulation adds any insight at all.
+
+"precisify" the intuition about log transform? uniform uncertainty bound in
+log domain IF uncertainty << mean (so that log transform can be linearised)
+
+maaaan feeling zero motivation to restructure the whole main section.
+
+
+
+
+2024-06-21
+
+notes in latex which clutter everything but i dont want to lose them
+entirely. about first introduction of level-set DP concept.
+
+\bd{how precisely should we introduce the sensitivity issue, and from what angle?}
+
+\begin{itemize}
+    \item only practical/handwavy: trajectories diverge, only short horizon useful
+    \item literal sensitivity $d\text{solution} / dx_f$ and how its norm somehow increases exponentially with time horizon?
+    \item incremental stability $\rightarrow$ time-reversed incremental "instability"?
+    \item volume considerations: forward flow maps large volumes of state space to small volume, therefore in backward time the opposite happens
+\end{itemize}
+
+
+\bd{change terminology to more standard indirect backward shooting/PMP backward shooting?}
+
+
+\bd{loose thoughts about that super clear, short high level intro}
+
+start with causal dependence of solution?
+
+maaan suffering massive writers blockade, really NO idea what to write here so it sounds reasonable... some options on how to start:
+
+\begin{enumerate}
+    \item We aim for global optimality, thus dynamic programming, and bc (short explanation) specifically like this. then data distribution. sounds bad though
+    \item with backward integration we have limited control over the trajectories, only over a short horizon. so we decompose the problem into short horizons. (but then why level sets?)
+    \item FIRST introduce level set idea in like one or 2 sentences. then motivate it: this way we can keep the sensitivity problem in check AND reasonably treat intersections of local solutions)
+    \item start everything with pictures?
+    \item start with level set idea: if for each value level v, we first learn the value function below and then above, then <good things> (condense explanation in intro of curriculum learning...)
+    \item first talk about the 'data distribution' aspect, explain why with backward integration only small horizons work, and then introduce the level set/global optimality stuff
+    \item introduce level set idea clearly and concisely. If we do this, then first learned = globally optimal.
+\end{enumerate}
+
+maaaaan why is this already an entire page??? also most of these $\uparrow$ overlap. distill something good out of it
+
+possible structure:
+\begin{enumerate}
+    \item max half page explaining main idea
+    \item 1 page with active learning formulation \& quick explanation of each component
+    \item
+\end{enumerate}
+
+% this (motivation and level-set DP) is all going into an ultra short "basic ideas" section on a much higher level.
+% \subsection{Motivation}
+% \label{sec:motivation}
+%
+% We have seen in the introduction that every locally optimal trajectory of the optimal control problem \eqref{eq:ocp} can be found by solving the PMP \eqref{eq:pmp_ours} in backwards time from suitable boundary conditions.
+% However, turning this basic idea into a practical method of calculating approximate optimal control laws requires addressing two central difficulties.
+%
+%
+% \paragraph{Data distribution} We may hope that by sampling a large number of $x_f$ from some simple distribution on the terminal set \bd{where do we most sensibly introduce this idea? i.e. assume lqr on some tiny terminal set and start from there}, and then solving \eqref{eq:pmp_ours} from those points, we obtain a set of optimal trajectories suitable for function approximation. However, typically the resulting trajectories are very unevenly distributed, with trajectories concentrated in some regions of the state space while leaving others empty -- a simple example is shown in Fig. \ref{fig:trajectories}. This is related to the well known \emph{sensitivity problem} \cite{mease_hypersensitive,bryson} that plagues all optimal control approaches based on directly solving the PMP. This limitation needs to be taken into account when designing a sampling strategy.
+%
+%
+% \paragraph{Global optimality} When we generate a large dataset of locally optimal trajectories,
+% %with backward integration,
+% it will typically contain both globally optimal and globally suboptimal trajectories. We want our approximate value function to be a smooth approximation of the actual value function $V$, which describes the globally optimal control input at each state via \eqref{eq:ustar}.
+% % \bd{but only after subbing $\lambda = V_x$... -- make one equation explicitly defining optimal input based on V approx?} <-- nobody cares
+%
+% Therefore, we cannot naively apply standard function approximation tools, as contradictory training data would render the learned function useless \bd{too vague claim?}. Instead, we have to remove globally suboptimal trajectories from consideration, ensuring that only the globally optimal ones are used to inform the approximate value function.
+%
+% In this context, the points where $V$ is nonsmooth are of special interest. The discontinuous gradient cannot be represented exactly with a smooth approximation. Instead, we aim to practically minimise the adverse effects of this smoothing.
+%
+
+% \bd{isn't it a bit icky that we refer to the figures which already make clear use of the level-set DP concepts, before having introduced the idea at all? introduce here but very high-level? only point to figures later? also, this data distribution thing doesn't \emph{really} motivate the level set idea, rather the proposal strategy...}
+
+
+somewhere:
+bhavyad161: A lot of these challenges are highlighted here too:
+https://ieeexplore.ieee.org/abstract/document/9806174 Perhaps you can have
+a look there and embed this into your text
+
+
+spent all day shuffling around things in 3.1. I'm sure I improved it
+somewhat, less sure if it is accessible enough now.
+
+todo next: go through 3.2.
+ - make those actually high level explanations that only take up the rest
+   of the page of the algo.
+ - think about structure of the rest. main components in 3.2 & details in
+   appendix?
+ - clear up notation all the way.
+   where to introduce Vkapprox? how to write indices? (index V or \mTheta?)
+

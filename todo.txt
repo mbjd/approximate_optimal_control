@@ -2,6 +2,66 @@ todo list now in separate file, instead of carrying over every couple days
 in log.
 
 
+large & detailed final report TODO list.
+
+Title
+ - think about, maybe change
+
+Abstract
+ - Write last
+
+Introduction
+ - Background: same content but nicer
+ - Problem setting: clear short statement
+ - Related work:
+   incorporate Zamora.
+   Incorporate Lutter continuous fitted value iter?
+   Disclaimer that here "dynamic programming" is used in a broad sense
+   (pinn, infLP, SoS etc)
+   place "level set methods" less awkwardly?
+   make own section about backward integration/backward reachability stuff
+
+Fundamentals
+ - where to place list of symbols? frontmatter probably
+ - assumptions format with that latex environment?
+ - remove unnecessary talk about characteristics in PMP backward
+   integration
+ - but add comment on sensitivity problem
+ - maybe move PMP backward integration to PMP & make shorter
+ - clean up regularity assumptions
+ - manifolds: shorten if possible
+ - active learnign: give to lenart&bhavya, probably this sounds amaeturish
+ - Sobolev training: also shorten? esp. manifolds & uncertainty estimate part
+
+Proposed Methods
+ - go over 3.1 again but only after another day of distance from it.
+ - maybe make level set figure "gradual", showing in-between states too
+ - 3.2: clear up esp. first introduction of idea, and find a neater way to
+   introduce the individual components.
+ - move everything not-very-important to implementation. maybe have only
+   2-3 pages explaining all the active learning components in total.
+ - move implementation details to appendix
+
+Results:
+ - move problem definitions to appendix
+ - standardise plots. do same thing for both experiments.
+   (line plot, change scatter/cdf plots to closed loop / reference rather
+   than predicted)
+ - sweeps: change plots to (cost - ref cost) / ref cost (percentiles of
+   that). but also move to appendix. dont spend loads of time.
+
+Discussion
+ - think about structure mainly. content okay i feel like
+
+
+
+
+
+
+
+
+~~~ from here on very old ~~~
+
 report.
 
 - write structure proposal. what goes where?

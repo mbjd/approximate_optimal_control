@@ -133,6 +133,17 @@ def plot_sweep(sysname, sweep_name, sweep_config):
     # put the closed loop / learned percentiles in a dict with key
     # being the swept config.
     fracs = dict()
+    fracs_TO = dict()
+
+
+    # read refsol costs only once.
+    fpath = os.path.join(data_dir, f'{sys_name}_refsol_costs.msgpack.gz')
+    with gzip.open(fpath, 'rb') as f:
+        bs = f.read()
+    refsol_outputs = flax.serialization.msgpack_restore(bs)
+    refsol_outputs = jtm(np.array, refsol_outputs)  # np array -> jax array
+
+
     for r in runs:
         try:
             last = r.history(pandas=False)[-1]
@@ -169,28 +180,44 @@ def plot_sweep(sysname, sweep_name, sweep_config):
         eval_outputs_common = flax.serialization.msgpack_restore(bs)
         eval_outputs_common = jtm(np.array, eval_outputs_common)  # np array -> jax array
 
+        # calculate control cost wrt TO refsol.
+
+        # what to plot? cdf? some percentiles as above?
+        all_TO_refsols = np.concatenate([np.minimum(n['left'], n['right']) for n in refsol_outputs])
+        all_closedloop_costs = np.concatenate([oup['costs'] for oup in eval_outputs_lines])
+
         ipdb.set_trace()
+
+        if relevant_config not in fracs_TO:
+            fracs[relevant_config] = []
+        fracs_TO[relevant_config].append(None) # todo
+
+    # ipdb.set_trace()
 
 
     # can we pull this out into a function to do it for other metrics as
     # well???
 
-    # convert to mean with min/max range for plotting.
-    # certainly there should be some MUCH nicer way of doing this.....
-    arraydict = {k: np.array(v) for k, v in fracs.items() if len(v) > 0}
+    def dict_to_arrays(data_dict):
 
-    min_dict = {k: np.min(v, axis=0) for k, v in arraydict.items()}
-    mean_dict = {k: np.mean(v, axis=0) for k, v in arraydict.items()}
-    max_dict = {k: np.max(v, axis=0) for k, v in arraydict.items()}
+        # converts a dict {x: [v0, v1, ...]} (with x representing a
+        # particular value of the swept variable) to arrays:
+        # xs = [x0, x1, ...]
+        # vmins = [v0min, v1min, ...]
+        # vmeans = [v0mean, v1mean, ...]
+        # vmaxs = [v0max, v1max, ...]
 
-    xs = sorted(arraydict.keys())
+        arraydict = {k: np.array(v) for k, v in data_dict.items() if len(v) > 0}
 
-    # convert to np array, shaped (N_runs, 3).
-    ys_min = np.array([z[1] for z in sorted(min_dict.items())])
-    ys_mean = np.array([z[1] for z in sorted(mean_dict.items())])
-    ys_max = np.array([z[1] for z in sorted(max_dict.items())])
+        min_array =  np.array([np.min(v, axis=0) for k, v in sorted(arraydict.items())])
+        mean_array =  np.array([np.mean(v, axis=0) for k, v in sorted(arraydict.items())])
+        max_array =  np.array([np.max(v, axis=0) for k, v in sorted(arraydict.items())])
 
+        xs = np.array(sorted(arraydict.keys()))
 
+        return xs, min_array, mean_array, max_array
+
+    xs, ys_min, ys_mean, ys_max = dict_to_arrays(fracs)
 
 
     fig = pl.figure('sweepfig', figsize=(pagewidth, .6*pagewidth))

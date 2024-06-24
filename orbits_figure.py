@@ -594,7 +594,9 @@ if plot_levelsets:
     # }}}
 
     # intersecting level sets plot {{{
-    pl.figure('levelsets', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
+    fig = pl.figure('levelsets', figsize=(pagewidth, 0.4*pagewidth), dpi=dpi)
+
+
     exp = 0.75 # between sqrt and linear. looks nicest
     vs_plot = np.linspace((vf*50)**exp, vmax**exp, 20)**(1/exp)
     v_uppers = (300, np.inf)
@@ -616,7 +618,6 @@ if plot_levelsets:
     # vs_plot = np.linspace(vf, vmax, 21)
     # v_uppers = (300, 340, np.inf)
 
-    intersecs = []
     ax = pl.subplot(133, sharex=ax, sharey=ax)
     ax.set_aspect('equal')
     pl.axis('off')
@@ -637,13 +638,17 @@ if plot_levelsets:
     sqrtspace = lambda a, b, n: np.linspace(np.sqrt(a), np.sqrt(b), n)**2
 
     print('second round')
+    intersecs = []
+    intersec_vs = []
     vs = 315 + sqrtspace(0, vmax-315, 30)
+    vs = np.concatenate([vs, vs_plot[vs_plot>315]]).sort()
     for v in vs:
         xa, xb = plot_levelset_intersect(v)
         if xa is not None and xb is not None:
-            print(v)
             intersecs.append(xa)
             intersecs.append(xb)
+            intersec_vs.append(v)
+            intersec_vs.append(v)
     intersecs = np.array(intersecs)
     # pl.plot(*intersecs.T, '. ', c='red')
     pl.clf()
@@ -652,16 +657,44 @@ if plot_levelsets:
     # the broad direction of the line. worked haha :)
     ks = intersecs @ np.array([1, 1])
     idx_sorted = np.argsort(ks)
+    intersec_vs_sorted = np.array(intersec_vs)[idx_sorted]
+    intersecs_sorted = intersecs[idx_sorted]
     pl.figure('levelsets')
     pl.plot(*intersecs[idx_sorted].T, alpha=1., c='red')
 
     fig.tight_layout()
     pl.savefig(f'./{fig_dir}/levelsets.{fig_format}',  bbox_inches='tight', dpi=dpi)
-    # norm = matplotlib.colors.Normalize(vmin=0., vmax=vmax)
-    # fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=pl.gca(), orientation='vertical', label='Some Units')
 
     if show:
         pl.show()
+
+
+    # eeeh fuck it do it again for the second figure.
+    fig2 = pl.figure('levelsets_fine', figsize=(pagewidth, 0.65*pagewidth), dpi=dpi)
+    fine_v_levels = vs_plot[-6:]
+
+    for i in range(6):
+        print(i)
+        v_upper = fine_v_levels[i]
+        ax = pl.subplot(231 + i)
+        ax.set_aspect('equal')
+        pl.axis('off')
+
+        for v in vs_plot:
+            if v <= v_upper:
+                if v < 315:
+                    plot_levelset(v)
+                else:
+                    xa, xb = plot_levelset_intersect(v)
+                    intersecs_partial = intersecs_sorted + np.nan * (intersec_vs_sorted > v+0.01)[:, None]
+                    pl.plot(*intersecs_partial.T, alpha=1., c='red')
+
+    fig.tight_layout()
+    pl.savefig(f'./{fig_dir}/levelsets_fine.{fig_format}',  bbox_inches='tight', dpi=dpi)
+
+    if show:
+        pl.show()
+
 
 # }}}
 

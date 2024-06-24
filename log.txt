@@ -6015,3 +6015,31 @@ todo next: go through 3.2.
  - clear up notation all the way.
    where to introduce Vkapprox? how to write indices? (index V or \mTheta?)
 
+
+
+
+2024-06-24
+
+made "gradual" level set plot. hopefully it illustrates the main idea well.
+did not yet procrastinate!!!
+
+worked on 3.1, 3.2, some intro stuff. slow but progress. great
+
+qs:
+ - from whatsapp
+ - "mini literature review" ok?
+   (sobolev learning, DNSS pts, NN ensemble -> bayesian inference)
+   or separate all of that strictly to lit. review
+ - active learning intro: correct?
+ - ideas for structuring active learning intro section?
+ - ideas for structuring discussion?
+
+ - ask for proofreading of:
+   - intro & fundamentals.
+
+
+todo tomorrow:
+ - START with roughly cleaning up 3.2.x, moving stuff to implementation
+ - move implementation to appendix, make sure it roughly makes sense, dont
+   spend too much effort though.
+ - also, results & sweep cleanup?

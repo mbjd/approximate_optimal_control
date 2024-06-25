@@ -6043,3 +6043,11 @@ todo tomorrow:
  - move implementation to appendix, make sure it roughly makes sense, dont
    spend too much effort though.
  - also, results & sweep cleanup?
+
+
+2024-06-25
+
+ - moved 3.2 details in appendix. cleaned up all of 3.2 (i think) except
+   3.2.7 (training & pruning) which still contains excessively long text
+ - moved problem defs to appendix.
+

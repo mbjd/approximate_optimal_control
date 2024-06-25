@@ -39,8 +39,8 @@ from misc import *
 from orbits_experiment import base_algo_params, define_problem_params
 
 
-plot_results = True
-plot_trajectories=True
+plot_results = False
+plot_trajectories=False
 plot_levelsets = True
 
 run_id = 'i2tcnb3h'
@@ -670,9 +670,12 @@ if plot_levelsets:
 
 
     # eeeh fuck it do it again for the second figure.
+
+    arrows=False
+    numbers=False
+
     fig2 = pl.figure('levelsets_fine', figsize=(pagewidth, 0.65*pagewidth), dpi=dpi)
     fine_v_levels = vs_plot[-6:]
-
     for i in range(6):
         print(i)
         v_upper = fine_v_levels[i]
@@ -689,11 +692,32 @@ if plot_levelsets:
                     intersecs_partial = intersecs_sorted + np.nan * (intersec_vs_sorted > v+0.01)[:, None]
                     pl.plot(*intersecs_partial.T, alpha=1., c='red')
 
-    fig.tight_layout()
+    if arrows:
+        ax_whole = pl.figure('levelsets_fine').add_subplot(111)
+        ax_whole.axis("off")
+        # lots of trial & error for this...
+        x = np.array([.975, 2.030, .975, 2.030])
+        y = np.array([1.55, 1.55, 0.470, 0.470])
+
+        # and a last one right in the middle
+        x = np.concatenate([x, np.array([np.mean(x)])])
+        y = np.concatenate([y, np.array([np.mean(y)])])
+
+        u = np.array([1, 1, 1, 1, -2])/10
+        v = np.array([0, 0, 0, 0, -0.6])/10
+
+        pl.quiver(x, y, u, v, pivot='mid', width=0.01, headlength=3, headaxislength=3,
+                alpha=.3, units='xy', angles='xy', scale_units='xy', scale=1)
+        pl.xlim([0, 3])
+        pl.ylim([0, 2])
+        fig.tight_layout()
+
     pl.savefig(f'./{fig_dir}/levelsets_fine.{fig_format}',  bbox_inches='tight', dpi=dpi)
 
     if show:
         pl.show()
+
+    ipdb.set_trace()
 
 
 # }}}

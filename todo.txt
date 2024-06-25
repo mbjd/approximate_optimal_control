@@ -14,7 +14,8 @@ Introduction
  - Background: same content but nicer
  - Problem setting: clear short statement
  - Related work:
-   incorporate Zamora.
+   incorporate Zamora. -> done?
+
    Incorporate Lutter continuous fitted value iter?
    and a few others about RL + improving with TO or similar (BC, IL...)
    Disclaimer that here "dynamic programming" is used in a broad sense
@@ -25,11 +26,7 @@ Introduction
 Fundamentals
  - where to place list of symbols? frontmatter probably
  - assumptions format with that latex environment?
- - remove unnecessary talk about characteristics in PMP backward
-   integration
- - but add comment on sensitivity problem
- - maybe move PMP backward integration to PMP & make shorter
- - clean up regularity assumptions
+ - find nicer place for regularity assumptions?
  - manifolds: shorten if possible
  - active learnign: give to lenart&bhavya, probably this sounds amaeturish
  - Sobolev training: also shorten? esp. manifolds & uncertainty estimate part
@@ -37,16 +34,9 @@ Fundamentals
 
 Proposed Methods
  - go over 3.1 again but only after another day of distance from it.
- - maybe make level set figure "gradual", showing in-between states too
-   -> DONE :))))))))
- - 3.2: clear up esp. first introduction of idea, and find a neater way to
-   introduce the individual components.
- - move everything not-very-important to implementation. maybe have only
-   2-3 pages explaining all the active learning components in total.
- - move implementation details to appendix
+ - clean up 3.2.7 training & pruning
 
 Results:
- - move problem definitions to appendix
  - standardise plots. do same thing for both experiments.
    (line plot, change scatter/cdf plots to closed loop / reference rather
    than predicted)
@@ -55,7 +45,12 @@ Results:
 
 Discussion
  - think about structure mainly. content okay i feel like but zero flow as
-   of now
+   of now. make a PROPER draft including what goes where.
+
+
+appendix:
+ - go over implementation things so they roughly make sense
+ - write the unwritten parts in the end
 
 
 

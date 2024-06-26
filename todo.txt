@@ -33,6 +33,12 @@ Fundamentals
    split? some parts to impl
 
 Proposed Methods
+
+ - importantly: make clear disclaimer when the concepts are introduced in
+   the simplified setting (without any consideration of finite data or
+   smoooth approximation) where it is easier to understand and reason
+   about, and when we make the step to the more realistic setting.
+
  - go over 3.1 again but only after another day of distance from it.
  - clean up 3.2.7 training & pruning
 

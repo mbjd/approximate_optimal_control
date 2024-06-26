@@ -5883,7 +5883,6 @@ practically addressed in the active learning proposal generation.
 
 after lunch: address todos from previous days
 
-
 2024-06-20
 
 feedback:
@@ -6050,4 +6049,18 @@ todo tomorrow:
  - moved 3.2 details in appendix. cleaned up all of 3.2 (i think) except
    3.2.7 (training & pruning) which still contains excessively long text
  - moved problem defs to appendix.
+
+maaan  no clue how to structure discussion section. so, what needs to go in
+there?
+
+ - tiny summary? like 2-3 sentences?
+ - what is good, what is bad. WITHOUT "guessing" why it is so.
+ - comparison with other methods in literature
+ - further research (this one def last)
+
+
+
+todo tomorrow: now actually do it. intro, discusssion still have lots to
+do, while 3 is probably closer to being good
+
 

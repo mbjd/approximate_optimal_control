@@ -44,49 +44,50 @@ def pull_runs(sysname, sweep_name, T=np.inf):
     api = wandb.Api()
     runs = api.runs(path=f'mbjd-projects/levelsets_{sysname}', filters={'config.sweep_name': sweep_name})
 
-    # remove too old runs. either I am too dumb or wandb documentation is
-    # too crappy for me to find out how to do this with filters above.
-    print(f'got {len(runs)} runs')
-    cutoff_datetime = datetime.datetime.now() - datetime.timedelta(hours=T)
-    def is_recent(r):
-        run_datetime = datetime.datetime.strptime(r.createdAt, '%Y-%m-%dT%H:%M:%S')
-        return run_datetime > cutoff_datetime
+    if False:
+        # remove too old runs. either I am too dumb or wandb documentation is
+        # too crappy for me to find out how to do this with filters above.
+        print(f'got {len(runs)} runs')
+        cutoff_datetime = datetime.datetime.now() - datetime.timedelta(hours=T)
+        def is_recent(r):
+            run_datetime = datetime.datetime.strptime(r.createdAt, '%Y-%m-%dT%H:%M:%S')
+            return run_datetime > cutoff_datetime
 
-    runs = [r for r in runs if is_recent(r)]
-    print(f'...{len(runs)} of which are recent enough')
+        runs = [r for r in runs if is_recent(r)]
+        print(f'...{len(runs)} of which are recent enough')
 
-    # 2. get the runs from euler if not present already.
+        # 2. get the runs from euler if not present already.
 
-    print('pulling output data from euler (only current sweep)...')
+        print('pulling output data from euler (only current sweep)...')
 
-    run_data_cmd = ['rsync', '--dry-run']
-    run_data_cmd = ['rsync']
+        run_data_cmd = ['rsync', '--dry-run']
+        run_data_cmd = ['rsync']
 
-    for r in runs:
-        run_data_cmd.append(f'--include={r.id}')
+        for r in runs:
+            run_data_cmd.append(f'--include={r.id}')
 
-    run_data_cmd.append("--include='*.msgpack.gz'")
-    run_data_cmd.append("--exclude='*'")
-    run_data_cmd.append('-av')
-    run_data_cmd.append('--progress')
-    run_data_cmd.append('dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/flatquad_runs/')
-    run_data_cmd.append('./euler_runs/')
+        run_data_cmd.append("--include='*.msgpack.gz'")
+        run_data_cmd.append("--exclude='*'")
+        run_data_cmd.append('-av')
+        run_data_cmd.append('--progress')
+        run_data_cmd.append('dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/flatquad_runs/')
+        run_data_cmd.append('./euler_runs/')
 
-    # oup = subprocess.run(run_data_cmd)
-    # no clue why this works but not the other one
-    oup = subprocess.run(' '.join(run_data_cmd), shell=True)
+        # oup = subprocess.run(run_data_cmd)
+        # no clue why this works but not the other one
+        oup = subprocess.run(' '.join(run_data_cmd), shell=True)
 
-    print('pulling eval/plot data from euler (all runs)...')
-    # here we just get everything, much less data
-    plot_data_cmd = [
-        'rsync',
-        '-av',
-        '--progress',
-        'dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/plot_data/',
-        'plot_data/'
-    ]
+        print('pulling eval/plot data from euler (all runs)...')
+        # here we just get everything, much less data
+        plot_data_cmd = [
+            'rsync',
+            '-av',
+            '--progress',
+            'dbalduin@euler.ethz.ch:/cluster/scratch/dbalduin/plot_data/',
+            'plot_data/'
+        ]
 
-    oup = subprocess.run(' '.join(plot_data_cmd), shell=True)
+        oup = subprocess.run(' '.join(plot_data_cmd), shell=True)
 
     return runs
 
@@ -181,22 +182,25 @@ def plot_sweep(sysname, sweep_name, sweep_config):
         eval_outputs_common = jtm(np.array, eval_outputs_common)  # np array -> jax array
 
         # calculate control cost wrt TO refsol.
-
-        # what to plot? cdf? some percentiles as above?
         all_TO_refsols = np.concatenate([np.minimum(n['left'], n['right']) for n in refsol_outputs])
         all_closedloop_costs = np.concatenate([oup['costs'] for oup in eval_outputs_lines])
 
-        ipdb.set_trace()
+        suboptimalities = all_closedloop_costs / all_TO_refsols - 1
 
         if relevant_config not in fracs_TO:
-            fracs[relevant_config] = []
-        fracs_TO[relevant_config].append(None) # todo
+            fracs_TO[relevant_config] = []
 
-    # ipdb.set_trace()
+        fracs_TO[relevant_config].append((
+            (suboptimalities < 0.05).mean().item(),
+            (suboptimalities < 0.50).mean().item(),
+            (suboptimalities < 5.00).mean().item(),
+        ))
+
 
 
     # can we pull this out into a function to do it for other metrics as
     # well???
+
 
     def dict_to_arrays(data_dict):
 
@@ -217,25 +221,35 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 
         return xs, min_array, mean_array, max_array
 
-    xs, ys_min, ys_mean, ys_max = dict_to_arrays(fracs)
-
 
     fig = pl.figure('sweepfig', figsize=(pagewidth, .6*pagewidth))
 
-    pl.semilogx(xs, ys_mean, label=('Fraction below 5% suboptimality', 'Fraction below 50% suboptimality', 'Fraction below 500% suboptimality'))
+    def plot_fracs(fracs):
 
-    # ipdb.set_trace()
-    pl.gca().set_prop_cycle(None)
-    # fill_between wants to be done individually...
-    for j in range(3):
-        pl.fill_between(xs, ys_min[:, j], ys_max[:, j], alpha=confidence_band_alpha)
+        xs, ys_min, ys_mean, ys_max = dict_to_arrays(fracs)
+        pl.semilogx(xs, ys_mean, label=('p = 0.05', 'p = 0.5', 'p = 5'))
 
-    pl.legend()
+        pl.gca().set_prop_cycle(None)
+        for j in range(3):
+            pl.fill_between(xs, ys_min[:, j], ys_max[:, j], alpha=confidence_band_alpha)
 
-    pl.xlabel(nice_sweep_config)
-    pl.ylabel('Fraction')
-    pl.ylim([0, 1])
-    pl.grid('on')
+        pl.legend()
+
+        pl.xlabel(nice_sweep_config)
+        pl.ylabel('P(relative suboptimality $\leq$ p)')
+        ylims = pl.ylim()
+        pl.ylim([ylims[0], 1])
+        pl.grid('on')
+
+
+    pl.subplot(121)
+    plot_fracs(fracs)
+    pl.gca().set_title('CDF Evaluations of relative suboptimality\nwrt. learned value: $\\frac{V^\\text{cl}_\Theta(x)}{\mu^\Theta(x)} - 1$')
+
+    pl.subplot(122)
+    plot_fracs(fracs_TO)
+    pl.gca().set_title('CDF Evaluations of relative suboptimality\nwrt. reference value: $\\frac{V^\\text{cl}_\Theta(x)}{V_\\text{ref}(x)} - 1$')
+
 
     # second subplot with other stats like N iterations etc?
     # most sensibly we would probably plot the following:
@@ -263,7 +277,7 @@ if __name__ == '__main__':
     sys_name = 'flatquad'
     plot_sweep(sys_name, 'vx_fadeout', 'inv_vx_loss_fadeout')
     plot_sweep(sys_name, 'lr_final', 'lr_final')
-    #plot_sweep(sys_name, 'dtmax', 'dtmax')
+    plot_sweep(sys_name, 'dtmax', 'dtmax')
     plot_sweep(sys_name, 'vxd', 'vx_loss_d')
     plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
     plot_sweep(sys_name, 'weight_decay', 'weight_decay')

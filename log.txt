@@ -6064,3 +6064,45 @@ todo tomorrow: now actually do it. intro, discusssion still have lots to
 do, while 3 is probably closer to being good
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+meeting qs
+
+- active learning feedback
+- discussion feedback
+- that equation with σ_max and the known set -> understand what's wrong
+  with it. current presentation probably not any better
+- further separation of "clean" math idea to implementation attempt in 3.1
+- curriculum learning term
+
+main stuff left:
+
+ - fill out related work (or delete unfinished parts)
+
+ - separate clean math from hopefully working implementation in 3.
+ - shorten prune&train there & make sure nobody misunderstands
+
+ - results & sweep plots: label cleanly, use ref cost rather than learned
+
+ - implementation stuff in appendix: clean up a bit
+
+ - discussion & intro & fundamentals: go over last time
+ - unify titles: comparison w related work (discussion) and related work
+
+
+rn: continue making nice sweep plots (probably least important though)...

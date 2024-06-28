@@ -6081,6 +6081,8 @@ do, while 3 is probably closer to being good
 
 
 
+2024-06-27
+
 meeting qs
 
 - active learning feedback
@@ -6106,3 +6108,17 @@ main stuff left:
 
 
 rn: continue making nice sweep plots (probably least important though)...
+
+
+
+2024-06-28
+
+working on cleaning up impl details. everything but train/prune and
+unwritten last parts done.
+
+todo afternoon: train prune cleanup, both sec 3 & appendix.
+
+if done, continue sweep plots
+
+did lots of other small things. extra tricks written now. other ^^ stuff
+not yet :(

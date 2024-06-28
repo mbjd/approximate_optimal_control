@@ -11,10 +11,10 @@ Abstract
  - Write last
 
 Introduction
+
  - Background: same content but nicer
  - Problem setting: clear short statement
  - Related work:
-   incorporate Zamora. -> done?
 
    Incorporate Lutter continuous fitted value iter?
    and a few others about RL + improving with TO or similar (BC, IL...)
@@ -24,11 +24,9 @@ Introduction
    make own section about backward integration/backward reachability stuff
 
 Fundamentals
- - where to place list of symbols? frontmatter probably
- - assumptions format with that latex environment?
  - find nicer place for regularity assumptions?
  - manifolds: shorten if possible
- - active learnign: give to lenart&bhavya, probably this sounds amaeturish
+ - active learning: give to lenart&bhavya, probably this sounds amaeturish
  - Sobolev training: also shorten? esp. manifolds & uncertainty estimate part
    split? some parts to impl
 
@@ -42,6 +40,7 @@ Proposed Methods
  - go over 3.1 again but only after another day of distance from it.
  - clean up 3.2.7 training & pruning
 
+
 Results:
  - standardise plots. do same thing for both experiments.
    (line plot, change scatter/cdf plots to closed loop / reference rather
@@ -50,14 +49,12 @@ Results:
    that). but also move to appendix. dont spend loads of time.
 
 Discussion
- - think about structure mainly. content okay i feel like but zero flow as
-   of now. make a PROPER draft including what goes where.
+ - proper draft DONE! see if anything missing, and if structure makes sense
 
 
 appendix:
  - go over implementation things so they roughly make sense
  - write the unwritten parts in the end
-
 
 
 

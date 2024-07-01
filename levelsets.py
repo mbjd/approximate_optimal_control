@@ -2389,7 +2389,7 @@ def evaluate_directly(all_data, run_dir, problem_params, algo_params):
             raise NotImplementedError(f'eval_controlcost_lines: unknwon system name {sysname}')
 
 
-        refsol = True
+        refsol = False
         eval_outputs = []
         refsol_outputs = []
 

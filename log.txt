@@ -6129,3 +6129,12 @@ last last todos.
  - write results precisely, redo plots if necessary
  - (try to) make 3.1 and 3.2 clearer by separating level-set idea from
    considerations about trajectories & finite data.
+
+
+definite decision what & how we plot.
+
+- orbits: keep as is (cdf & scatterplot of Vcl / Vref - 1)
+- flatquad: same layout, with:
+   - Vcl / Vref - 1 on γ_i(s)
+   - Vcl / meanV - 1 on γ_i(s)
+   - Vcl / meanV - 1 everywhere

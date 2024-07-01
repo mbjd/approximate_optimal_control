@@ -38,14 +38,15 @@ run_id = 'h6ysrbmi'
 show=True
 
 configs = [
-        ('flatquad', 'h6ysrbmi'),
+        # ('flatquad', 'h6ysrbmi'),
         ('flatquad', 'bmrmmxzq'),
-        ('orbits', 'i2tcnb3h'),
+        # ('orbits', 'i2tcnb3h'),
 ]
 
 # controlcosts common
 
 def plot_controlcosts_common(sysname, run_id):
+
     fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_common.msgpack.gz')
     with gzip.open(fpath, 'rb') as f:
         bs = f.read()
@@ -53,25 +54,32 @@ def plot_controlcosts_common(sysname, run_id):
     eval_outputs = jtm(np.array, eval_outputs)  # np array -> jax array
 
     fig = pl.figure('controlcost vs v_mean', figsize=(pagewidth, 0.4*pagewidth))
+    pl.subplot(121)
     costs = eval_outputs['costs']
     pl.loglog(eval_outputs['v_mean'], costs/eval_outputs['v_mean'], '. ', alpha=scatter_alpha)
     # TODO unify w report notation...
     # also 'cost' and 'value' kind of clash. use only one term?
     pl.grid('on')
-    pl.xlabel('Estimated value')
-    pl.ylabel('Incurred cost / estimated value')
+    pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
+    pl.ylabel('$V^\\text{cl}_{\\boldsymbol{\Theta}} / V_\\text{ref}(x)$')
+
+    pl.subplot(122)
+    pl.semilogx((costs/eval_outputs['v_mean']).sort(), np.linspace(0, 1, costs.shape[0]))
+    pl.grid('on')
+    pl.xlabel('r')
+    pl.ylabel('$P \left(V^\\text{cl}_{\\boldsymbol{\Theta}} / V_\\text{ref}(x) \leq r \\right)$')
 
     fig.tight_layout()
     pl.savefig(f'./{fig_dir}/{sysname}_costscatter_{run_id}.{fig_format}', bbox_inches='tight', dpi=dpi)
 
-    fig = pl.figure('controlcost cdf', figsize=(pagewidth, 0.4*pagewidth))
-    pl.semilogx((costs/eval_outputs['v_mean']).sort(), np.linspace(0, 1, costs.shape[0]))
-    pl.grid('on')
-    pl.xlabel('r')
-    pl.ylabel('P(incurred cost / estimated value $\leq$ r)')
+    # fig = pl.figure('controlcost cdf', figsize=(pagewidth, 0.4*pagewidth))
+    # pl.semilogx((costs/eval_outputs['v_mean']).sort(), np.linspace(0, 1, costs.shape[0]))
+    # pl.grid('on')
+    # pl.xlabel('r')
+    # pl.ylabel('P(incurred cost / estimated value $\leq$ r)')
 
-    fig.tight_layout()
-    pl.savefig(f'./{fig_dir}/{sysname}_costcdf_{run_id}.{fig_format}', bbox_inches='tight', dpi=dpi)
+    # fig.tight_layout()
+    # pl.savefig(f'./{fig_dir}/{sysname}_costcdf_{run_id}.{fig_format}', bbox_inches='tight', dpi=dpi)
 
     if show:
         pl.show()

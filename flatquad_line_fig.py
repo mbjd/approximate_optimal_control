@@ -75,6 +75,7 @@ def plot_lines_singlerun(run_id):
                 transform=ax.transAxes)
 
         # data = jtm(itemgetter(j), eval_outputs)
+        # ipdb.set_trace()
         data = eval_outputs[j]
 
         xs = np.linspace(0, 1, data['costs'].shape[0])
@@ -86,7 +87,7 @@ def plot_lines_singlerun(run_id):
 
         pl.fill_between(xs, lower, upper, color='C0', alpha=confidence_band_alpha, label='Confidence $\mu_{\\boldsymbol{\Theta}} \pm ' + str(sigs) + '\sigma_{\\boldsymbol{\Theta}}$')
 
-        pl.plot(xs, data['costs'], color='C1', label='Closed loop cost')
+        pl.plot(xs, data['costs'], color='C1', label='Closed loop cost $V^\\text{cl}_{\\boldsymbol{\Theta(x)}}$')
 
         # find sensible ylim.
         ys_sorted = np.concatenate([lower, upper, data['costs']]).sort()
@@ -107,8 +108,9 @@ def plot_lines_singlerun(run_id):
         optimal_refsol = np.minimum(left_refcosts, right_refcosts)
         suboptimal_refsol = np.maximum(left_refcosts, right_refcosts)
 
-        pl.plot(xs, optimal_refsol, color='C2', label='Optimal reference cost')
-        pl.plot(xs, suboptimal_refsol, '--', color='C2', alpha=0.3, label='Suboptimal reference cost')
+        pl.plot(xs, optimal_refsol, color='C2', label='Reference cost $V_\\text{ref}(x)$')
+
+        pl.plot(xs, suboptimal_refsol, '--', color='C2', alpha=0.3, label='Locally optimal reference cost')
 
         # looks much nicer with only 1 legend but is that smart?
         minimal = True

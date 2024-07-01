@@ -6122,3 +6122,10 @@ if done, continue sweep plots
 
 did lots of other small things. extra tricks written now. other ^^ stuff
 not yet :(
+
+
+last last todos.
+
+ - write results precisely, redo plots if necessary
+ - (try to) make 3.1 and 3.2 clearer by separating level-set idea from
+   considerations about trajectories & finite data.

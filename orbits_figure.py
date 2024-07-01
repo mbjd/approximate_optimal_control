@@ -39,9 +39,9 @@ from misc import *
 from orbits_experiment import base_algo_params, define_problem_params
 
 
-plot_results = False
+plot_results = True
 plot_trajectories=False
-plot_levelsets = True
+plot_levelsets = False
 
 run_id = 'i2tcnb3h'
 
@@ -154,7 +154,7 @@ levels = np.linspace(np.sqrt(vf*2), np.sqrt(vmax), N)**2
 fpath_sols = os.path.join(data_dir, 'orbits_refsol.msgpack.gz')
 fpath_treedef = os.path.join(data_dir, 'orbits_refsol_treedef.pickle')
 
-make_data = False
+make_data = True
 if make_data:
 
 
@@ -781,6 +781,7 @@ if plot_results:
 
     pl.xlabel('$x_1$')
     pl.ylabel('$x_2$')
+    ax.set_title('Learned mean value function $\mu_{\\boldsymbol \\Theta}$')
     # pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
 
 
@@ -905,6 +906,7 @@ if plot_results:
     # pl.xlabel('log10(Closed-loop cost / optimal cost)')
     pl.xlabel('$x_1$')
     pl.ylabel('$x_2$')
+    ax.set_title('$\\text{log}_{10} \\left( \\frac{V^\\text{cl}_\Theta(x)}{V_\\text{ref}(x)} \\right)')
 
 
     fig.tight_layout()

@@ -47,6 +47,7 @@ configs = [
 
 def plot_controlcosts_common(sysname, run_id):
 
+
     fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_common.msgpack.gz')
     with gzip.open(fpath, 'rb') as f:
         bs = f.read()
@@ -61,13 +62,13 @@ def plot_controlcosts_common(sysname, run_id):
     # also 'cost' and 'value' kind of clash. use only one term?
     pl.grid('on')
     pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
-    pl.ylabel('$V^\\text{cl}_{\\boldsymbol{\Theta}} / V_\\text{ref}(x)$')
+    pl.ylabel('$V^\\text{cl}_{\\boldsymbol{\Theta}} / \mu_{\\boldsymbol{\Theta}}(x)$')
 
     pl.subplot(122)
     pl.semilogx((costs/eval_outputs['v_mean']).sort(), np.linspace(0, 1, costs.shape[0]))
     pl.grid('on')
     pl.xlabel('r')
-    pl.ylabel('$P \left(V^\\text{cl}_{\\boldsymbol{\Theta}} / V_\\text{ref}(x) \leq r \\right)$')
+    pl.ylabel('$P \left(V^\\text{cl}_{\\boldsymbol{\Theta}} / \mu_{\\boldsymbol{\Theta}}(x) \leq r \\right)$')
 
     fig.tight_layout()
     pl.savefig(f'./{fig_dir}/{sysname}_costscatter_{run_id}.{fig_format}', bbox_inches='tight', dpi=dpi)
@@ -80,6 +81,56 @@ def plot_controlcosts_common(sysname, run_id):
 
     # fig.tight_layout()
     # pl.savefig(f'./{fig_dir}/{sysname}_costcdf_{run_id}.{fig_format}', bbox_inches='tight', dpi=dpi)
+
+    # make same plot but with respect to V_ref, and only on states γ(.)
+    # read lines eval results
+    fpath = os.path.join(data_dir, f'{sysname}_{run_id}_controlcosts_lines.msgpack.gz')
+    with gzip.open(fpath, 'rb') as f:
+        bs = f.read()
+    eval_outputs_lines = flax.serialization.msgpack_restore(bs)
+    eval_outputs_lines = jtm(np.array, eval_outputs_lines)  # np array -> jax array
+
+    # read refsol outputs.
+    fpath = os.path.join(data_dir, f'{sysname}_refsol_costs.msgpack.gz')
+    with gzip.open(fpath, 'rb') as f:
+        bs = f.read()
+    refsol_outputs = flax.serialization.msgpack_restore(bs)
+    refsol_outputs = jtm(np.array, refsol_outputs)  # np array -> jax array
+
+    # ipdb.set_trace()
+
+    # left_refcosts = refsol_outputs[j]['left']
+    # right_refcosts = refsol_outputs[j]['right']
+    # optimal_refsol = np.minimum(left_refcosts, right_refcosts)
+
+    Vcl = [n['costs'] for n in eval_outputs_lines]
+    Vmean = [n['v_means'] for n in eval_outputs_lines]
+    Vref = [np.minimum(n['left'], n['right']) for n in refsol_outputs]
+
+    Vcl = np.concatenate(Vcl)
+    Vref = np.concatenate(Vref)
+    # ipdb.set_trace()
+
+    fig = pl.figure('controlcost vs v_ref', figsize=(pagewidth, 0.4*pagewidth))
+    pl.subplot(121)
+    costs = Vcl
+    pl.loglog(Vref, Vcl/Vref, '. ', alpha=scatter_alpha)
+    # TODO unify w report notation...
+    # also 'cost' and 'value' kind of clash. use only one term?
+    pl.grid('on')
+    pl.xlabel('Reference value $V_\\text{ref}(x)$')
+    pl.ylabel('$V^\\text{cl}_{\\boldsymbol{\Theta}} / V_\\text{ref}(x)$')
+
+    pl.subplot(122)
+    pl.plot((Vcl/Vref).sort(), np.linspace(0, 1, Vref.shape[0]))
+    pl.grid('on')
+    pl.xlim((.9, 2))
+    pl.xlabel('r')
+    pl.ylabel('$P \left(V^\\text{cl}_{\\boldsymbol{\Theta}} / V_\\text{ref}(x) \leq r \\right)$')
+
+    fig.tight_layout()
+    pl.savefig(f'./{fig_dir}/{sysname}_costscatter_Vref_{run_id}.{fig_format}', bbox_inches='tight', dpi=dpi)
+
 
     if show:
         pl.show()

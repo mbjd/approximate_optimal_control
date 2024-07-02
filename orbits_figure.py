@@ -154,7 +154,7 @@ levels = np.linspace(np.sqrt(vf*2), np.sqrt(vmax), N)**2
 fpath_sols = os.path.join(data_dir, 'orbits_refsol.msgpack.gz')
 fpath_treedef = os.path.join(data_dir, 'orbits_refsol_treedef.pickle')
 
-make_data = True
+make_data = False
 if make_data:
 
 
@@ -781,7 +781,7 @@ if plot_results:
 
     pl.xlabel('$x_1$')
     pl.ylabel('$x_2$')
-    ax.set_title('Learned mean value function $\mu_{\\boldsymbol \\Theta}$')
+    ax.set_title('Learned mean value function $\mu_\\boldsymbol{\\Theta}$')
     # pl.xlabel('Mean value $\mu_{\\boldsymbol{\Theta}}$')
 
 
@@ -906,7 +906,7 @@ if plot_results:
     # pl.xlabel('log10(Closed-loop cost / optimal cost)')
     pl.xlabel('$x_1$')
     pl.ylabel('$x_2$')
-    ax.set_title('$\\text{log}_{10} \\left( \\frac{V^\\text{cl}_\Theta(x)}{V_\\text{ref}(x)} \\right)')
+    ax.set_title('$\\text{log}_{10} \\left( \\frac{V^\\text{cl}_\Theta(x)}{V_\\text{ref}(x)} \\right)$')
 
 
     fig.tight_layout()
@@ -971,8 +971,8 @@ if plot_results:
                 label='Confidence $\mu_{\\boldsymbol{\Theta}} \pm ' + str(sigs) + '\sigma_{\\boldsymbol{\Theta}}$',
                 color='C0', alpha=confidence_band_alpha)
 
-        pl.plot(x_plot, controlcost[y_idx, :], c='C1', label='Closed loop cost')
-        pl.plot(x_plot, v_refs[y_idx, :], c='C2', label='Optimal cost V')
+        pl.plot(x_plot, controlcost[y_idx, :], c='C1', label='Closed loop cost $V^\\text{cl}_{\\boldsymbol{\Theta(x)}}$')
+        pl.plot(x_plot, v_refs[y_idx, :], c='C2', label='Reference cost $V_\\text{ref}(x)$')
         pl.ylim([0, 420])
         pl.xlabel(f'$x_1 \ (x_2 = {y_value:.1f})$')
         pl.ylabel('Value')

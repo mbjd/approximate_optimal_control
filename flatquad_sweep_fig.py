@@ -169,32 +169,35 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 
         # also plot a bit of the other stats?
         run_id = r.id
-        fpath = os.path.join(data_dir, f'{sys_name}_{run_id}_controlcosts_lines.msgpack.gz')
-        with gzip.open(fpath, 'rb') as f:
-            bs = f.read()
-        eval_outputs_lines = flax.serialization.msgpack_restore(bs)
-        eval_outputs_lines = jtm(np.array, eval_outputs_lines)  # np array -> jax array
+        try:
+            fpath = os.path.join(data_dir, f'{sys_name}_{run_id}_controlcosts_lines.msgpack.gz')
+            with gzip.open(fpath, 'rb') as f:
+                bs = f.read()
+            eval_outputs_lines = flax.serialization.msgpack_restore(bs)
+            eval_outputs_lines = jtm(np.array, eval_outputs_lines)  # np array -> jax array
 
-        fpath = os.path.join(data_dir, f'{sys_name}_{run_id}_controlcosts_common.msgpack.gz')
-        with gzip.open(fpath, 'rb') as f:
-            bs = f.read()
-        eval_outputs_common = flax.serialization.msgpack_restore(bs)
-        eval_outputs_common = jtm(np.array, eval_outputs_common)  # np array -> jax array
+            fpath = os.path.join(data_dir, f'{sys_name}_{run_id}_controlcosts_common.msgpack.gz')
+            with gzip.open(fpath, 'rb') as f:
+                bs = f.read()
+            eval_outputs_common = flax.serialization.msgpack_restore(bs)
+            eval_outputs_common = jtm(np.array, eval_outputs_common)  # np array -> jax array
 
-        # calculate control cost wrt TO refsol.
-        all_TO_refsols = np.concatenate([np.minimum(n['left'], n['right']) for n in refsol_outputs])
-        all_closedloop_costs = np.concatenate([oup['costs'] for oup in eval_outputs_lines])
+            # calculate control cost wrt TO refsol.
+            all_TO_refsols = np.concatenate([np.minimum(n['left'], n['right']) for n in refsol_outputs])
+            all_closedloop_costs = np.concatenate([oup['costs'] for oup in eval_outputs_lines])
 
-        suboptimalities = all_closedloop_costs / all_TO_refsols - 1
+            suboptimalities = all_closedloop_costs / all_TO_refsols - 1
 
-        if relevant_config not in fracs_TO:
-            fracs_TO[relevant_config] = []
+            if relevant_config not in fracs_TO:
+                fracs_TO[relevant_config] = []
 
-        fracs_TO[relevant_config].append((
-            (suboptimalities < 0.05).mean().item(),
-            (suboptimalities < 0.50).mean().item(),
-            (suboptimalities < 5.00).mean().item(),
-        ))
+            fracs_TO[relevant_config].append((
+                (suboptimalities < 0.05).mean().item(),
+                (suboptimalities < 0.50).mean().item(),
+                (suboptimalities < 5.00).mean().item(),
+            ))
+        except Exception as e:
+            print(f'error in run {run_id}: {e}')
 
 
 
@@ -245,6 +248,7 @@ def plot_sweep(sysname, sweep_name, sweep_config):
     pl.subplot(121)
     plot_fracs(fracs)
     pl.gca().set_title('CDF Evaluations of relative suboptimality\nwrt. learned value: $\\frac{V^\\text{cl}_\Theta(x)}{\mu^\Theta(x)} - 1$')
+    # same but with boldsymbol theta.
 
     pl.subplot(122)
     plot_fracs(fracs_TO)
@@ -275,12 +279,12 @@ def plot_sweep(sysname, sweep_name, sweep_config):
 if __name__ == '__main__':
 
     sys_name = 'flatquad'
-    plot_sweep(sys_name, 'vx_fadeout', 'inv_vx_loss_fadeout')
-    plot_sweep(sys_name, 'lr_final', 'lr_final')
-    plot_sweep(sys_name, 'dtmax', 'dtmax')
-    plot_sweep(sys_name, 'vxd', 'vx_loss_d')
-    plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
-    plot_sweep(sys_name, 'weight_decay', 'weight_decay')
+    # plot_sweep(sys_name, 'vx_fadeout', 'inv_vx_loss_fadeout')
+    # plot_sweep(sys_name, 'lr_final', 'lr_final')
+    # plot_sweep(sys_name, 'dtmax', 'dtmax')
+    # plot_sweep(sys_name, 'vxd', 'vx_loss_d')
+    # plot_sweep(sys_name, 'batchsize', 'active_learning_batchsize')
+    # plot_sweep(sys_name, 'weight_decay', 'weight_decay')
     # completely uninteresting sadly
-    # plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
-    # plot_sweep(sys_name, 'layerdim', 'nn_layer_dim')
+    plot_sweep(sys_name, 'rtol', 'pontryagin_solver_rtol')
+    plot_sweep(sys_name, 'layerdim', 'nn_layer_dim')

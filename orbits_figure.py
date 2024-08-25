@@ -39,9 +39,9 @@ from misc import *
 from orbits_experiment import base_algo_params, define_problem_params
 
 
-plot_results = True
-plot_trajectories=False
-plot_levelsets = False
+plot_results = False
+plot_trajectories=True
+plot_levelsets = True
 
 run_id = 'i2tcnb3h'
 

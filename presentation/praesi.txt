@@ -1,0 +1,187 @@
+presentation notes.
+
+max 20min. understandable with AI background, but not optimal control or
+other specifics.
+
+
+4 goals (from guidelines):
+
+1. motivate problem
+2. provide background (related work)
+3. provide key insights from own work
+4. Use experiments to show it works
+
+focus: insights, results.
+
+structure:
+
+0 welcome, title, NOT outline
+
+1 motivation: (3m)
+  - what is optimal control
+    dynamical system, control it to minimise cost.
+    useful engineering tool k
+  - as short as possible.
+
+
+
+
+2 related work:
+  - VERY shortened version from paper.
+  - TO: well known, accurate ct approximations, only local optimality.
+  - DP (in discrete time)
+  - DP (in cont time as in finding a function that solves the HJB eq)
+    - SoS, PINN
+
+"of course, various other works have addressed this type of problem. And
+while the body of research about other types of control problems is much
+larger (e.g. discrete time, stochastic), here I go over methods that are
+specific to continuous-time, infinite-horizon, deterministic problems."
+
+"TO. widespread practice, explicitly parameterising the trajectory solving
+the resulting optimisaiton problem, usually w gradient based methods.
+nonconvex so locally optimal solution. on the upside, depending on specific
+discretisation, solution can be very close to continuous time solution."
+
+"DP. in discrete time, well known, bellman iteration. in continuous
+time/infinite horizon, bellman -> hjb. find some function that solves hjb
+eq. practical main choice: how to parameterise function? common choices
+are: linear comb of polynomials, or NN. both of these are investigated in a
+relatively substantial body of literature. but practical applications are
+still limited."
+
+"policy optimisation: different paradigm, like approx DP at the heart of
+many RL algorithms. but continuous time sparse literature."
+
+3 main ideas.
+
+  hard slide. motivated by shortcomings of other methods, here we explore a
+  different way of finding globally optimal control inputs in continuous
+  time.
+
+  transition: from these shortcomings, ask question: global optimality in
+  continuous time? this is what we try to do.
+
+  (not even mention this explicitly yet?)
+  decompose problem:
+  - find lots of optimal trajectories
+  - learn smooth approx of V from them.
+
+  before: OC theory crash course. (alternatively: after OCP introduction)
+
+  "
+  central object: value function V, optimal cost-to-go from each state x.
+  describes the solution completely, can recover optimal input from it,
+  which depends on Vx.
+  for problems we consider: V continuous, but not continuously
+  differentiable.
+  "
+
+  (from now on unordered bits)
+
+  make "red thread" here and nicely answer high level questions:
+  - why backward integration?
+
+  backward integration:
+  - present PMP formula. shortest possible
+    highlight: assuming known terminal V. and tradeoff w unknown initial states
+  - then the buildup of the plot w trajectories and level sets
+    to convey intuition.
+
+  trial: 4min
+  | transition: you may have noticed that these are not just any sets of
+  | arbitrary shapes, but value level sets. this has specific reason, let me
+  | explain
+  |
+  | central challenge: different local solutions.
+  | lower level set: unique sol
+  | higher level set: different local solutions!
+  | conflict resolved: pointwise lowest solution.
+  | no explicit knowledge of different sols, address implicitly
+  | gradual expansion. logic: accept solution if no previous, reject if previous present
+  |
+  | practice: additional challenges
+  | (basically read slide)
+  |
+
+
+
+  transition: this as high level plan. how to translate into practice?
+  questions:
+  - where in state space do we want trajectories?
+  - how much uncertainty do we tolerate?
+
+  then, "practicalities" w active learning.
+
+4 results.
+
+  quickly show 2d system.
+  transition: "but what happens if we apply to a nontrivial problem?"
+  6d: first meshcat, then plots.
+
+  - here a short "discussion section" thing? not in guideline, but maybe
+    necessary? highlight: did new-ish thing here, but still have practical
+    shortcomings.
+
+
+
+10ish min discussion.
+
+
+
+
+
+
+
+
+
+
+
+plan. tomorrow do all the stuff. possible things:
+ - go over some section content wise
+ - rethink overall structure
+ - go over some section, talking-wise
+ - etc.
+
+pomodoro timer thing? 50min work 10min chill, if actually worked??
+
+8
+prepare results figures & figure of 6D system diagram.
+testrun meshcat
+success!!!
+
+9
+work on main section. try speaking w slides first, then refresh
+content/structure.
+
+10 procrastinate
+
+11 rehearse 1/2 time
+
+12 rehearse middle section 2x
+
+13 (lunch...)
+
+14 (lunch.....)
+
+15 rehearse 1/4 time
+
+16 lenart mock presentation for feedback.
+
+content 95% good!!! inputs:
+ - meshcat video into presentation instead of open in tab?
+ - plot buildup? -> DONE! that shit now pixel perfect
+ - OCP slide:
+    Assumptions for existence of sol? → ready for question
+    Particular problem for intuition??
+ - trajectory / PMP slide:
+    clarify/define t_f and integration time if asked
+
+batching tricks: only mention in passing! 1 sentence
+
+manifold thing: not essential to mention. do it only if simple, coherent.
+
+
+17
+
+

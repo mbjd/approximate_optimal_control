@@ -66,7 +66,7 @@ problem_params = {
 
     # if ever treating slightly bigger systems it would pay to frame this
     # as a general convex polytope described by Ax <= b.
-    'U_interval': [-2., 2.],
+    'U_interval': [-0.5, 0.5],
 
     # the value level below which we accept the LQR solution as correct.
     'V_f': 0.01,
@@ -321,7 +321,7 @@ def remesh(sols, frac):
 solve_fast = jax.jit(jax.vmap(solve_backward, in_axes=(0, None)))
 # solve_fast = jax.vmap(solve_backward, in_axes=(0, None))
 
-vmax = 35
+vmax = 15
 N=20
 levels = np.logspace(0., np.log10(vmax), N)
 levels = np.linspace(np.sqrt(2*vf), np.sqrt(vmax), N)**2
